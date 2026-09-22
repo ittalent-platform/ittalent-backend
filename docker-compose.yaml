@@ -1,0 +1,52 @@
+services:
+  # Single-node replica set required for transactions
+  mongodb:
+    image: mongo:7
+    container_name: express-template-mongodb
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+
+  # Initializes rs0 with localhost:27017 so host apps can connect to the primary node
+  mongodb-init:
+    image: mongo:7
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - -c
+      - |
+        mongosh --host mongodb:27017 --eval '
+          try {
+            if (rs.status().ok === 1) {
+              console.log("MongoDB replica set rs0 is already initialized.");
+            }
+          } catch (e) {
+            console.log("Initializing MongoDB replica set rs0...");
+            rs.initiate({
+              _id: "rs0",
+              members: [{ _id: 0, host: "localhost:27017" }]
+            });
+            console.log("MongoDB replica set rs0 initialized successfully.");
+          }
+        '
+
+  redis:
+    image: redis:7.4.9-alpine3.21
+    container_name: express-template-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  mongodb_data:
+

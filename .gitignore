@@ -1,0 +1,9 @@
+node_modules
+dist
+generated/client
+.env
+.DS_Store
+.agents/
+.codex/
+.history/
+coverage/

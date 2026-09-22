@@ -1,0 +1,18 @@
+export const TIME_MS = {
+  ONE_SECOND: 1_000,
+  ONE_MINUTE: 60_000,
+  TWO_MINUTES: 120_000,
+  ONE_HOUR: 3_600_000,
+  ONE_DAY: 86_400_000,
+} as const;
+
+export const TIME_SECONDS = {
+  ONE_SECOND: 1,
+  ONE_MINUTE: 60,
+  FIVE_MINUTES: 300,
+  TEN_MINUTES: 600,
+  FIFTEEN_MINUTES: 900,
+  ONE_HOUR: 3_600,
+  ONE_DAY: 86_400,
+} as const;
+
