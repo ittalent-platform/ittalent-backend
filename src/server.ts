@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { disconnectRedis } from './config/redis.js';
 import { env } from './config/env.js';
-import { startAuthVerificationJob } from './modules/auth/index.js';
+import { startAuthVerificationJob } from './modules/auth/auth.service.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
