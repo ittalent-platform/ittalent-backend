@@ -39,7 +39,15 @@ const accountSchema = new Schema<AccountData>(
   },
 );
 
-accountSchema.index({ provider: 1, provider_account_id: 1 }, { unique: true, sparse: true });
+accountSchema.index(
+  { provider: 1, provider_account_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      provider_account_id: { $type: 'string' },
+    },
+  },
+);
 accountSchema.index({ user_id: 1, provider: 1 }, { unique: true });
 
 export const Account = model('Account', accountSchema);

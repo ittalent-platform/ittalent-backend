@@ -4,7 +4,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { app } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
-import { disconnectRedis } from '../../src/config/redis.js';
+import { disconnectRedis, getRedis } from '../../src/config/redis.js';
+import { resetRateLimitMemory } from '../../src/middleware/rate-limit.middleware.js';
 import { Account } from '../../src/models/account.model.js';
 import { Token } from '../../src/models/token.model.js';
 import { User } from '../../src/models/user.model.js';
@@ -20,6 +21,7 @@ describe('Auth Integration Tests', () => {
 
   beforeAll(async () => {
     await connectDatabase();
+    await Promise.all([Account.syncIndexes(), User.syncIndexes(), Token.syncIndexes()]);
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => {
         const address = server.address() as AddressInfo;
@@ -47,6 +49,11 @@ describe('Auth Integration Tests', () => {
   });
 
   beforeEach(async () => {
+    resetRateLimitMemory();
+    const redis = await getRedis();
+    if (redis?.isOpen) {
+      await redis.flushDb();
+    }
     await User.deleteMany({});
     await Account.deleteMany({});
     await Token.deleteMany({});
@@ -261,5 +268,32 @@ describe('Auth Integration Tests', () => {
 
     const reloadedAdmin = await User.findById(adminUser._id);
     expect(reloadedAdmin?.status).toBe('inactive');
+  });
+
+  it('allows registering multiple local users without duplicate key error on compound index', async () => {
+    const user1Res = await fetch(`${baseUrl}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'user1@example.com',
+        username: 'uniqueuser1',
+        password: 'Password123!',
+      }),
+    });
+    expect(user1Res.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+
+    const user2Res = await fetch(`${baseUrl}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'user2@example.com',
+        username: 'uniqueuser2',
+        password: 'Password123!',
+      }),
+    });
+    expect(user2Res.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+
+    const accounts = await Account.find({ provider: 'local' });
+    expect(accounts).toHaveLength(2);
   });
 });

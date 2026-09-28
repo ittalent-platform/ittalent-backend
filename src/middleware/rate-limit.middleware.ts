@@ -24,6 +24,10 @@ type RateLimitAttemptResult = {
 
 const memoryBuckets = new Map<string, { count: number; resetAt: number }>();
 
+export function resetRateLimitMemory(): void {
+  memoryBuckets.clear();
+}
+
 export function getClientIp(req: Parameters<RequestHandler>[0]): string {
   return req.ip ?? req.socket.remoteAddress ?? 'unknown';
 }
