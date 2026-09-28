@@ -54,7 +54,7 @@ describe('Auth Integration Tests', () => {
     lastResetPasswordUrl = '';
   });
 
-  it('handles registration, inactive login rejection, email verification, replay protection, and profile retrieval', async () => {
+  it('handles registration, unverified login grace period, expired inactive rejection, email verification, replay protection, and profile retrieval', async () => {
     const registerRes = await fetch(`${baseUrl}/api/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -75,7 +75,8 @@ describe('Auth Integration Tests', () => {
     const dbToken = await Token.findOne({ user_id: dbUser!._id, type: 'email_verification' }).lean();
     expect(dbToken?.status).toBe('pending');
 
-    const loginInactiveRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    // Unverified inactive user within 24h window can log in normally
+    const loginGraceRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -83,7 +84,27 @@ describe('Auth Integration Tests', () => {
         password: 'Password123!',
       }),
     });
-    expect(loginInactiveRes.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect(loginGraceRes.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const graceLoginBody = (await loginGraceRes.json()) as { tokens: { accessToken: string }; user: { status: string } };
+    expect(graceLoginBody.tokens.accessToken).toBeDefined();
+    expect(graceLoginBody.user.status).toBe('inactive');
+
+    // Inactive user whose verification window expired (> 24 hours) is rejected
+    const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    await User.collection.updateOne({ _id: dbUser!._id }, { $set: { createdAt: twentyFiveHoursAgo } });
+
+    const loginExpiredRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: 'john@example.com',
+        password: 'Password123!',
+      }),
+    });
+    expect(loginExpiredRes.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+
+    // Reset createdAt so email verification flow can proceed
+    await User.collection.updateOne({ _id: dbUser!._id }, { $set: { createdAt: new Date() } });
 
     expect(lastVerificationUrl).toContain('token=');
     const verifyToken = new URL(lastVerificationUrl).searchParams.get('token') ?? '';
@@ -115,8 +136,9 @@ describe('Auth Integration Tests', () => {
       }),
     });
     expect(loginActiveRes.status).toBe(HTTP_STATUS.HTTP_200_OK);
-    const loginBody = (await loginActiveRes.json()) as { tokens: { accessToken: string } };
+    const loginBody = (await loginActiveRes.json()) as { tokens: { accessToken: string }; user: { status: string } };
     expect(loginBody.tokens.accessToken).toBeDefined();
+    expect(loginBody.user.status).toBe('active');
 
     const meRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${loginBody.tokens.accessToken}` },
