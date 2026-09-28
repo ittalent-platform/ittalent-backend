@@ -39,6 +39,8 @@ const enterpriseSchema = new Schema<EnterpriseData>(
 
 // Public list/search always filters by status and sorts by name (then _id for stable pagination).
 enterpriseSchema.index({ status: 1, name: 1, _id: 1 });
+// Filtering by industry and/or location within public (active) enterprises.
+enterpriseSchema.index({ status: 1, industry: 1, location: 1 });
 
 export const Enterprise = model('Enterprise', enterpriseSchema);
 export type EnterpriseDoc = EnterpriseData & {

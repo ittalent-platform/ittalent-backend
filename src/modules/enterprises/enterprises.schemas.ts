@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { objectIdSchema } from '../../shared/schemas/object-id.schema.js';
-import { paginatedResponseSchema, paginationQueryShape } from '../../shared/schemas/pagination.schema.js';
+import { objectIdSchema } from '../../shared/schemas/object-id.schemas.js';
+import { paginatedResponseSchema, paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
 import { ENTERPRISE_CONFIG } from './enterprises.constants.js';
 
 export const enterpriseIdParamSchema = z.object({

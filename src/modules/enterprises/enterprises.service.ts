@@ -1,6 +1,6 @@
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import type { PaginatedResult } from '../../shared/schemas/pagination.schema.js';
+import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
 import { ENTERPRISE_MESSAGES } from './enterprises.constants.js';
 import {
   enterprisesRepository,
