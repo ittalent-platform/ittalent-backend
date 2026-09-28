@@ -1,6 +1,7 @@
 import './zod.js';
 import './zod.js';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { registerApplicationsOpenApi } from '../modules/applications/applications.openapi.js';
 import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
 import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
@@ -19,3 +20,4 @@ registerAuthOpenApi(registry);
 registerUsersOpenApi(registry);
 registerEnterprisesOpenApi(registry);
 registerJobPostingsOpenApi(registry);
+registerApplicationsOpenApi(registry);
