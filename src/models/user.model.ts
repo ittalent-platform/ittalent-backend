@@ -4,7 +4,7 @@ import { Schema, model } from 'mongoose';
 export const userRoles = ['user', 'admin'] as const;
 export type UserRole = (typeof userRoles)[number];
 
-export const userStatuses = ['active', 'inactive', 'suspended'] as const;
+export const userStatuses = ['active', 'inactive', 'suspended', 'blocked'] as const;
 export type UserStatus = (typeof userStatuses)[number];
 
 export interface UserData {
