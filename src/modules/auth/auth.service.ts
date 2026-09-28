@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env.js';
-import type { UserDoc } from '../../models/user.model.js';
+import type { UserDoc, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
@@ -77,6 +77,19 @@ export class AuthService {
 
   private mapUserDto(user: UserDoc): UserDTO {
     return this.userService.mapUserDto(user);
+  }
+
+  private isUserAllowedToLogin(user: { status?: UserStatus; createdAt?: Date | string }): boolean {
+    if (user.status === 'active') {
+      return true;
+    }
+
+    if (user.status === 'inactive' && user.createdAt) {
+      const createdTime = new Date(user.createdAt).getTime();
+      return Date.now() - createdTime <= env.EMAIL_VERIFICATION_WINDOW_MS;
+    }
+
+    return false;
   }
 
   async register(input: RegisterRequest): Promise<RegisterResponse> {
@@ -214,7 +227,7 @@ export class AuthService {
       throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_CREDENTIALS);
     }
 
-    if (user.status !== 'active') {
+    if (!this.isUserAllowedToLogin(user)) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, AUTH_MESSAGES.ACCOUNT_INACTIVE);
     }
 
@@ -230,7 +243,7 @@ export class AuthService {
       const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as unknown as TokenPayload;
 
       const user = await this.userService.findById(decoded.sub);
-      if (!user || user.status !== 'active') {
+      if (!user || !this.isUserAllowedToLogin(user)) {
         throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_REFRESH_TOKEN);
       }
 
