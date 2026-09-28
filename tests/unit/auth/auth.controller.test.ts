@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import * as rateLimitMiddleware from '../../../src/middleware/rate-limit.middleware.js';
-import { AuthController, getEmailVerificationRedirectUrl } from '../../../src/modules/auth/auth.controller.js';
+import {
+  AuthController,
+  getEmailVerificationRedirectUrl,
+  getResetPasswordRedirectUrl,
+} from '../../../src/modules/auth/auth.controller.js';
 import type { AuthService } from '../../../src/modules/auth/auth.service.js';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 
@@ -18,6 +22,10 @@ describe('AuthController', () => {
       getCurrentUser: vi.fn(),
       verifyEmail: vi.fn(),
       resendVerificationEmail: vi.fn(),
+      requestPasswordReset: vi.fn(),
+      checkResetPasswordToken: vi.fn(),
+      resetPassword: vi.fn(),
+      changePassword: vi.fn(),
     };
     controller = new AuthController(mockService as AuthService);
   });
@@ -274,6 +282,240 @@ describe('AuthController', () => {
         appBaseUrl: 'http://localhost:5173',
       });
       expect(url).toBe('http://localhost:5173/verify-email');
+    });
+  });
+
+  describe('forgotPassword', () => {
+    it('returns 200 with result payload from service', async () => {
+      const mockResult = {
+        success: true as const,
+        message: 'If the email exists, a password reset link has been sent.',
+        data: {},
+      };
+      mockService.requestPasswordReset = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = {} as never;
+      const res = {
+        status,
+        locals: {
+          validated: {
+            body: { email: 'user@example.com' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.forgotPassword(req, res, next);
+
+      expect(mockService.requestPasswordReset).toHaveBeenCalledWith({ email: 'user@example.com' });
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('passes errors from forgotPassword to next', async () => {
+      const error = new Error('Service error');
+      mockService.requestPasswordReset = vi.fn().mockRejectedValue(error);
+
+      const req = {} as never;
+      const res = {
+        locals: {
+          validated: {
+            body: { email: 'user@example.com' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.forgotPassword(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('checkResetPasswordToken', () => {
+    it('returns 200 with valid result from service', async () => {
+      const mockResult = {
+        success: true,
+        data: { valid: true },
+      };
+      mockService.checkResetPasswordToken = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = { query: { token: 'reset-token-123' } } as never;
+      const res = {
+        status,
+        locals: {
+          validated: {
+            query: { token: 'reset-token-123' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.checkResetPasswordToken(req, res, next);
+
+      expect(mockService.checkResetPasswordToken).toHaveBeenCalledWith('reset-token-123');
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('passes errors from checkResetPasswordToken to next', async () => {
+      const error = new Error('Token expired');
+      mockService.checkResetPasswordToken = vi.fn().mockRejectedValue(error);
+
+      const req = { query: {} } as never;
+      const res = {
+        locals: {},
+      } as never;
+      const next = vi.fn();
+
+      await controller.checkResetPasswordToken(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('returns 200 with result payload from service', async () => {
+      const mockResult = {
+        success: true as const,
+        message: 'Password reset successful. You can now log in with your new password.',
+        data: {},
+      };
+      mockService.resetPassword = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = {} as never;
+      const res = {
+        status,
+        locals: {
+          validated: {
+            body: { token: 'valid-token', newPassword: 'newPassword123' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.resetPassword(req, res, next);
+
+      expect(mockService.resetPassword).toHaveBeenCalledWith({
+        token: 'valid-token',
+        newPassword: 'newPassword123',
+      });
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('passes errors from resetPassword to next', async () => {
+      const error = new Error('Reset failed');
+      mockService.resetPassword = vi.fn().mockRejectedValue(error);
+
+      const req = {} as never;
+      const res = {
+        locals: {
+          validated: {
+            body: { token: 'valid-token', newPassword: 'newPassword123' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.resetPassword(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('changePassword', () => {
+    it('returns 200 with result payload when authenticated', async () => {
+      const mockResult = {
+        success: true as const,
+        message: 'Password changed successfully.',
+        data: {},
+      };
+      mockService.changePassword = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = { user: { id: 'user-id-123' } } as never;
+      const res = {
+        status,
+        locals: {
+          validated: {
+            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.changePassword(req, res, next);
+
+      expect(mockService.changePassword).toHaveBeenCalledWith('user-id-123', {
+        currentPassword: 'oldPassword123',
+        newPassword: 'newPassword123',
+      });
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('passes 401 error to next if user is not attached to request', async () => {
+      const req = {} as never;
+      const res = { locals: {} } as never;
+      const next = vi.fn();
+
+      await controller.changePassword(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+        }),
+      );
+    });
+
+    it('passes errors from service to next', async () => {
+      const error = new Error('Change password failed');
+      mockService.changePassword = vi.fn().mockRejectedValue(error);
+
+      const req = { user: { id: 'user-id-123' } } as never;
+      const res = {
+        locals: {
+          validated: {
+            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.changePassword(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('getResetPasswordRedirectUrl', () => {
+    it('constructs correct redirect URL with query params', () => {
+      const url = getResetPasswordRedirectUrl('token=abc123&email=user%40example.com', {
+        appBaseUrl: 'http://localhost:5173',
+      });
+      expect(url).toBe('http://localhost:5173/reset-password?token=abc123&email=user%40example.com');
+    });
+
+    it('handles query string without prefix', () => {
+      const url = getResetPasswordRedirectUrl('token=xyz789', {
+        appBaseUrl: 'http://localhost:5173/',
+      });
+      expect(url).toBe('http://localhost:5173/reset-password?token=xyz789');
+    });
+
+    it('handles empty query string', () => {
+      const url = getResetPasswordRedirectUrl('', {
+        appBaseUrl: 'http://localhost:5173',
+      });
+      expect(url).toBe('http://localhost:5173/reset-password');
     });
   });
 });

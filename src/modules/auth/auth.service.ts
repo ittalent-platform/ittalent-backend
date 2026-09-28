@@ -5,22 +5,35 @@ import jwt from 'jsonwebtoken';
 import { env } from '../../config/env.js';
 import type { UserDoc } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { consumeEmailDeliveryStatus, sendVerificationEmail } from '../../shared/services/email.service.js';
+import {
+  consumeEmailDeliveryStatus,
+  sendResetPasswordEmail,
+  sendVerificationEmail,
+} from '../../shared/services/email.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { AUTH_CONFIG, AUTH_MESSAGES, type VerificationStage } from './auth.constants.js';
 import { authRepository, type AuthRepository } from './auth.repository.js';
 import type {
   AuthResponse,
   AuthTokens,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
   LoginRequest,
   RefreshTokenResponse,
   RegisterRequest,
   RegisterResponse,
   ResendVerificationEmailRequest,
   ResendVerificationEmailResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+  ResetPasswordTokenResponse,
   UserDTO,
 } from './auth.schemas.js';
+
 
 interface TokenPayload {
   sub: string;
@@ -230,6 +243,118 @@ export class AuthService {
   async getCurrentUser(userId: string): Promise<UserDTO> {
     return this.userService.getUserById(userId);
   }
+
+  async requestPasswordReset(input: ForgotPasswordRequest): Promise<ForgotPasswordResponse> {
+    const user = await this.userService.findByEmail(input.email);
+
+    if (user && (user.status === 'active' || user.status === 'inactive')) {
+      await this.repository.revokePriorPasswordResetTokens(user._id);
+
+      const rawToken = this.generateVerificationToken();
+      const tokenHash = this.hashToken(rawToken);
+
+      await this.repository.createPasswordResetToken({
+        userId: user._id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + env.RESET_PASSWORD_TOKEN_WINDOW_SECONDS * TIME_MS.ONE_SECOND),
+      });
+
+      const resetUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/reset-password?token=${rawToken}`;
+      await sendResetPasswordEmail(user.email, resetUrl);
+    }
+
+    return {
+      success: true,
+      message: AUTH_MESSAGES.RESET_PASSWORD_EMAIL_SENT,
+      data: {},
+    };
+  }
+
+  async checkResetPasswordToken(rawToken: string): Promise<ResetPasswordTokenResponse> {
+    if (!rawToken || typeof rawToken !== 'string') {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, AUTH_MESSAGES.INVALID_RESET_TOKEN, 'INVALID_RESET_TOKEN');
+    }
+
+    const tokenHash = this.hashToken(rawToken);
+    const tokenDoc = await this.repository.findPasswordResetTokenByHash(tokenHash);
+
+    if (!tokenDoc) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, AUTH_MESSAGES.INVALID_RESET_TOKEN, 'INVALID_RESET_TOKEN');
+    }
+
+    if (tokenDoc.status !== 'pending' || new Date(tokenDoc.expires_at) <= new Date()) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_410_GONE,
+        AUTH_MESSAGES.RESET_TOKEN_UNAVAILABLE,
+        'RESET_TOKEN_UNAVAILABLE',
+      );
+    }
+
+    return {
+      success: true,
+      data: { valid: true },
+    };
+  }
+
+  async resetPassword(input: ResetPasswordRequest): Promise<ResetPasswordResponse> {
+    if (!input.token || typeof input.token !== 'string') {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, AUTH_MESSAGES.INVALID_RESET_TOKEN, 'INVALID_RESET_TOKEN');
+    }
+
+    const tokenHash = this.hashToken(input.token);
+    const tokenDoc = await this.repository.findPasswordResetTokenByHash(tokenHash);
+
+    if (!tokenDoc) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, AUTH_MESSAGES.INVALID_RESET_TOKEN, 'INVALID_RESET_TOKEN');
+    }
+
+    if (tokenDoc.status !== 'pending' || new Date(tokenDoc.expires_at) <= new Date()) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_410_GONE,
+        AUTH_MESSAGES.RESET_TOKEN_UNAVAILABLE,
+        'RESET_TOKEN_UNAVAILABLE',
+      );
+    }
+
+
+    const passwordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+    await this.repository.updateLocalAccountPassword(tokenDoc.user_id, passwordHash);
+
+    const user = await this.userService.findById(tokenDoc.user_id);
+    if (user && user.status === 'inactive') {
+      await this.userService.updateStatus(String(tokenDoc.user_id), 'active');
+    }
+
+    await this.repository.markTokenUsed(tokenDoc._id);
+
+    return {
+      success: true,
+      message: AUTH_MESSAGES.PASSWORD_RESET_SUCCESS,
+      data: {},
+    };
+  }
+
+  async changePassword(userId: string, input: ChangePasswordRequest): Promise<ChangePasswordResponse> {
+    const account = await this.repository.findLocalAccountByUserId(userId);
+    if (!account?.password_hash) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.ACCOUNT_HAS_NO_PASSWORD);
+    }
+
+    const isCurrentValid = await bcrypt.compare(input.currentPassword, account.password_hash);
+    if (!isCurrentValid) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.INVALID_CURRENT_PASSWORD);
+    }
+
+    const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+    await this.repository.updateLocalAccountPassword(userId, newPasswordHash);
+
+    return {
+      success: true,
+      message: AUTH_MESSAGES.PASSWORD_CHANGED_SUCCESS,
+      data: {},
+    };
+  }
 }
 
 export const authService = new AuthService();
+

@@ -10,7 +10,15 @@ export const AUTH_MESSAGES = {
   EMAIL_ALREADY_VERIFIED: 'Email is already verified.',
   INVALID_VERIFICATION_TOKEN: 'Invalid verification link.',
   VERIFICATION_TOKEN_EXPIRED: 'Verification link expired.',
+  RESET_PASSWORD_EMAIL_SENT: 'If the email exists, a password reset link has been sent.',
+  PASSWORD_RESET_SUCCESS: 'Password reset successful. You can now log in with your new password.',
+  INVALID_RESET_TOKEN: 'Invalid password reset link.',
+  RESET_TOKEN_UNAVAILABLE: 'Password reset link has expired or has already been used.',
+  PASSWORD_CHANGED_SUCCESS: 'Password changed successfully.',
+  INVALID_CURRENT_PASSWORD: 'Incorrect current password.',
+  ACCOUNT_HAS_NO_PASSWORD: 'This account does not have a local password set.',
 } as const;
+
 
 export const VERIFICATION_STAGES = ['success', 'already-verified', 'expired', 'invalid', 'retry-later'] as const;
 export type VerificationStage = (typeof VERIFICATION_STAGES)[number];

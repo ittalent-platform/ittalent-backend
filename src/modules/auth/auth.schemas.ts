@@ -98,3 +98,67 @@ export const refreshTokenResponseSchema = z.object({
 });
 
 export type RefreshTokenResponse = z.infer<typeof refreshTokenResponseSchema>;
+
+export const forgotPasswordRequestSchema = z.object({
+  email: z.string().email('Invalid email address').trim().toLowerCase(),
+});
+
+export type ForgotPasswordRequest = z.infer<typeof forgotPasswordRequestSchema>;
+
+export const forgotPasswordResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  data: z.object({}).default({}),
+});
+
+export type ForgotPasswordResponse = z.infer<typeof forgotPasswordResponseSchema>;
+
+export const resetPasswordTokenQuerySchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+});
+
+export type ResetPasswordTokenQuery = z.infer<typeof resetPasswordTokenQuerySchema>;
+
+export const resetPasswordTokenResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string().optional(),
+  data: z.object({ valid: z.boolean() }),
+});
+
+export type ResetPasswordTokenResponse = z.infer<typeof resetPasswordTokenResponseSchema>;
+
+export const resetPasswordRequestSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  newPassword: z
+    .string()
+    .min(AUTH_CONFIG.PASSWORD_MIN_LENGTH, `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`),
+});
+
+export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;
+
+export const resetPasswordResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  data: z.object({}).default({}),
+});
+
+export type ResetPasswordResponse = z.infer<typeof resetPasswordResponseSchema>;
+
+export const changePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z
+    .string()
+    .min(AUTH_CONFIG.PASSWORD_MIN_LENGTH, `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`),
+  revokeOtherSessions: z.boolean().optional(),
+});
+
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
+
+export const changePasswordResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  data: z.object({}).default({}),
+});
+
+export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;
+
