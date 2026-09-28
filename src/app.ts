@@ -6,7 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 
 import { errorHandler } from './middleware/error-handler.js';
 import { getAllowedOrigins, isAllowedOrigin } from './config/origins.js';
-import { authController } from './modules/auth/index.js';
+import { authController, getResetPasswordRedirectUrl } from './modules/auth/index.js';
 import { registerRoutes } from './modules/index.js';
 import { openApiDocument } from './openapi/document.js';
 import { HTTP_STATUS } from './shared/constants/http-status.js';
@@ -35,7 +35,20 @@ registerRoutes(app);
 
 app.get('/verify-email', authController.verifyEmail);
 
+app.get('/reset-password', (req, res): void => {
+  res.redirect(
+    HTTP_STATUS.HTTP_302_FOUND,
+    getResetPasswordRedirectUrl(req.url.split('?')[1] ?? ''),
+  );
+});
+
+app.get('/reset-password/:token', (req, res): void => {
+  const query = new URLSearchParams({ token: req.params.token }).toString();
+  res.redirect(HTTP_STATUS.HTTP_302_FOUND, getResetPasswordRedirectUrl(query));
+});
+
 app.get('/openapi.json', (_req, res): void => {
+
 
   res.json(openApiDocument);
 });

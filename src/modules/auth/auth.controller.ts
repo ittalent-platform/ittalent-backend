@@ -6,10 +6,14 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { authService, type AuthService } from './auth.service.js';
 import type {
+  ChangePasswordRequest,
+  ForgotPasswordRequest,
   LoginRequest,
   RefreshTokenRequest,
   RegisterRequest,
   ResendVerificationEmailRequest,
+  ResetPasswordRequest,
+  ResetPasswordTokenQuery,
   VerifyEmailQuery,
 } from './auth.schemas.js';
 
@@ -24,6 +28,19 @@ export function getEmailVerificationRedirectUrl(
   const suffix = queryString ? `?${queryString}` : '';
   return `${frontendOrigin}/verify-email${suffix}`;
 }
+
+export function getResetPasswordRedirectUrl(
+  queryString: string,
+  config?: { appBaseUrl?: string; corsOrigin?: string; webUrl?: string },
+): string {
+  const frontendOrigin = (config?.appBaseUrl ?? config?.webUrl ?? env.APP_BASE_URL ?? 'http://localhost:5173').replace(
+    /\/$/,
+    '',
+  );
+  const suffix = queryString ? `?${queryString}` : '';
+  return `${frontendOrigin}/reset-password${suffix}`;
+}
+
 
 export class AuthController {
   constructor(private readonly service: AuthService = authService) {}
@@ -110,7 +127,54 @@ export class AuthController {
       next(error);
     }
   };
+
+  forgotPassword: RequestHandler = async (_req, res, next) => {
+    try {
+      const input = res.locals.validated?.body as ForgotPasswordRequest;
+      const result = await this.service.requestPasswordReset(input);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  checkResetPasswordToken: RequestHandler = async (req, res, next) => {
+    try {
+      const token =
+        (res.locals.validated?.query as ResetPasswordTokenQuery | undefined)?.token ??
+        (typeof req.query.token === 'string' ? req.query.token : '');
+      const result = await this.service.checkResetPasswordToken(token);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resetPassword: RequestHandler = async (_req, res, next) => {
+    try {
+      const input = res.locals.validated?.body as ResetPasswordRequest;
+      const result = await this.service.resetPassword(input);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  changePassword: RequestHandler = async (req, res, next) => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      }
+
+      const input = res.locals.validated?.body as ChangePasswordRequest;
+      const result = await this.service.changePassword(req.user.id, input);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const authController = new AuthController();
+
 
