@@ -16,6 +16,12 @@ export interface CreateVerificationTokenData {
   expiresAt: Date;
 }
 
+export interface CreatePasswordResetTokenData {
+  userId: Types.ObjectId | string;
+  tokenHash: string;
+  expiresAt: Date;
+}
+
 export class AuthRepository {
   async createAccount(data: CreateAccountData): Promise<AccountDoc> {
     const account = new Account({
@@ -66,6 +72,24 @@ export class AuthRepository {
     }).exec();
   }
 
+  async createPasswordResetToken(data: CreatePasswordResetTokenData): Promise<TokenDoc> {
+    const token = new Token({
+      user_id: data.userId,
+      type: 'password_reset',
+      token_hash: data.tokenHash,
+      status: 'pending',
+      expires_at: data.expiresAt,
+    });
+    return token.save();
+  }
+
+  async findPasswordResetTokenByHash(tokenHash: string): Promise<TokenDoc | null> {
+    return Token.findOne({
+      token_hash: tokenHash,
+      type: 'password_reset',
+    }).exec();
+  }
+
   async markTokenUsed(tokenId: Types.ObjectId | string): Promise<void> {
     await Token.updateOne(
       { _id: tokenId },
@@ -79,6 +103,24 @@ export class AuthRepository {
       { $set: { status: 'revoked' } },
     ).exec();
   }
+
+  async revokePriorPasswordResetTokens(userId: Types.ObjectId | string): Promise<void> {
+    await Token.updateMany(
+      { user_id: userId, type: 'password_reset', status: 'pending' },
+      { $set: { status: 'revoked' } },
+    ).exec();
+  }
+
+  async updateLocalAccountPassword(
+    userId: Types.ObjectId | string,
+    passwordHash: string,
+  ): Promise<void> {
+    await Account.updateOne(
+      { user_id: userId, provider: 'local' },
+      { $set: { password_hash: passwordHash } },
+    ).exec();
+  }
 }
 
 export const authRepository = new AuthRepository();
+
