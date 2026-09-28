@@ -75,4 +75,16 @@ describe('UsersService', () => {
       expect(result).toBe(createdUser);
     });
   });
+
+  describe('blockExpiredInactiveUsers', () => {
+    it('delegates to repository.blockExpiredInactiveUsers', async () => {
+      const cutoff = new Date('2026-01-01T00:00:00.000Z');
+      mockRepo.blockExpiredInactiveUsers = vi.fn().mockResolvedValue(3);
+
+      const count = await usersService.blockExpiredInactiveUsers(cutoff, ['admin']);
+
+      expect(mockRepo.blockExpiredInactiveUsers).toHaveBeenCalledWith(cutoff, ['admin']);
+      expect(count).toBe(3);
+    });
+  });
 });
