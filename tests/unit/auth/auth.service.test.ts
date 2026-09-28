@@ -21,6 +21,10 @@ describe('AuthService', () => {
       findVerificationTokenByHash: vi.fn(),
       markTokenUsed: vi.fn(),
       revokePriorVerificationTokens: vi.fn(),
+      createPasswordResetToken: vi.fn().mockResolvedValue({} as never),
+      findPasswordResetTokenByHash: vi.fn(),
+      revokePriorPasswordResetTokens: vi.fn(),
+      updateLocalAccountPassword: vi.fn(),
     };
     mockUserService = {
       existsByEmail: vi.fn(),
@@ -365,5 +369,212 @@ describe('AuthService', () => {
       );
     });
   });
+
+  describe('requestPasswordReset', () => {
+    it('returns generic success response without sending email if user not found', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue(null);
+
+      const result = await authService.requestPasswordReset({ email: 'unknown@example.com' });
+      expect(result.success).toBe(true);
+      expect(mockAuthRepo.createPasswordResetToken).not.toHaveBeenCalled();
+    });
+
+    it('returns generic success response without sending email if user is suspended', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'suspended@example.com',
+        status: 'suspended',
+      } as never);
+
+      const result = await authService.requestPasswordReset({ email: 'suspended@example.com' });
+      expect(result.success).toBe(true);
+      expect(mockAuthRepo.createPasswordResetToken).not.toHaveBeenCalled();
+    });
+
+    it('revokes prior tokens, creates reset token, and sends email for active user', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'active@example.com',
+        status: 'active',
+      } as never);
+      mockAuthRepo.revokePriorPasswordResetTokens = vi.fn().mockResolvedValue(undefined);
+      mockAuthRepo.createPasswordResetToken = vi.fn().mockResolvedValue({} as never);
+
+      const result = await authService.requestPasswordReset({ email: 'active@example.com' });
+      expect(result.success).toBe(true);
+      expect(mockAuthRepo.revokePriorPasswordResetTokens).toHaveBeenCalledWith('user-1');
+      expect(mockAuthRepo.createPasswordResetToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+        }),
+      );
+    });
+  });
+
+  describe('checkResetPasswordToken', () => {
+    it('throws 404 when token is empty or invalid string', async () => {
+      await expect(authService.checkResetPasswordToken('')).rejects.toMatchObject({
+        statusCode: 404,
+        code: 'INVALID_RESET_TOKEN',
+      });
+    });
+
+    it('throws 404 when token is not found in repository', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue(null);
+
+      await expect(authService.checkResetPasswordToken('unknown-token')).rejects.toMatchObject({
+        statusCode: 404,
+        code: 'INVALID_RESET_TOKEN',
+      });
+    });
+
+    it('throws 410 when token is already used', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        status: 'used',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+
+      await expect(authService.checkResetPasswordToken('used-token')).rejects.toMatchObject({
+        statusCode: 410,
+        code: 'RESET_TOKEN_UNAVAILABLE',
+      });
+    });
+
+    it('throws 410 when token has expired', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        status: 'pending',
+        expires_at: new Date(Date.now() - 10000),
+      } as never);
+
+      await expect(authService.checkResetPasswordToken('expired-token')).rejects.toMatchObject({
+        statusCode: 410,
+        code: 'RESET_TOKEN_UNAVAILABLE',
+      });
+    });
+
+    it('returns valid true when token is pending and unexpired', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+
+      const result = await authService.checkResetPasswordToken('valid-token');
+      expect(result).toEqual({ success: true, data: { valid: true } });
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('throws 404 if token does not exist', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue(null);
+
+      await expect(
+        authService.resetPassword({ token: 'not-found', newPassword: 'newpassword123' }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        code: 'INVALID_RESET_TOKEN',
+      });
+    });
+
+    it('throws 410 if token is used or expired', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        status: 'used',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+
+      await expect(
+        authService.resetPassword({ token: 'used-token', newPassword: 'newpassword123' }),
+      ).rejects.toMatchObject({
+        statusCode: 410,
+        code: 'RESET_TOKEN_UNAVAILABLE',
+      });
+    });
+
+    it('updates password, activates inactive user, and marks token used', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        user_id: 'user-1',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+      mockAuthRepo.markTokenUsed = vi.fn().mockResolvedValue(undefined);
+      mockUserService.findById = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        status: 'inactive',
+      } as never);
+      mockUserService.updateStatus = vi.fn().mockResolvedValue({} as never);
+
+      const result = await authService.resetPassword({ token: 'valid-token', newPassword: 'newpassword123' });
+
+      expect(result.success).toBe(true);
+      expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+      expect(mockUserService.updateStatus).toHaveBeenCalledWith('user-1', 'active');
+      expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-1');
+    });
+  });
+
+  describe('changePassword', () => {
+    it('throws 400 if user account has no password hash', async () => {
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-1',
+        user_id: 'user-1',
+        provider: 'local',
+      } as never);
+
+      await expect(
+        authService.changePassword('user-1', {
+          currentPassword: 'currentPassword123',
+          newPassword: 'newPassword123',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it('throws 400 if currentPassword does not match', async () => {
+      const passwordHash = await bcrypt.hash('differentPassword123', 10);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-1',
+        user_id: 'user-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+
+      await expect(
+        authService.changePassword('user-1', {
+          currentPassword: 'wrongPassword123',
+          newPassword: 'newPassword123',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+      });
+    });
+
+    it('hashes new password and updates local account password', async () => {
+      const passwordHash = await bcrypt.hash('currentPassword123', 10);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-1',
+        user_id: 'user-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+
+      const result = await authService.changePassword('user-1', {
+        currentPassword: 'currentPassword123',
+        newPassword: 'newPassword123',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+    });
+  });
 });
+
 
