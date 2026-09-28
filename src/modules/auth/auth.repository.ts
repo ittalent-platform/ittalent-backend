@@ -1,12 +1,19 @@
 import type { Types } from 'mongoose';
 
 import { Account, type AccountDoc, type AuthProvider } from '../../models/account.model.js';
+import { Token, type TokenDoc } from '../../models/token.model.js';
 
 export interface CreateAccountData {
   userId: Types.ObjectId | string;
   provider: AuthProvider;
   password_hash?: string;
   provider_account_id?: string;
+}
+
+export interface CreateVerificationTokenData {
+  userId: Types.ObjectId | string;
+  tokenHash: string;
+  expiresAt: Date;
 }
 
 export class AuthRepository {
@@ -39,6 +46,38 @@ export class AuthRepository {
       provider,
       provider_account_id: providerAccountId,
     }).exec();
+  }
+
+  async createVerificationToken(data: CreateVerificationTokenData): Promise<TokenDoc> {
+    const token = new Token({
+      user_id: data.userId,
+      type: 'email_verification',
+      token_hash: data.tokenHash,
+      status: 'pending',
+      expires_at: data.expiresAt,
+    });
+    return token.save();
+  }
+
+  async findVerificationTokenByHash(tokenHash: string): Promise<TokenDoc | null> {
+    return Token.findOne({
+      token_hash: tokenHash,
+      type: 'email_verification',
+    }).exec();
+  }
+
+  async markTokenUsed(tokenId: Types.ObjectId | string): Promise<void> {
+    await Token.updateOne(
+      { _id: tokenId },
+      { $set: { status: 'used', consumed_at: new Date() } },
+    ).exec();
+  }
+
+  async revokePriorVerificationTokens(userId: Types.ObjectId | string): Promise<void> {
+    await Token.updateMany(
+      { user_id: userId, type: 'email_verification', status: 'pending' },
+      { $set: { status: 'revoked' } },
+    ).exec();
   }
 }
 
