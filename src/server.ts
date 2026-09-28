@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './openapi/zod.js';
 import { createServer } from 'node:http';
 
 import { connectDatabase, disconnectDatabase } from './config/db.js';

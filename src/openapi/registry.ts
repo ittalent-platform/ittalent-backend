@@ -1,7 +1,10 @@
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import './zod.js';
+import { registerApplicationsOpenApi } from '../modules/applications/applications.openapi.js';
 import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
+import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
+import { registerJobPostingsOpenApi } from '../modules/job-postings/job-postings.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 
 export const registry = new OpenAPIRegistry();
@@ -15,3 +18,6 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
 registerHealthOpenApi(registry);
 registerAuthOpenApi(registry);
 registerUsersOpenApi(registry);
+registerEnterprisesOpenApi(registry);
+registerJobPostingsOpenApi(registry);
+registerApplicationsOpenApi(registry);
