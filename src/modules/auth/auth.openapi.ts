@@ -7,16 +7,30 @@ import {
   refreshTokenRequestSchema,
   refreshTokenResponseSchema,
   registerRequestSchema,
+  registerResponseSchema,
+  resendVerificationEmailRequestSchema,
+  resendVerificationEmailResponseSchema,
   userDtoSchema,
+  verifyEmailQuerySchema,
 } from './auth.schemas.js';
 
 export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   const registeredRegisterRequest = registry.register('RegisterRequest', registerRequestSchema);
+  const registeredRegisterResponse = registry.register('RegisterResponse', registerResponseSchema);
   const registeredLoginRequest = registry.register('LoginRequest', loginRequestSchema);
   const registeredRefreshTokenRequest = registry.register('RefreshTokenRequest', refreshTokenRequestSchema);
   const registeredAuthResponse = registry.register('AuthResponse', authResponseSchema);
   const registeredRefreshTokenResponse = registry.register('RefreshTokenResponse', refreshTokenResponseSchema);
   const registeredUserDto = registry.register('UserDTO', userDtoSchema);
+  const registeredVerifyEmailQuery = registry.register('VerifyEmailQuery', verifyEmailQuerySchema);
+  const registeredResendVerificationEmailRequest = registry.register(
+    'ResendVerificationEmailRequest',
+    resendVerificationEmailRequestSchema,
+  );
+  const registeredResendVerificationEmailResponse = registry.register(
+    'ResendVerificationEmailResponse',
+    resendVerificationEmailResponseSchema,
+  );
 
   registry.registerPath({
     method: 'post',
@@ -37,7 +51,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         description: 'User registered successfully',
         content: {
           'application/json': {
-            schema: registeredAuthResponse,
+            schema: registeredRegisterResponse,
           },
         },
       },
@@ -46,6 +60,51 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       },
     },
   });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/auth/verify-email',
+    tags: ['Auth'],
+    summary: 'Verify user email address using token',
+    request: {
+      query: registeredVerifyEmailQuery,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_302_FOUND]: {
+        description: 'Redirects to frontend verification result page',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/resend-verification-email',
+    tags: ['Auth'],
+    summary: 'Resend email verification link',
+    request: {
+      body: {
+        content: {
+          'application/json': {
+            schema: registeredResendVerificationEmailRequest,
+          },
+        },
+      },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Verification email sent if account is unverified',
+        content: {
+          'application/json': {
+            schema: registeredResendVerificationEmailResponse,
+          },
+        },
+      },
+      [HTTP_STATUS.HTTP_429_TOO_MANY_REQUESTS]: {
+        description: 'Too many requests',
+      },
+    },
+  });
+
 
   registry.registerPath({
     method: 'post',

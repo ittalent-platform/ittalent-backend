@@ -254,4 +254,116 @@ describe('AuthService', () => {
       expect(result).toEqual(mockUser);
     });
   });
+
+  describe('verifyEmail', () => {
+    it('returns invalid stage when rawToken is empty or invalid string', async () => {
+      const result = await authService.verifyEmail('');
+      expect(result).toEqual({ stage: 'invalid', code: 'INVALID_VERIFICATION_TOKEN' });
+    });
+
+    it('returns invalid stage when token is not found in repository', async () => {
+      mockAuthRepo.findVerificationTokenByHash = vi.fn().mockResolvedValue(null);
+      const result = await authService.verifyEmail('nonexistent-token');
+      expect(result).toEqual({ stage: 'invalid', code: 'INVALID_VERIFICATION_TOKEN' });
+    });
+
+    it('returns already-verified stage when token status is used', async () => {
+      mockAuthRepo.findVerificationTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        user_id: 'user-1',
+        status: 'used',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+
+      const result = await authService.verifyEmail('used-token');
+      expect(result).toEqual({ stage: 'already-verified', code: 'EMAIL_ALREADY_VERIFIED' });
+    });
+
+    it('returns invalid stage when token status is revoked', async () => {
+      mockAuthRepo.findVerificationTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        user_id: 'user-1',
+        status: 'revoked',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+
+      const result = await authService.verifyEmail('revoked-token');
+      expect(result).toEqual({ stage: 'invalid', code: 'INVALID_VERIFICATION_TOKEN' });
+    });
+
+    it('returns expired stage when token has expired', async () => {
+      mockAuthRepo.findVerificationTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        user_id: 'user-1',
+        status: 'pending',
+        expires_at: new Date(Date.now() - 10000),
+      } as never);
+
+      const result = await authService.verifyEmail('expired-token');
+      expect(result).toEqual({ stage: 'expired', code: 'VERIFICATION_TOKEN_EXPIRED' });
+    });
+
+    it('activates user and marks token used when token is valid and pending', async () => {
+      mockAuthRepo.findVerificationTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-1',
+        user_id: 'user-1',
+        status: 'pending',
+        expires_at: new Date(Date.now() + 60000),
+      } as never);
+      mockAuthRepo.markTokenUsed = vi.fn().mockResolvedValue(undefined);
+      mockUserService.updateStatus = vi.fn().mockResolvedValue({} as never);
+
+      const result = await authService.verifyEmail('valid-token');
+      expect(result).toEqual({ stage: 'success' });
+      expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-1');
+      expect(mockUserService.updateStatus).toHaveBeenCalledWith('user-1', 'active');
+    });
+  });
+
+  describe('resendVerificationEmail', () => {
+    it('returns generic success response without sending email if user not found', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue(null);
+
+      const result = await authService.resendVerificationEmail({ email: 'unknown@example.com' });
+      expect(result.success).toBe(true);
+      expect(result.data.verificationEmailSent).toBe(true);
+      expect(mockAuthRepo.createVerificationToken).not.toHaveBeenCalled();
+    });
+
+    it('returns generic success response without sending email if user is not inactive', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'active@example.com',
+        status: 'active',
+      } as never);
+
+      const result = await authService.resendVerificationEmail({ email: 'active@example.com' });
+      expect(result.success).toBe(true);
+      expect(result.data.verificationEmailSent).toBe(true);
+      expect(mockAuthRepo.createVerificationToken).not.toHaveBeenCalled();
+    });
+
+    it('revokes prior tokens and dispatches new verification email for inactive user', async () => {
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'inactive@example.com',
+        status: 'inactive',
+      } as never);
+      mockAuthRepo.revokePriorVerificationTokens = vi.fn().mockResolvedValue(undefined);
+      mockAuthRepo.createVerificationToken = vi.fn().mockResolvedValue({} as never);
+
+      const result = await authService.resendVerificationEmail({ email: 'inactive@example.com' });
+      expect(result.success).toBe(true);
+      expect(result.data.verificationEmailSent).toBe(true);
+      expect(mockAuthRepo.revokePriorVerificationTokens).toHaveBeenCalledWith('user-1');
+      expect(mockAuthRepo.createVerificationToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+        }),
+      );
+    });
+  });
 });
+
