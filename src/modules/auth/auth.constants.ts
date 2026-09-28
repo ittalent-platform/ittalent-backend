@@ -20,6 +20,7 @@ export const AUTH_CONFIG = {
   PASSWORD_MIN_LENGTH: 8,
   USERNAME_MIN_LENGTH: 3,
   USERNAME_MAX_LENGTH: 30,
+  TOKEN_BYTES: 32,
 } as const;
 
 export const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;

@@ -17,6 +17,10 @@ describe('AuthService', () => {
       createAccount: vi.fn(),
       findLocalAccountByUserId: vi.fn(),
       findAccountByProvider: vi.fn(),
+      createVerificationToken: vi.fn().mockResolvedValue({} as never),
+      findVerificationTokenByHash: vi.fn(),
+      markTokenUsed: vi.fn(),
+      revokePriorVerificationTokens: vi.fn(),
     };
     mockUserService = {
       existsByEmail: vi.fn(),
@@ -24,6 +28,8 @@ describe('AuthService', () => {
       createUser: vi.fn(),
       findByIdentifier: vi.fn(),
       findById: vi.fn(),
+      findByEmail: vi.fn(),
+      updateStatus: vi.fn(),
       getUserById: vi.fn(),
       mapUserDto: vi.fn((user) => ({
         id: String(user._id),
@@ -48,7 +54,7 @@ describe('AuthService', () => {
         email: 'test@example.com',
         username: 'testuser',
         role: 'user',
-        status: 'active',
+        status: 'inactive',
       } as never);
       mockAuthRepo.createAccount = vi.fn().mockResolvedValue({} as never);
 
@@ -61,12 +67,21 @@ describe('AuthService', () => {
       expect(mockUserService.createUser).toHaveBeenCalledWith({
         email: 'test@example.com',
         username: 'testuser',
+        status: 'inactive',
       });
       expect(mockAuthRepo.createAccount).toHaveBeenCalled();
+      expect(mockAuthRepo.createVerificationToken).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-id-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+        }),
+      );
       expect(result.user.email).toBe('test@example.com');
       expect(result.user.username).toBe('testuser');
       expect(result.tokens.accessToken).toBeDefined();
       expect(result.tokens.refreshToken).toBeDefined();
+      expect(result.verificationEmailSent).toBe(true);
     });
 
     it('throws 409 when user with email already exists', async () => {

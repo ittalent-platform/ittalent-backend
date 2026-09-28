@@ -36,6 +36,10 @@ export class UsersService {
     return this.repository.findById(id);
   }
 
+  async findByEmail(email: string): Promise<UserDoc | null> {
+    return this.repository.findByEmail(email);
+  }
+
   async existsByEmail(email: string): Promise<boolean> {
     return this.repository.existsByEmail(email);
   }
