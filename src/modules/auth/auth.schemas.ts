@@ -1,5 +1,24 @@
 import { z } from 'zod';
-import { AUTH_CONFIG, USERNAME_REGEX } from './auth.constants.js';
+import { AUTH_CONFIG, PASSWORD_REGEX, USERNAME_REGEX } from './auth.constants.js';
+
+export const passwordSchema = z
+  .string()
+  .min(1, 'Password is required')
+  .min(
+    AUTH_CONFIG.PASSWORD_MIN_LENGTH,
+    `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`,
+  )
+  .max(
+    AUTH_CONFIG.PASSWORD_MAX_LENGTH,
+    `Password cannot exceed ${AUTH_CONFIG.PASSWORD_MAX_LENGTH} characters`,
+  )
+  .regex(PASSWORD_REGEX.UPPERCASE, 'Password must contain at least one uppercase letter')
+  .regex(PASSWORD_REGEX.LOWERCASE, 'Password must contain at least one lowercase letter')
+  .regex(PASSWORD_REGEX.NUMBER, 'Password must contain at least one number')
+  .regex(
+    PASSWORD_REGEX.SPECIAL,
+    'Password must contain at least one special character (!@#$%^&*)',
+  );
 
 export const registerRequestSchema = z.object({
   email: z.string().email('Invalid email address').trim().toLowerCase(),
@@ -16,9 +35,7 @@ export const registerRequestSchema = z.object({
     .regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores')
     .trim()
     .toLowerCase(),
-  password: z
-    .string()
-    .min(AUTH_CONFIG.PASSWORD_MIN_LENGTH, `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`),
+  password: passwordSchema,
 });
 
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
@@ -129,9 +146,7 @@ export type ResetPasswordTokenResponse = z.infer<typeof resetPasswordTokenRespon
 
 export const resetPasswordRequestSchema = z.object({
   token: z.string().min(1, 'Reset token is required'),
-  newPassword: z
-    .string()
-    .min(AUTH_CONFIG.PASSWORD_MIN_LENGTH, `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`),
+  newPassword: passwordSchema,
 });
 
 export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;
@@ -146,9 +161,7 @@ export type ResetPasswordResponse = z.infer<typeof resetPasswordResponseSchema>;
 
 export const changePasswordRequestSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z
-    .string()
-    .min(AUTH_CONFIG.PASSWORD_MIN_LENGTH, `Password must be at least ${AUTH_CONFIG.PASSWORD_MIN_LENGTH} characters`),
+  newPassword: passwordSchema,
   revokeOtherSessions: z.boolean().optional(),
 });
 
