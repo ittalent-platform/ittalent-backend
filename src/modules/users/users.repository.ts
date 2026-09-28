@@ -1,6 +1,6 @@
 import type { Types } from 'mongoose';
 
-import { User, type UserDoc, type UserStatus } from '../../models/user.model.js';
+import { User, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
 
 export interface CreateUserData {
   email: string;
@@ -48,6 +48,20 @@ export class UsersRepository {
 
   async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {
     return User.findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' }).exec();
+  }
+
+  async blockExpiredInactiveUsers(cutoff: Date, excludedRoles: UserRole[] = ['admin']): Promise<number> {
+    const result = await User.updateMany(
+      {
+        status: 'inactive',
+        role: { $nin: excludedRoles },
+        createdAt: { $lte: cutoff },
+      },
+      {
+        $set: { status: 'blocked' },
+      },
+    ).exec();
+    return result.modifiedCount;
   }
 }
 

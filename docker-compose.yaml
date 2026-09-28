@@ -2,7 +2,7 @@ services:
   # Single-node replica set required for transactions
   mongodb:
     image: mongo:7
-    container_name: express-template-mongodb
+    container_name: ittalent-backend-mongodb
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27017:27017"
@@ -43,7 +43,7 @@ services:
 
   redis:
     image: redis:7.4.9-alpine3.21
-    container_name: express-template-redis
+    container_name: ittalent-backend-redis
     ports:
       - "6379:6379"
 

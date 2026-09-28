@@ -1,5 +1,5 @@
-import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import './zod.js';
+import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
 import { registerDocumentsOpenApi } from '../modules/documents/documents.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';

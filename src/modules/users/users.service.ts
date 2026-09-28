@@ -1,4 +1,4 @@
-import type { UserDoc, UserStatus } from '../../models/user.model.js';
+import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { usersRepository, type UsersRepository, type CreateUserData } from './users.repository.js';
@@ -54,6 +54,10 @@ export class UsersService {
 
   async updateStatus(id: string, status: UserStatus): Promise<UserDoc | null> {
     return this.repository.updateStatus(id, status);
+  }
+
+  async blockExpiredInactiveUsers(cutoff: Date, excludedRoles?: UserRole[]): Promise<number> {
+    return this.repository.blockExpiredInactiveUsers(cutoff, excludedRoles);
   }
 }
 

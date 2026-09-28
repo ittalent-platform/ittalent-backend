@@ -1,12 +1,16 @@
 import 'dotenv/config';
+import './openapi/zod.js';
 import { createServer } from 'node:http';
 
 import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { disconnectRedis } from './config/redis.js';
 import { env } from './config/env.js';
+import { startAuthVerificationJob } from './modules/auth/auth.service.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
+
+  const stopAuthVerificationJob = startAuthVerificationJob();
 
   const { app } = await import('./app.js');
 
@@ -25,6 +29,7 @@ async function bootstrap(): Promise<void> {
     }
 
     isShuttingDown = true;
+    stopAuthVerificationJob();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });

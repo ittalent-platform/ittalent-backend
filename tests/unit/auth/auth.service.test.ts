@@ -42,6 +42,7 @@ describe('AuthService', () => {
         role: user.role,
         status: user.status,
       })),
+      blockExpiredInactiveUsers: vi.fn(),
     };
     authService = new AuthService(
       mockAuthRepo as AuthRepository,
@@ -217,6 +218,86 @@ describe('AuthService', () => {
         }),
       ).rejects.toThrow();
     });
+
+    it('allows unverified inactive user within 24-hour verification window to log in', async () => {
+      const passwordHash = await bcrypt.hash('password123', 10);
+      mockUserService.findByIdentifier = vi.fn().mockResolvedValue({
+        _id: 'user-id-1',
+        email: 'test@example.com',
+        username: 'testuser',
+        role: 'user',
+        status: 'inactive',
+        createdAt: new Date(),
+      } as never);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-id-1',
+        user_id: 'user-id-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+
+      const result = await authService.login({
+        identifier: 'test@example.com',
+        password: 'password123',
+      });
+
+      expect(result.tokens.accessToken).toBeDefined();
+    });
+
+    it('throws 403 when inactive user verification window has expired (> 24 hours)', async () => {
+      const passwordHash = await bcrypt.hash('password123', 10);
+      const expiredCreatedAt = new Date(Date.now() - env.EMAIL_VERIFICATION_WINDOW_MS - 1000);
+      mockUserService.findByIdentifier = vi.fn().mockResolvedValue({
+        _id: 'user-id-1',
+        email: 'test@example.com',
+        username: 'testuser',
+        role: 'user',
+        status: 'inactive',
+        createdAt: expiredCreatedAt,
+      } as never);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-id-1',
+        user_id: 'user-id-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+
+      await expect(
+        authService.login({
+          identifier: 'test@example.com',
+          password: 'password123',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+
+    it('throws 403 when user is blocked', async () => {
+      const passwordHash = await bcrypt.hash('password123', 10);
+      mockUserService.findByIdentifier = vi.fn().mockResolvedValue({
+        _id: 'user-id-1',
+        email: 'test@example.com',
+        username: 'testuser',
+        role: 'user',
+        status: 'blocked',
+        createdAt: new Date(),
+      } as never);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-id-1',
+        user_id: 'user-id-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+
+      await expect(
+        authService.login({
+          identifier: 'test@example.com',
+          password: 'password123',
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
   });
 
   describe('refreshTokens', () => {
@@ -238,6 +319,46 @@ describe('AuthService', () => {
 
       expect(tokens.accessToken).toBeDefined();
       expect(tokens.refreshToken).toBeDefined();
+    });
+
+    it('allows unverified inactive user within 24-hour verification window to refresh tokens', async () => {
+      const refreshToken = jwt.sign(
+        { sub: 'user-id-1', email: 'test@example.com', role: 'user' },
+        env.JWT_REFRESH_SECRET,
+      );
+
+      mockUserService.findById = vi.fn().mockResolvedValue({
+        _id: 'user-id-1',
+        email: 'test@example.com',
+        username: 'testuser',
+        role: 'user',
+        status: 'inactive',
+        createdAt: new Date(),
+      } as never);
+
+      const tokens = await authService.refreshTokens(refreshToken);
+
+      expect(tokens.accessToken).toBeDefined();
+    });
+
+    it('throws 401 when inactive user exceeds verification window on refresh', async () => {
+      const refreshToken = jwt.sign(
+        { sub: 'user-id-1', email: 'test@example.com', role: 'user' },
+        env.JWT_REFRESH_SECRET,
+      );
+
+      mockUserService.findById = vi.fn().mockResolvedValue({
+        _id: 'user-id-1',
+        email: 'test@example.com',
+        username: 'testuser',
+        role: 'user',
+        status: 'inactive',
+        createdAt: new Date(Date.now() - env.EMAIL_VERIFICATION_WINDOW_MS - 1000),
+      } as never);
+
+      await expect(authService.refreshTokens(refreshToken)).rejects.toMatchObject({
+        statusCode: 401,
+      });
     });
   });
 
@@ -573,6 +694,42 @@ describe('AuthService', () => {
 
       expect(result.success).toBe(true);
       expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+    });
+  });
+
+  describe('blockExpiredUnverifiedUsers', () => {
+    it('calculates cutoff based on EMAIL_VERIFICATION_WINDOW_MS and calls userService.blockExpiredInactiveUsers', async () => {
+      const now = 1700000000000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      mockUserService.blockExpiredInactiveUsers = vi.fn().mockResolvedValue(5);
+
+      const modifiedCount = await authService.blockExpiredUnverifiedUsers();
+
+      const expectedCutoff = new Date(now - env.EMAIL_VERIFICATION_WINDOW_MS);
+      expect(mockUserService.blockExpiredInactiveUsers).toHaveBeenCalledWith(expectedCutoff);
+      expect(modifiedCount).toBe(5);
+      vi.restoreAllMocks();
+    });
+  });
+
+  describe('startAuthVerificationJob', () => {
+    it('runs immediately, schedules interval, and clears interval when teardown is invoked', () => {
+      vi.useFakeTimers();
+      const blockSpy = vi.spyOn(authService, 'blockExpiredUnverifiedUsers').mockResolvedValue(0);
+
+      const stopJob = authService.startAuthVerificationJob();
+
+      expect(blockSpy).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(env.AUTH_VERIFICATION_JOB_INTERVAL_MS);
+      expect(blockSpy).toHaveBeenCalledTimes(2);
+
+      stopJob();
+
+      vi.advanceTimersByTime(env.AUTH_VERIFICATION_JOB_INTERVAL_MS * 2);
+      expect(blockSpy).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
     });
   });
 });
