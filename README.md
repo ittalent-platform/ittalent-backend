@@ -1,6 +1,6 @@
-# Express Template
+# IT Talent Backend
 
-A clean, modular, and production-ready Express 5 + TypeScript template featuring MongoDB (Mongoose), Redis, stateless JWT authentication, OpenAPI/Swagger UI integration, Vitest, and strict adherence to a 6-layer vertical-slice architecture.
+Backend API service for the IT Talent platform, built with Express 5 and TypeScript. It features MongoDB (Mongoose), Redis, stateless JWT authentication, OpenAPI/Swagger UI integration, Vitest, and strict adherence to a 6-layer vertical-slice architecture.
 
 ---
 
@@ -65,7 +65,7 @@ MongoDB transactions require a replica set. The `mongodb-init` service in `docke
 If you ever need to manually (re-)initialize the replica set:
 
 ```bash
-docker exec -it express-template-mongodb mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27017" }] })'
+docker exec -it ittalent-backend-mongodb mongosh --eval 'rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27017" }] })'
 ```
 
 ### 5. Run the Development Server
