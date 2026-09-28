@@ -354,7 +354,26 @@ export class AuthService {
       data: {},
     };
   }
+
+  async blockExpiredUnverifiedUsers(): Promise<number> {
+    const cutoff = new Date(Date.now() - env.EMAIL_VERIFICATION_WINDOW_MS);
+    return this.userService.blockExpiredInactiveUsers(cutoff);
+  }
+
+  startAuthVerificationJob(): () => void {
+    void this.blockExpiredUnverifiedUsers();
+
+    const interval = setInterval(() => {
+      void this.blockExpiredUnverifiedUsers();
+    }, env.AUTH_VERIFICATION_JOB_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }
 }
 
 export const authService = new AuthService();
+
+export function startAuthVerificationJob(): () => void {
+  return authService.startAuthVerificationJob();
+}
 
