@@ -62,6 +62,36 @@ export const authResponseSchema = z.object({
 
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 
+export const registerResponseSchema = z.object({
+  user: userDtoSchema,
+  tokens: authTokensSchema,
+  verificationEmailSent: z.boolean(),
+});
+
+export type RegisterResponse = z.infer<typeof registerResponseSchema>;
+
+export const verifyEmailQuerySchema = z.object({
+  token: z.string().min(1, 'Verification token is required'),
+});
+
+export type VerifyEmailQuery = z.infer<typeof verifyEmailQuerySchema>;
+
+export const resendVerificationEmailRequestSchema = z.object({
+  email: z.string().email('Invalid email address').trim().toLowerCase(),
+});
+
+export type ResendVerificationEmailRequest = z.infer<typeof resendVerificationEmailRequestSchema>;
+
+export const resendVerificationEmailResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  data: z.object({
+    verificationEmailSent: z.boolean(),
+  }),
+});
+
+export type ResendVerificationEmailResponse = z.infer<typeof resendVerificationEmailResponseSchema>;
+
 export const refreshTokenResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),

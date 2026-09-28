@@ -1,4 +1,4 @@
-import type { UserDoc } from '../../models/user.model.js';
+import type { UserDoc, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { usersRepository, type UsersRepository, type CreateUserData } from './users.repository.js';
@@ -36,6 +36,10 @@ export class UsersService {
     return this.repository.findById(id);
   }
 
+  async findByEmail(email: string): Promise<UserDoc | null> {
+    return this.repository.findByEmail(email);
+  }
+
   async existsByEmail(email: string): Promise<boolean> {
     return this.repository.existsByEmail(email);
   }
@@ -46,6 +50,10 @@ export class UsersService {
 
   async createUser(data: CreateUserData): Promise<UserDoc> {
     return this.repository.createUser(data);
+  }
+
+  async updateStatus(id: string, status: UserStatus): Promise<UserDoc | null> {
+    return this.repository.updateStatus(id, status);
   }
 }
 

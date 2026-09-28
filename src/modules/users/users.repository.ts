@@ -1,8 +1,11 @@
-import { User, type UserDoc } from '../../models/user.model.js';
+import type { Types } from 'mongoose';
+
+import { User, type UserDoc, type UserStatus } from '../../models/user.model.js';
 
 export interface CreateUserData {
   email: string;
   username: string;
+  status?: UserStatus;
 }
 
 export class UsersRepository {
@@ -38,8 +41,13 @@ export class UsersRepository {
     const user = new User({
       email: data.email,
       username: data.username,
+      ...(data.status ? { status: data.status } : {}),
     });
     return user.save();
+  }
+
+  async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' }).exec();
   }
 }
 

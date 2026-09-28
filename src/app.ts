@@ -6,6 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 
 import { errorHandler } from './middleware/error-handler.js';
 import { getAllowedOrigins, isAllowedOrigin } from './config/origins.js';
+import { authController } from './modules/auth/index.js';
 import { registerRoutes } from './modules/index.js';
 import { openApiDocument } from './openapi/document.js';
 import { HTTP_STATUS } from './shared/constants/http-status.js';
@@ -32,7 +33,10 @@ app.use(express.json());
 
 registerRoutes(app);
 
+app.get('/verify-email', authController.verifyEmail);
+
 app.get('/openapi.json', (_req, res): void => {
+
   res.json(openApiDocument);
 });
 
