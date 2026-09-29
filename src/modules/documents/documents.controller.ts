@@ -1,0 +1,51 @@
+import type { RequestHandler } from 'express';
+
+import type { UploadedDocument } from '../../middleware/document-upload.middleware.js';
+import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { createHttpError } from '../../shared/errors/http-error.js';
+import type { DocumentListQuery, DocumentUpload } from './documents.schemas.js';
+import { documentsService, type DocumentsService } from './documents.service.js';
+
+export class DocumentsController {
+  constructor(private readonly service: DocumentsService = documentsService) {}
+
+  upload: RequestHandler = async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      }
+
+      const input = res.locals.validated?.body as DocumentUpload;
+      const file = res.locals.uploadedDocument as UploadedDocument | undefined;
+      if (!file) {
+        throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Document file is required');
+      }
+
+      res.status(HTTP_STATUS.HTTP_201_CREATED).json(await this.service.upload(req.user.id, input.type, file));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listMine: RequestHandler = async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      }
+
+      res.json(await this.service.list(req.user.id, res.locals.validated?.query as DocumentListQuery));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAdmin: RequestHandler = async (_req, res, next): Promise<void> => {
+    try {
+      res.json(await this.service.list(undefined, res.locals.validated?.query as DocumentListQuery));
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+export const documentsController = new DocumentsController();

@@ -1,6 +1,7 @@
 import './zod.js';
 import { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
+import { registerDocumentsOpenApi } from '../modules/documents/documents.openapi.js';
 import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
@@ -15,5 +16,6 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
 
 registerHealthOpenApi(registry);
 registerAuthOpenApi(registry);
+registerDocumentsOpenApi(registry);
 registerUsersOpenApi(registry);
 registerEnterprisesOpenApi(registry);
