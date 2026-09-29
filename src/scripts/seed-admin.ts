@@ -6,11 +6,12 @@ import { connectDatabase, disconnectDatabase } from '../config/db.js';
 import { Account } from '../models/account.model.js';
 import { User, type UserDoc } from '../models/user.model.js';
 import { AUTH_CONFIG } from '../modules/auth/auth.constants.js';
+import { passwordSchema } from '../modules/auth/auth.schemas.js';
 
 export const adminSeedSchema = z.object({
   email: z.string().email(),
   username: z.string().min(AUTH_CONFIG.USERNAME_MIN_LENGTH).max(AUTH_CONFIG.USERNAME_MAX_LENGTH),
-  password: z.string().min(AUTH_CONFIG.PASSWORD_MIN_LENGTH),
+  password: passwordSchema,
 });
 
 export type AdminSeedInput = z.infer<typeof adminSeedSchema>;

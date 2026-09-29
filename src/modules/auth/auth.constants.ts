@@ -26,9 +26,17 @@ export type VerificationStage = (typeof VERIFICATION_STAGES)[number];
 export const AUTH_CONFIG = {
   BCRYPT_SALT_ROUNDS: 10,
   PASSWORD_MIN_LENGTH: 8,
+  PASSWORD_MAX_LENGTH: 64,
   USERNAME_MIN_LENGTH: 3,
   USERNAME_MAX_LENGTH: 30,
   TOKEN_BYTES: 32,
+} as const;
+
+export const PASSWORD_REGEX = {
+  UPPERCASE: /[A-Z]/,
+  LOWERCASE: /[a-z]/,
+  NUMBER: /[0-9]/,
+  SPECIAL: /[!@#$%^&*]/,
 } as const;
 
 export const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;

@@ -7,3 +7,18 @@ generated/client
 .codex/
 .history/
 coverage/
+
+# Documents & Reports
+*.docx
+~$*.docx
+Report*.docx
+
+# Diagrams
+diagrams/
+
+# Local specifications & documentation guides
+ENTERPRISE_*.md
+DRAWIO_*.md
+
+# Local scripts
+/scripts/

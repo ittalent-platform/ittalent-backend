@@ -4,3 +4,4 @@ export * from './enterprises.openapi.js';
 export * from './enterprises.service.js';
 export * from './enterprises.repository.js';
 export * from './enterprises.schemas.js';
+export * from './enterprises.constants.js';
