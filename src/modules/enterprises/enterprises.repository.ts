@@ -1,15 +1,13 @@
-import type { QueryFilter } from 'mongoose';
+import mongoose, { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
-import { Enterprise, type EnterpriseDoc, type EnterpriseData } from '../../models/enterprise.model.js';
+import {
+  Enterprise,
+  type CompanySize,
+  type EnterpriseData,
+  type EnterpriseDoc,
+  type EnterpriseStatus,
+} from '../../models/enterprise.model.js';
 import { PUBLIC_ENTERPRISE_STATUS } from './enterprises.constants.js';
-
-// BR-12/BR-16: only publicly viewable fields are ever loaded from the database.
-const PUBLIC_FIELDS = 'name logo_url industry location short_description description website';
-
-export type PublicEnterpriseDoc = Pick<
-  EnterpriseDoc,
-  '_id' | 'name' | 'logo_url' | 'industry' | 'location' | 'short_description' | 'description' | 'website'
->;
 
 export interface FindEnterprisesParams {
   page: number;
@@ -17,9 +15,10 @@ export interface FindEnterprisesParams {
   keyword?: string | undefined;
   industry?: string | undefined;
   location?: string | undefined;
+  company_size?: CompanySize | undefined;
+  status?: EnterpriseStatus | undefined;
 }
 
-// User input is escaped so it is always matched literally (no regex injection).
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -32,39 +31,99 @@ function equalsRegex(value: string): RegExp {
   return new RegExp(`^${escapeRegex(value)}$`, 'i');
 }
 
-function buildFilter(params: FindEnterprisesParams): QueryFilter<EnterpriseData> {
-  // The status condition is a top-level AND, so keyword/criteria can never widen visibility (BR-22).
-  const filter: QueryFilter<EnterpriseData> = { status: PUBLIC_ENTERPRISE_STATUS };
-
-  if (params.keyword) {
-    const keywordRegex = containsRegex(params.keyword);
-    filter.$or = [{ name: keywordRegex }, { industry: keywordRegex }, { location: keywordRegex }];
-  }
-  if (params.industry) {
-    filter.industry = equalsRegex(params.industry);
-  }
-  if (params.location) {
-    filter.location = equalsRegex(params.location);
-  }
-
-  return filter;
-}
-
 export class EnterprisesRepository {
-  async findActivePage(
+  async create(data: Partial<EnterpriseData>): Promise<EnterpriseDoc> {
+    const enterprise = new Enterprise(data);
+    return enterprise.save();
+  }
+
+  async findById(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOne({ _id: id, is_deleted: false }).exec();
+  }
+
+  async findByIdIncludeDeleted(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
+    return Enterprise.findById(id).exec();
+  }
+
+  async findByTaxCode(taxCode: string): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOne({ tax_code: taxCode, is_deleted: false }).exec();
+  }
+
+  async findByEmail(email: string): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOne({ email: email.toLowerCase(), is_deleted: false }).exec();
+  }
+
+  async findByCreatorId(creatorId: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOne({
+      creator_account_id: creatorId,
+      is_deleted: false,
+    }).exec();
+  }
+
+  async findPage(
     params: FindEnterprisesParams,
-  ): Promise<{ items: PublicEnterpriseDoc[]; total: number }> {
-    const filter = buildFilter(params);
+    isAdmin = false,
+  ): Promise<{ items: EnterpriseDoc[]; total: number }> {
+    const filter: QueryFilter<EnterpriseData> = {};
+
+    if (isAdmin) {
+      if (params.status) {
+        filter.status = params.status;
+        if (params.status === 'deleted') {
+          filter.is_deleted = true;
+        } else {
+          filter.is_deleted = false;
+        }
+      } else {
+        filter.is_deleted = false;
+      }
+    } else {
+      filter.status = PUBLIC_ENTERPRISE_STATUS;
+      filter.is_deleted = false;
+    }
+
+    if (params.keyword) {
+      const keywordRegex = containsRegex(params.keyword);
+      filter.$or = [
+        { name: keywordRegex },
+        { industry: keywordRegex },
+        { 'address.city': keywordRegex },
+        { 'address.country': keywordRegex },
+        { tech_stack: keywordRegex },
+      ];
+    }
+
+    if (params.industry) {
+      filter.industry = equalsRegex(params.industry);
+    }
+
+    if (params.company_size) {
+      filter.company_size = params.company_size;
+    }
+
+    if (params.location) {
+      const locRegex = containsRegex(params.location);
+      const locFilter = [
+        { 'address.city': locRegex },
+        { 'address.country': locRegex },
+        { 'address.state_province': locRegex },
+        { 'address.district': locRegex },
+      ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: locFilter }];
+        delete filter.$or;
+      } else {
+        filter.$or = locFilter;
+      }
+    }
+
     const skip = (params.page - 1) * params.limit;
 
     const [items, total] = await Promise.all([
       Enterprise.find(filter)
-        .select(PUBLIC_FIELDS)
-        // Deterministic order so pages never overlap or skip records (NFR-3).
         .sort({ name: 1, _id: 1 })
         .skip(skip)
         .limit(params.limit)
-        .lean<PublicEnterpriseDoc[]>()
         .exec(),
       Enterprise.countDocuments(filter).exec(),
     ]);
@@ -72,11 +131,52 @@ export class EnterprisesRepository {
     return { items, total };
   }
 
-  async findActiveById(id: string): Promise<PublicEnterpriseDoc | null> {
-    return Enterprise.findOne({ _id: id, status: PUBLIC_ENTERPRISE_STATUS })
-      .select(PUBLIC_FIELDS)
-      .lean<PublicEnterpriseDoc>()
-      .exec();
+  async updateById(
+    id: string | Types.ObjectId,
+    updateData: UpdateQuery<EnterpriseData>,
+  ): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOneAndUpdate(
+      { _id: id, is_deleted: false },
+      updateData,
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async softDelete(
+    id: string | Types.ObjectId,
+    adminId: string | Types.ObjectId,
+  ): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOneAndUpdate(
+      { _id: id, is_deleted: false },
+      {
+        $set: {
+          is_deleted: true,
+          status: 'deleted',
+          deleted_at: new Date(),
+          deleted_by: new mongoose.Types.ObjectId(adminId),
+        },
+      },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async countActiveJobs(enterpriseId: string | Types.ObjectId): Promise<number> {
+    const jobModel = mongoose.models.JobPosting || mongoose.models.Job;
+    if (!jobModel) {
+      return 0;
+    }
+
+    try {
+      const count = await jobModel
+        .countDocuments({
+          enterprise_id: new mongoose.Types.ObjectId(enterpriseId),
+          status: { $in: ['active', 'published', 'open'] },
+        })
+        .exec();
+      return count;
+    } catch {
+      return 0;
+    }
   }
 }
 
