@@ -42,6 +42,33 @@ export const authenticate: RequestHandler = (req: Request, _res: Response, next:
   }
 };
 
+export const authenticateOptional: RequestHandler = (req: Request, _res: Response, next: NextFunction): void => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtPayload;
+
+    if (decoded.sub && decoded.email && decoded.role) {
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+      } satisfies AuthenticatedUser;
+    }
+  } catch {
+    // Ignore invalid/expired token for optional authentication
+  }
+
+  next();
+};
+
 export function authorize(...allowedRoles: string[]): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) {
