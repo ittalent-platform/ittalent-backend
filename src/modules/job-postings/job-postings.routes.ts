@@ -7,7 +7,8 @@ import { createJobPostingSchema, jobPostingIdParamSchema, jobPostingListQuerySch
 export const jobPostingsRouter = Router();
 jobPostingsRouter.get('/job-postings', validateQuery(jobPostingListQuerySchema), jobPostingsController.listPublic);
 jobPostingsRouter.get('/admin/job-postings', authenticate, authorize('admin'), validateQuery(jobPostingListQuerySchema), jobPostingsController.listAdmin);
-jobPostingsRouter.post('/job-postings', authenticate, authorize('admin'), validateBody(createJobPostingSchema), jobPostingsController.create);
-jobPostingsRouter.get('/job-postings/:id', authenticate, authorize('admin'), validateParams(jobPostingIdParamSchema), jobPostingsController.getById);
-jobPostingsRouter.patch('/job-postings/:id', authenticate, authorize('admin'), validateParams(jobPostingIdParamSchema), validateBody(updateJobPostingSchema), jobPostingsController.update);
-jobPostingsRouter.delete('/job-postings/:id', authenticate, authorize('admin'), validateParams(jobPostingIdParamSchema), jobPostingsController.remove);
+jobPostingsRouter.get('/recruiter/job-postings', authenticate, authorize('recruiter'), validateQuery(jobPostingListQuerySchema), jobPostingsController.listRecruiter);
+jobPostingsRouter.post('/job-postings', authenticate, authorize('recruiter'), validateBody(createJobPostingSchema), jobPostingsController.create);
+jobPostingsRouter.get('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), jobPostingsController.getById);
+jobPostingsRouter.patch('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), validateBody(updateJobPostingSchema), jobPostingsController.update);
+jobPostingsRouter.delete('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), jobPostingsController.remove);

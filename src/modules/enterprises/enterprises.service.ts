@@ -128,11 +128,17 @@ export class EnterprisesService {
       email: data.email.toLowerCase(),
       status: initialStatus,
       creator_account_id: new mongoose.Types.ObjectId(creatorId),
+      ...(role === 'recruiter' ? { recruiter_ids: [new mongoose.Types.ObjectId(creatorId)] } : {}),
       is_deleted: false,
     };
 
     const created = await this.repository.create(entityPayload);
     return this.mapDetail(created, 0);
+  }
+
+  async getRecruiterEnterpriseId(recruiterId: string): Promise<string | null> {
+    const enterprise = await this.repository.findByRecruiterId(recruiterId);
+    return enterprise ? String(enterprise._id) : null;
   }
 
   async updateEnterprise(

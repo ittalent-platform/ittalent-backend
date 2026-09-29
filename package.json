@@ -16,7 +16,9 @@
     "test:unit": "vitest run --exclude 'tests/integration/**'",
     "test:integration": "vitest run tests/integration --fileParallelism=false",
     "test:all": "vitest run --fileParallelism=false",
-    "seed:admin": "tsx src/scripts/seed-admin.ts"
+    "seed:admin": "tsx src/scripts/seed-admin.ts",
+    "seed:recruiter": "tsx src/scripts/seed-recruiter.ts",
+    "migrate:job-posting-enterprises": "tsx src/scripts/migrate-job-posting-enterprises.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",

@@ -60,6 +60,13 @@ export class EnterprisesRepository {
     }).exec();
   }
 
+  async findByRecruiterId(recruiterId: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
+    return Enterprise.findOne({
+      is_deleted: false,
+      $or: [{ creator_account_id: recruiterId }, { recruiter_ids: recruiterId }],
+    }).exec();
+  }
+
   async findPage(
     params: FindEnterprisesParams,
     isAdmin = false,

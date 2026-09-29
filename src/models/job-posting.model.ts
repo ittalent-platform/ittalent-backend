@@ -5,6 +5,7 @@ export const jobPostingStatuses = ['draft', 'published', 'archived'] as const;
 export type JobPostingStatus = (typeof jobPostingStatuses)[number];
 
 export interface JobPostingData {
+  enterprise_id: Types.ObjectId;
   posted_by_user_id: Types.ObjectId;
   title: string;
   slug: string;
@@ -26,6 +27,7 @@ export interface JobPostingData {
 
 const jobPostingSchema = new Schema<JobPostingData>(
   {
+    enterprise_id: { type: Schema.Types.ObjectId, ref: 'Enterprise', required: true, index: true },
     posted_by_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     title: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, index: true },
@@ -48,6 +50,7 @@ const jobPostingSchema = new Schema<JobPostingData>(
 );
 
 jobPostingSchema.index({ status: 1, createdAt: -1 });
+jobPostingSchema.index({ enterprise_id: 1, status: 1, createdAt: -1 });
 jobPostingSchema.index({ title: 'text', location: 'text' });
 
 export const JobPosting = model<JobPostingData>('JobPosting', jobPostingSchema);
