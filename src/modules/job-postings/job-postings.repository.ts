@@ -1,4 +1,7 @@
+import { Application } from '../../models/application.model.js';
+import { Types } from 'mongoose';
 import { Enterprise } from '../../models/enterprise.model.js';
+import { JobPostingAuditEvent, type JobPostingAuditEventData } from '../../models/job-posting-audit.model.js';
 import {
   JobPosting,
   type JobPostingData,
@@ -12,18 +15,24 @@ import type {
 } from './job-postings.schemas.js';
 
 export class JobPostingsRepository {
+  // Creating always publishes (Sprint 1 has no Draft choice); `expiresAt` is the already-normalised deadline.
   async create(
     userId: string,
     enterpriseId: string,
     input: CreateJobPosting,
     slug: string,
+    expiresAt: Date,
   ): Promise<JobPostingDoc> {
+    const rest = this.withoutDeadline(input);
     return new JobPosting({
       enterprise_id: enterpriseId,
       posted_by_user_id: userId,
-      title: input.title,
       slug,
-      ...this.fields(input),
+      ...this.fields(rest),
+      // Saving always publishes (no Draft in Sprint 1).
+      status: 'published',
+      published_at: new Date(),
+      expires_at: expiresAt,
     }).save();
   }
   async findById(id: string): Promise<JobPostingDoc | null> {
@@ -84,20 +93,63 @@ export class JobPostingsRepository {
       .exec();
     return jobs.map((job) => String(job._id));
   }
-  // A job accepts applications only while it is Published and not past its expiry date.
+  // A job accepts applications only while it is Published, not being deleted, before its deadline and
+  // owned by an Active enterprise.
   async findOpenPublishedById(
     id: string,
     now: Date,
   ): Promise<JobPostingDoc | null> {
-    return JobPosting.findOne({
+    const job = await JobPosting.findOne({
       _id: id,
       status: 'published',
+      deleting: { $ne: true },
       $or: [
         { expires_at: { $exists: false } },
         { expires_at: null },
         { expires_at: { $gt: now } },
       ],
     }).exec();
+    if (!job) return null;
+    return (await this.isEnterpriseActive(String(job.enterprise_id))) ? job : null;
+  }
+  async isEnterpriseActive(enterpriseId: string): Promise<boolean> {
+    return (await Enterprise.exists({ _id: enterpriseId, status: 'active', is_deleted: { $ne: true } }).exec()) !== null;
+  }
+  async findActiveEnterpriseIds(): Promise<string[]> {
+    const rows = await Enterprise.find({ status: 'active', is_deleted: { $ne: true } }, { _id: 1 }).lean().exec();
+    return rows.map((row) => String(row._id));
+  }
+  async exists(id: string): Promise<boolean> {
+    return (await JobPosting.exists({ _id: id }).exec()) !== null;
+  }
+  // Atomically flags the job as being deleted so no application can be accepted while the count is checked.
+  async markDeleting(id: string): Promise<JobPostingDoc | null> {
+    return JobPosting.findOneAndUpdate(
+      { _id: id, deleting: { $ne: true } },
+      { $set: { deleting: true } },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+  async clearDeleting(id: string): Promise<void> {
+    await JobPosting.updateOne({ _id: id }, { $unset: { deleting: 1 } }).exec();
+  }
+  async hasApplications(id: string): Promise<boolean> {
+    return (await Application.exists({ job_id: id }).exec()) !== null;
+  }
+  async countApplicationsByJobIds(ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const rows = await Application.aggregate<{ _id: unknown; count: number }>([
+      { $match: { job_id: { $in: ids.map((id) => new Types.ObjectId(id)) } } },
+      { $group: { _id: '$job_id', count: { $sum: 1 } } },
+    ]).exec();
+    return new Map(rows.map((row) => [String(row._id), row.count]));
+  }
+  async recordAudit(event: JobPostingAuditEventData): Promise<void> {
+    await JobPostingAuditEvent.create(event);
+  }
+  // Puts back a job removed by a delete whose audit record could not be written.
+  async restore(snapshot: Record<string, unknown>): Promise<void> {
+    await JobPosting.replaceOne({ _id: snapshot._id }, snapshot, { upsert: true }).exec();
   }
   async findBySlug(
     slug: string,
@@ -112,12 +164,14 @@ export class JobPostingsRepository {
     id: string,
     input: UpdateJobPosting,
     slug?: string,
+    expiresAt?: Date,
   ): Promise<JobPostingDoc | null> {
     const unset = this.clearFields(input);
+    const rest = this.withoutDeadline(input);
     return JobPosting.findByIdAndUpdate(
       id,
       {
-        $set: { ...this.fields(input), ...(slug ? { slug } : {}) },
+        $set: { ...this.fields(rest), ...(slug ? { slug } : {}), ...(expiresAt ? { expires_at: expiresAt } : {}) },
         ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
       },
       { returnDocument: 'after' },
@@ -128,11 +182,17 @@ export class JobPostingsRepository {
   }
   async list(
     query: JobPostingListQuery,
-    options: { publicOnly: boolean; enterpriseId?: string },
+    options: { publicOnly: boolean; enterpriseId?: string; activeEnterpriseIds?: string[] },
   ): Promise<{ items: JobPostingDoc[]; total: number }> {
     const filter: Record<string, unknown> = {
-      ...(options.publicOnly ? { status: 'published' } : {}),
-      ...(query.status && !options.publicOnly ? { status: query.status } : {}),
+      ...(options.publicOnly
+        ? {
+            status: 'published',
+            deleting: { $ne: true },
+            enterprise_id: { $in: options.activeEnterpriseIds ?? [] },
+            $and: [{ $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: new Date() } }] }],
+          }
+        : {}),
       ...(options.enterpriseId ? { enterprise_id: options.enterpriseId } : {}),
       ...(query.location
         ? {
@@ -170,8 +230,14 @@ export class JobPostingsRepository {
     ]);
     return { items, total };
   }
+  // The deadline is stored as an instant, so callers pass it separately after normalising it.
+  private withoutDeadline<T extends { expires_at?: unknown }>(input: T): Omit<T, 'expires_at'> {
+    const copy = { ...input };
+    delete copy.expires_at;
+    return copy;
+  }
   private fields(
-    input: CreateJobPosting | UpdateJobPosting,
+    input: Omit<CreateJobPosting | UpdateJobPosting, 'expires_at'>,
   ): Partial<JobPostingData> {
     const result: Partial<JobPostingData> = {};
     if (input.title !== undefined) result.title = input.title;
@@ -195,33 +261,14 @@ export class JobPostingsRepository {
       result.benefits = input.benefits;
     if (input.openings !== undefined && input.openings !== null)
       result.openings = input.openings;
-    if (input.status !== undefined) result.status = input.status;
-    if (input.expires_at !== undefined && input.expires_at !== null)
-      result.expires_at = new Date(input.expires_at);
-    if (input.status === 'published') result.published_at = new Date();
-    if (input.status === 'archived') result.archived_at = new Date();
     return result;
   }
-  private clearFields(input: UpdateJobPosting): Partial<Record<
-    'location' | 'employment_type' | 'salary_min' | 'salary_max' | 'level' |
-    'description' | 'requirements' | 'benefits' | 'openings' | 'expires_at',
-    1
-  >> {
-    const result: Partial<Record<
-      'location' | 'employment_type' | 'salary_min' | 'salary_max' | 'level' |
-      'description' | 'requirements' | 'benefits' | 'openings' | 'expires_at',
-      1
-    >> = {};
-    if (input.location === null) result.location = 1;
-    if (input.employment_type === null) result.employment_type = 1;
+  private clearFields(input: UpdateJobPosting): Partial<Record<'salary_min' | 'salary_max' | 'level' | 'openings', 1>> {
+    const result: Partial<Record<'salary_min' | 'salary_max' | 'level' | 'openings', 1>> = {};
     if (input.salary_min === null) result.salary_min = 1;
     if (input.salary_max === null) result.salary_max = 1;
     if (input.level === null) result.level = 1;
-    if (input.description === null) result.description = 1;
-    if (input.requirements === null) result.requirements = 1;
-    if (input.benefits === null) result.benefits = 1;
     if (input.openings === null) result.openings = 1;
-    if (input.expires_at === null) result.expires_at = 1;
     return result;
   }
 }

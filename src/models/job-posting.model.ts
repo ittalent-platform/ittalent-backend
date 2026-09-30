@@ -24,6 +24,8 @@ export interface JobPostingData {
   published_at?: Date;
   archived_at?: Date;
   expires_at?: Date;
+  /** Set while a delete is being checked, so no application can be accepted meanwhile. */
+  deleting?: boolean;
 }
 
 const jobPostingSchema = new Schema<JobPostingData>(
@@ -47,6 +49,7 @@ const jobPostingSchema = new Schema<JobPostingData>(
     published_at: { type: Date },
     archived_at: { type: Date },
     expires_at: { type: Date },
+    deleting: { type: Boolean },
   },
   { timestamps: true, collection: 'job_postings' },
 );
