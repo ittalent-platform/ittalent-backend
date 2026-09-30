@@ -155,6 +155,10 @@ export const enterpriseSummarySchema = z.object({
   techStack: z.array(z.string()).default([]),
   openRoleCount: z.number().default(0),
   status: z.string(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  creatorAccountId: z.string().nullable().optional(),
 });
 
 export type EnterpriseSummaryDTO = z.infer<typeof enterpriseSummarySchema>;

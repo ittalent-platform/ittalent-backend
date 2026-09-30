@@ -11,6 +11,7 @@ describe('UsersController', () => {
   beforeEach(() => {
     mockService = {
       getUserById: vi.fn(),
+      listUsers: vi.fn(),
     };
     controller = new UsersController(mockService as UsersService);
   });
@@ -62,6 +63,35 @@ describe('UsersController', () => {
       const next = vi.fn();
 
       await controller.getUserById(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('listUsers', () => {
+    it('returns 200 with the requested page', async () => {
+      const page = { items: [], page: 1, limit: 20, total: 0, totalPages: 0 };
+      mockService.listUsers = vi.fn().mockResolvedValue(page);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const query = { page: 1, limit: 20, search: 'ann' };
+      const res = { status, locals: { validated: { query } } } as never;
+      const next = vi.fn();
+
+      await controller.listUsers({} as never, res, next);
+
+      expect(mockService.listUsers).toHaveBeenCalledWith(query);
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(page);
+    });
+
+    it('forwards errors to next', async () => {
+      const error = new Error('down');
+      mockService.listUsers = vi.fn().mockRejectedValue(error);
+      const res = { status: vi.fn(), locals: { validated: { query: { page: 1, limit: 20 } } } } as never;
+      const next = vi.fn();
+
+      await controller.listUsers({} as never, res, next);
 
       expect(next).toHaveBeenCalledWith(error);
     });

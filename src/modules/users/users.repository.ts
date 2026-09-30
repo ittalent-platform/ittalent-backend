@@ -1,6 +1,8 @@
-import type { Types } from 'mongoose';
+import type { QueryFilter, Types } from 'mongoose';
 
-import { User, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import { USER_SORT_COLUMNS } from './users.constants.js';
+import type { UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
   email: string;
@@ -9,7 +11,48 @@ export interface CreateUserData {
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
+// Allow-list of fields an administrator may read; credentials and tokens live in other collections.
+const ADMIN_USER_FIELDS = 'email username role status email_verified enterprise_id createdAt updatedAt';
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class UsersRepository {
+  async findPage(query: UserListQuery): Promise<{ items: UserDoc[]; total: number }> {
+    const filter: QueryFilter<UserData> = {};
+
+    if (query.role) {
+      filter.role = query.role;
+    }
+    if (query.status) {
+      filter.status = query.status;
+    }
+    if (query.emailVerified !== undefined) {
+      // Accounts created before the field existed have no value and count as not verified.
+      filter.email_verified = query.emailVerified ? true : { $ne: true };
+    }
+    if (query.search) {
+      const pattern = new RegExp(escapeRegex(query.search), 'i');
+      filter.$or = [{ username: pattern }, { email: pattern }];
+    }
+
+    const direction = query.sortOrder === 'asc' ? 1 : -1;
+
+    const [items, total] = await Promise.all([
+      User.find(filter)
+        .select(ADMIN_USER_FIELDS)
+        .sort({ [USER_SORT_COLUMNS[query.sortBy]]: direction, _id: direction })
+        .collation({ locale: 'en', strength: 2 })
+        .skip((query.page - 1) * query.limit)
+        .limit(query.limit)
+        .exec(),
+      User.countDocuments(filter).exec(),
+    ]);
+
+    return { items, total };
+  }
+
   async findById(id: string): Promise<UserDoc | null> {
     return User.findById(id).exec();
   }
@@ -46,6 +89,15 @@ export class UsersRepository {
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
     return user.save();
+  }
+
+  // Email verification activates the account and records the verified address (UC-AUTH verify / reset).
+  async markEmailVerified(id: Types.ObjectId | string): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: { status: 'active', email_verified: true } },
+      { returnDocument: 'after' },
+    ).exec();
   }
 
   async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {

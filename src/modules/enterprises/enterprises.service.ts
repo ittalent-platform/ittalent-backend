@@ -41,6 +41,10 @@ export class EnterprisesService {
       techStack: enterprise.tech_stack ?? [],
       openRoleCount,
       status: enterprise.status,
+      email: enterprise.email ?? null,
+      phone: enterprise.phone ?? null,
+      createdAt: enterprise.createdAt ? enterprise.createdAt.toISOString() : null,
+      creatorAccountId: enterprise.creator_account_id ? String(enterprise.creator_account_id) : null,
     };
   }
 
