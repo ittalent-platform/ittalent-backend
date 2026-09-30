@@ -7,6 +7,13 @@ export const documentUploadSchema = z.object({
   type: z.enum(documentTypes),
 });
 
+export const documentUploadRequestSchema = documentUploadSchema.extend({
+  file: z.string().openapi({
+    format: 'binary',
+    description: 'PDF, DOC, or DOCX file up to 5 MB',
+  }),
+});
+
 export const documentListQuerySchema = z.object({
   type: z.enum(documentTypes).optional(),
   page: z.coerce.number().int().min(1).default(PAGINATION.DEFAULT_PAGE),
@@ -25,6 +32,15 @@ export const documentResponseSchema = z.object({
   createdAt: z.string(),
 });
 
+export const paginatedDocumentsSchema = z.object({
+  items: z.array(documentResponseSchema),
+  page: z.number().int(),
+  limit: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+});
+
 export type DocumentUpload = z.infer<typeof documentUploadSchema>;
 export type DocumentListQuery = z.infer<typeof documentListQuerySchema>;
 export type DocumentResponse = z.infer<typeof documentResponseSchema>;
+export type PaginatedDocuments = z.infer<typeof paginatedDocumentsSchema>;

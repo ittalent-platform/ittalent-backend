@@ -26,20 +26,23 @@ function application(status: ApplicationStatus, id = '507f1f77bcf86cd7994390aa')
 }
 
 describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
-  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
   let service: ApplicationsService;
+  let stillExists: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    stillExists = vi.fn().mockResolvedValue(true);
     repository = {
       findLatestByJobAndApplicant: vi.fn().mockResolvedValue(null),
       countByJobAndApplicant: vi.fn().mockResolvedValue(1),
       countHiredByJobId: vi.fn().mockResolvedValue(0),
+      deleteById: vi.fn().mockResolvedValue(undefined),
       create: vi.fn().mockImplementation(async (data: { reappliedFrom?: string }) => ({ ...application('submitted', '507f1f77bcf86cd7994390bb'), ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}) })),
     };
     service = new ApplicationsService(
       repository as unknown as ApplicationsRepository,
       { findById: vi.fn().mockResolvedValue({ email: 'a@example.com', status: 'active' }) } as unknown as UsersService,
-      { findPublicJobById: vi.fn().mockResolvedValue({ _id: jobId, title: 'Engineer', openings: 3 }) } as unknown as JobPostingsService,
+      { findPublicJobById: vi.fn().mockResolvedValue({ _id: jobId, title: 'Engineer', openings: 3 }), stillExists } as unknown as JobPostingsService,
       { findOwnedByType: vi.fn().mockResolvedValue({ _id: cvId }) } as unknown as DocumentsService,
     );
   });
@@ -48,6 +51,12 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
     const result = await service.applyToJob(userId, body);
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ reappliedFrom: undefined }));
     expect(result).toMatchObject({ status: 'submitted', reappliedFrom: null, reappliedAs: null });
+  });
+
+  it('drops the saved application and reports the job unavailable when the job was deleted meanwhile (UC-JOB-03.EX.3)', async () => {
+    stillExists.mockResolvedValue(false);
+    await expect(service.applyToJob(userId, body)).rejects.toMatchObject({ statusCode: 404, code: APPLICATION_ERROR_CODES.JOB_UNAVAILABLE });
+    expect(repository.deleteById).toHaveBeenCalledWith('507f1f77bcf86cd7994390bb');
   });
 
   it.each(['submitted', 'under_review', 'interviewing', 'offered'] as const)('rejects a duplicate while the latest is %s', async (status) => {

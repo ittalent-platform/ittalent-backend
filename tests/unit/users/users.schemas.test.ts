@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
+import { updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
 
 describe('userListQuerySchema (UC-USER-01)', () => {
   it('applies the shared pagination defaults', () => {
@@ -50,5 +50,15 @@ describe('userListQuerySchema (UC-USER-01)', () => {
 
   it('accepts a search of exactly 100 characters', () => {
     expect(userListQuerySchema.safeParse({ search: 'a'.repeat(100) }).success).toBe(true);
+  });
+});
+
+describe('updateUserBodySchema', () => {
+  it('accepts the editable fields and normalizes the phone number', () => {
+    expect(updateUserBodySchema.parse({ fullName: '  Mai Dương ', phone: '0901 234 567', role: 'admin' })).toEqual({ fullName: 'Mai Dương', phone: '0901234567', role: 'admin' });
+  });
+
+  it('allows null to clear a phone number', () => {
+    expect(updateUserBodySchema.parse({ phone: null })).toEqual({ phone: null });
   });
 });

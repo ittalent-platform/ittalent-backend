@@ -9,6 +9,7 @@ import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { disconnectRedis } from '../../src/config/redis.js';
 import { Application } from '../../src/models/application.model.js';
 import { Document } from '../../src/models/document.model.js';
+import { Enterprise } from '../../src/models/enterprise.model.js';
 import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
@@ -21,12 +22,13 @@ let token: string;
 let userId: Types.ObjectId;
 let cvA: Types.ObjectId;
 let cvB: Types.ObjectId;
+let enterpriseId: Types.ObjectId;
 
 const bearer = () => ({ authorization: `Bearer ${token}`, 'content-type': 'application/json' });
 
 async function newJob(): Promise<string> {
   const job = await JobPosting.create({
-    enterprise_id: new Types.ObjectId(), posted_by_user_id: new Types.ObjectId(), title: 'Frontend Engineer', slug: `job-${new Types.ObjectId()}`,
+    enterprise_id: enterpriseId, posted_by_user_id: new Types.ObjectId(), title: 'Frontend Engineer', slug: `job-${new Types.ObjectId()}`,
     status: 'published', openings: 5, expires_at: new Date(Date.now() + 86_400_000),
   });
   return String(job._id);
@@ -50,6 +52,12 @@ describe('Applications: one active application per job, apply again as a new rec
     await connectDatabase();
     await Application.syncIndexes();
     userId = new Types.ObjectId();
+    // A job accepts applications only while its enterprise is Active (UC-BJOB-03 precondition 4).
+    enterpriseId = (await Enterprise.create({
+      name: 'Applications Test Enterprise', tax_code: '9100000001', email: `apps-${userId}@example.test`, phone: '+84900000099',
+      industry: 'Information Technology', company_size: '1-10', address: { street: 'A Street', city: 'Ha Noi', country: 'Vietnam' },
+      status: 'active', creator_account_id: userId, is_deleted: false,
+    }))._id;
     await User.create({ _id: userId, email: `applicant-${userId}@example.test`, username: `applicant_${userId}`, role: 'user', status: 'active' });
     cvA = (await Document.create({ owner_id: userId, type: 'cv', file_url: 'https://example.test/a.pdf', storage_key: 'a', file_name: 'a.pdf', mime_type: 'application/pdf', size: 10 }))._id;
     cvB = (await Document.create({ owner_id: userId, type: 'cv', file_url: 'https://example.test/b.pdf', storage_key: 'b', file_name: 'b.pdf', mime_type: 'application/pdf', size: 10 }))._id;
@@ -61,6 +69,7 @@ describe('Applications: one active application per job, apply again as a new rec
     await Application.deleteMany({ applicant_id: userId });
     await Document.deleteMany({ owner_id: userId });
     await User.deleteOne({ _id: userId });
+    await Enterprise.deleteOne({ _id: enterpriseId });
     await new Promise<void>((resolve) => { server.close(() => resolve()); });
     await disconnectRedis();
     await disconnectDatabase();
