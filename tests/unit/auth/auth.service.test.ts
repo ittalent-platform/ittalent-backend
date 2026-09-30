@@ -40,6 +40,8 @@ describe('AuthService', () => {
         id: String(user._id),
         email: user.email,
         username: user.username,
+        fullName: user.full_name ?? null,
+        phone: user.phone ?? null,
         role: user.role,
         status: user.status,
         emailVerified: user.email_verified === true,

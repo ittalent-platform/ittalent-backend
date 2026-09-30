@@ -12,6 +12,8 @@ export interface UserData {
   username: string;
   role?: UserRole;
   status?: UserStatus;
+  full_name?: string;
+  phone?: string;
   email_verified?: boolean;
   enterprise_id?: Types.ObjectId | null | undefined;
 }
@@ -45,6 +47,15 @@ const userSchema = new Schema<UserData>(
       enum: userStatuses,
       default: 'active',
       index: true,
+    },
+    // Personal details are optional: accounts created by sign-up only have an email and a username.
+    full_name: {
+      type: String,
+      trim: true,
+    },
+    phone: {
+      type: String,
+      trim: true,
     },
     email_verified: {
       type: Boolean,

@@ -12,6 +12,7 @@ describe('UsersController', () => {
     mockService = {
       getUserById: vi.fn(),
       listUsers: vi.fn(),
+      updateUser: vi.fn(),
     };
     controller = new UsersController(mockService as UsersService);
   });
@@ -92,6 +93,36 @@ describe('UsersController', () => {
       const next = vi.fn();
 
       await controller.listUsers({} as never, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
+
+  describe('updateUser', () => {
+    it('updates as the signed-in administrator and returns 200', async () => {
+      const updated = { id: '507f1f77bcf86cd799439011', fullName: 'Mai Dương' };
+      mockService.updateUser = vi.fn().mockResolvedValue(updated);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const res = {
+        status,
+        locals: { validated: { params: { id: '507f1f77bcf86cd799439011' }, body: { fullName: 'Mai Dương' } } },
+      } as never;
+
+      await controller.updateUser({ user: { id: 'admin-1' } } as never, res, vi.fn());
+
+      expect(mockService.updateUser).toHaveBeenCalledWith('admin-1', '507f1f77bcf86cd799439011', { fullName: 'Mai Dương' });
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(updated);
+    });
+
+    it('forwards errors to next', async () => {
+      const error = new Error('down');
+      mockService.updateUser = vi.fn().mockRejectedValue(error);
+      const res = { status: vi.fn(), locals: { validated: { params: { id: 'x' }, body: {} } } } as never;
+      const next = vi.fn();
+
+      await controller.updateUser({ user: { id: 'admin-1' } } as never, res, next);
 
       expect(next).toHaveBeenCalledWith(error);
     });

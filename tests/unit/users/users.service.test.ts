@@ -19,6 +19,7 @@ describe('UsersService', () => {
       createUser: vi.fn(),
       findRecruitersByEnterpriseId: vi.fn(),
       findPage: vi.fn(),
+      updateProfile: vi.fn(),
     };
     usersService = new UsersService(mockRepo as UsersRepository);
   });
@@ -137,6 +138,8 @@ describe('UsersService', () => {
             email: 'a@example.com',
             username: 'alice',
             role: 'user',
+            fullName: null,
+            phone: null,
             status: 'active',
             emailVerified: false,
             enterpriseId: null,
@@ -220,6 +223,85 @@ describe('UsersService', () => {
       mockRepo.findById = vi.fn().mockRejectedValue(createHttpError(418, 'teapot'));
 
       await expect(usersService.getUserById('507f1f77bcf86cd799439011')).rejects.toMatchObject({ statusCode: 418 });
+    });
+  });
+
+  describe('personal details', () => {
+    const doc = (over: Record<string, unknown> = {}) => {
+      const base = { _id: 'user-id-1', email: 'a@example.com', username: 'alice', role: 'user', status: 'active', ...over };
+      return { ...base, toObject: () => ({ ...base, createdAt: new Date('2026-09-01T00:00:00.000Z') }) };
+    };
+
+    it('reports the full name and phone, or null when there are none', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValueOnce(doc({ full_name: 'Mai Dương', phone: '0901122334' })).mockResolvedValueOnce(doc());
+
+      await expect(usersService.getUserById('507f1f77bcf86cd799439011')).resolves.toMatchObject({ fullName: 'Mai Dương', phone: '0901122334' });
+      await expect(usersService.getUserById('507f1f77bcf86cd799439011')).resolves.toMatchObject({ fullName: null, phone: null });
+    });
+  });
+
+  describe('updateUser (UC-USER-03)', () => {
+    const doc = (over: Record<string, unknown> = {}) => {
+      const base = { _id: 'target-1', email: 't@example.com', username: 'target', role: 'user', status: 'active', ...over };
+      return { ...base, toObject: () => ({ ...base, createdAt: new Date('2026-09-01T00:00:00.000Z') }) };
+    };
+
+    it('passes only the sent fields to the repository and returns the updated account', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(doc());
+      mockRepo.updateProfile = vi.fn().mockResolvedValue(doc({ full_name: 'Mai Dương', phone: '0901122334' }));
+
+      const result = await usersService.updateUser('admin-1', 'target-1', { fullName: 'Mai Dương', phone: '0901122334' });
+
+      expect(mockRepo.updateProfile).toHaveBeenCalledWith('target-1', { fullName: 'Mai Dương', phone: '0901122334' });
+      expect(result).toMatchObject({ id: 'target-1', fullName: 'Mai Dương', phone: '0901122334' });
+    });
+
+    it('returns 404 when the account does not exist and changes nothing', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(null);
+
+      await expect(usersService.updateUser('admin-1', 'nobody', { fullName: 'Mai Dương' })).rejects.toMatchObject({ statusCode: 404 });
+      expect(mockRepo.updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the account disappears between the check and the update', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(doc());
+      mockRepo.updateProfile = vi.fn().mockResolvedValue(null);
+
+      await expect(usersService.updateUser('admin-1', 'target-1', { fullName: 'Mai Dương' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('refuses to change the administrator’s own role', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(doc({ _id: 'admin-1', role: 'admin' }));
+
+      await expect(usersService.updateUser('admin-1', 'admin-1', { role: 'user' })).rejects.toMatchObject({
+        statusCode: 403,
+        message: "You can't change your own role",
+      });
+      expect(mockRepo.updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('lets administrators edit their own name and phone, and re-send their current role', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(doc({ _id: 'admin-1', role: 'admin' }));
+      mockRepo.updateProfile = vi.fn().mockResolvedValue(doc({ _id: 'admin-1', role: 'admin', full_name: 'Minh Admin' }));
+
+      await expect(usersService.updateUser('admin-1', 'admin-1', { fullName: 'Minh Admin', role: 'admin' })).resolves.toMatchObject({ fullName: 'Minh Admin' });
+    });
+
+    it('lets an administrator change another account’s role', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(doc());
+      mockRepo.updateProfile = vi.fn().mockResolvedValue(doc({ role: 'admin' }));
+
+      await expect(usersService.updateUser('admin-1', 'target-1', { role: 'admin' })).resolves.toMatchObject({ role: 'admin' });
+    });
+
+    it('reports a storage failure as 503 and logs it', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockRepo.findById = vi.fn().mockResolvedValue(doc());
+      mockRepo.updateProfile = vi.fn().mockRejectedValue(new Error('write concern timeout'));
+
+      await expect(usersService.updateUser('admin-1', 'target-1', { fullName: 'Mai Dương' })).rejects.toMatchObject({ statusCode: 503 });
+      expect(spy).toHaveBeenCalledWith('[users:store:error]', expect.any(Error));
+      spy.mockRestore();
     });
   });
 });
