@@ -26,6 +26,16 @@ export class DocumentsRepository {
     }).save();
   }
 
+  // Metadata lookup for documents an application already references (ownership was checked at apply time).
+  async findByIds(ids: string[]): Promise<DocumentDoc[]> {
+    return Document.find({ _id: { $in: ids } }).exec();
+  }
+
+  // Documents are hard-owned by a user (owner_id); type is checked so a CV id cannot be used as a cover letter.
+  async findByIdOwnerAndType(id: string, ownerId: string, type: DocumentType): Promise<DocumentDoc | null> {
+    return Document.findOne({ _id: id, owner_id: ownerId, type }).exec();
+  }
+
   async list(
     ownerId: string | undefined,
     type: DocumentType | undefined,

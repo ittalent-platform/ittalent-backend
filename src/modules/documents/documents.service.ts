@@ -32,6 +32,16 @@ export class DocumentsService {
     return this.map(await this.repository.create(ownerId, type, file));
   }
 
+  // Returns the raw document only if it belongs to `ownerId` and has the expected type.
+  async findOwnedByType(id: string, ownerId: string, type: DocumentType): Promise<DocumentDoc | null> {
+    return this.repository.findByIdOwnerAndType(id, ownerId, type);
+  }
+
+  // Returns the raw documents an application references, for its submitted-attachment metadata.
+  async findByIds(ids: string[]): Promise<DocumentDoc[]> {
+    return ids.length ? this.repository.findByIds(ids) : [];
+  }
+
   async list(ownerId: string | undefined, query: DocumentListQuery): Promise<PaginatedDocuments> {
     const result = await this.repository.list(ownerId, query.type, query.page, query.limit, query.sort_order === 'asc');
     return {

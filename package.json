@@ -18,6 +18,8 @@
     "test:all": "vitest run --fileParallelism=false",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "seed:recruiter": "tsx src/scripts/seed-recruiter.ts",
+    "seed:applications": "tsx src/scripts/seed-applications.ts",
+    "migrate:application-indexes": "tsx src/scripts/sync-application-indexes.ts",
     "migrate:enterprise-recruiters": "tsx src/scripts/migrate-enterprise-recruiters.ts",
     "migrate:job-posting-enterprises": "tsx src/scripts/migrate-job-posting-enterprises.ts"
   },

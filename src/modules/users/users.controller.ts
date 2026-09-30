@@ -1,11 +1,21 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
-import type { UserIdParam } from './users.schemas.js';
+import type { UserIdParam, UserListQuery } from './users.schemas.js';
 import { usersService, type UsersService } from './users.service.js';
 
 export class UsersController {
   constructor(private readonly service: UsersService = usersService) {}
+
+  listUsers = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const query = res.locals.validated?.query as UserListQuery;
+      const result = await this.service.listUsers(query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
 
   getUserById = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
