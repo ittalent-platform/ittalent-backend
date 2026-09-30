@@ -11,7 +11,7 @@ import { Account } from '../../src/models/account.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-const ALLOWED_FIELDS = ['createdAt', 'email', 'enterpriseId', 'id', 'role', 'status', 'updatedAt', 'username'];
+const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'id', 'role', 'status', 'updatedAt', 'username'];
 const PASSWORD_HASH = 'bcrypt-hash-must-never-leave-the-server';
 
 let server: Server;
@@ -20,6 +20,7 @@ let adminToken: string;
 let userToken: string;
 let ownId: Types.ObjectId;
 const marker = `ulist${new Types.ObjectId().toHexString().slice(-8)}`;
+const caseMarker = `ucase${new Types.ObjectId().toHexString().slice(-8)}`;
 const seeded: Types.ObjectId[] = [];
 
 const sign = (role: string, sub: string, options: jwt.SignOptions = { expiresIn: '15m' }) =>
@@ -32,6 +33,7 @@ interface UserBody {
   email: string;
   createdAt: string;
   status: string;
+  emailVerified: boolean;
 }
 interface Body extends Partial<UserBody> {
   items: UserBody[];
@@ -72,11 +74,16 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     adminToken = sign('admin', String(new Types.ObjectId()));
     userToken = sign('user', String(ownId));
 
-    oldest = await seed(`${marker}-a`, { createdAt: new Date('2026-01-01T00:00:00.000Z') });
-    await seed(`${marker}-b`, { createdAt: new Date('2026-02-01T00:00:00.000Z'), role: 'recruiter', status: 'inactive' });
-    await seed(`${marker}-c`, { createdAt: new Date('2026-03-01T00:00:00.000Z'), status: 'blocked' });
-    await seed(`${marker}-d.e`, { createdAt: new Date('2026-04-01T00:00:00.000Z') });
+    oldest = await seed(`${marker}-a`, { createdAt: new Date('2026-01-01T00:00:00.000Z'), email_verified: true });
+    await seed(`${marker}-b`, { createdAt: new Date('2026-02-01T00:00:00.000Z'), role: 'recruiter', status: 'inactive', email_verified: false });
+    await seed(`${marker}-c`, { createdAt: new Date('2026-03-01T00:00:00.000Z'), status: 'blocked', email_verified: false });
+    await seed(`${marker}-d.e`, { createdAt: new Date('2026-04-01T00:00:00.000Z'), email_verified: true });
+    // A legacy account created before the field existed: no email_verified value at all.
     await seed(`${marker}-dxe`, { createdAt: new Date('2026-04-01T00:00:00.000Z') });
+    // Mixed-case names to prove sorting ignores case.
+    await seed(`${caseMarker}-x1`, { createdAt: new Date('2026-05-01T00:00:00.000Z') });
+    await seed(`${caseMarker}-X2`, { createdAt: new Date('2026-05-02T00:00:00.000Z') });
+    await seed(`${caseMarker}-y3`, { createdAt: new Date('2026-05-03T00:00:00.000Z') });
     await Account.create({ user_id: oldest, provider: 'local', password_hash: PASSWORD_HASH });
 
     await new Promise<void>((resolve) => {
@@ -166,6 +173,61 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       expect(pattern.body.items.every((item: { username: string; email: string }) => `${item.username}${item.email}`.includes('.*'))).toBe(true);
     });
 
+    it('reports the email verification state; a legacy account without the field counts as not verified', async () => {
+      const { body } = await get(`?search=${marker}`, adminToken);
+      const byName = Object.fromEntries(body.items.map((item) => [item.username, item.emailVerified]));
+
+      expect(byName).toEqual({
+        [`${marker}-a`]: true,
+        [`${marker}-b`]: false,
+        [`${marker}-c`]: false,
+        [`${marker}-d.e`]: true,
+        [`${marker}-dxe`]: false,
+      });
+    });
+
+    it('filters by email verification state', async () => {
+      const verified = await get(`?search=${marker}&emailVerified=true`, adminToken);
+      const unverified = await get(`?search=${marker}&emailVerified=false`, adminToken);
+
+      expect(verified.body.items.map((item) => item.username).sort()).toEqual([`${marker}-a`, `${marker}-d.e`]);
+      expect(unverified.body.items.map((item) => item.username).sort()).toEqual([`${marker}-b`, `${marker}-c`, `${marker}-dxe`]);
+      expect(verified.body.total + unverified.body.total).toBe(5);
+    });
+
+    it.each([
+      ['username', 'asc', [`${marker}-a`, `${marker}-b`, `${marker}-c`, `${marker}-d.e`, `${marker}-dxe`]],
+      ['username', 'desc', [`${marker}-dxe`, `${marker}-d.e`, `${marker}-c`, `${marker}-b`, `${marker}-a`]],
+      ['email', 'asc', [`${marker}-a`, `${marker}-b`, `${marker}-c`, `${marker}-d.e`, `${marker}-dxe`]],
+      ['createdAt', 'asc', [`${marker}-a`, `${marker}-b`, `${marker}-c`, `${marker}-d.e`, `${marker}-dxe`]],
+    ])('sorts by %s %s', async (sortBy, sortOrder, expected) => {
+      const { body } = await get(`?search=${marker}&sortBy=${sortBy}&sortOrder=${sortOrder}`, adminToken);
+
+      expect(body.items.map((item) => item.username)).toEqual(expected);
+    });
+
+    it('sorts by account id in both directions', async () => {
+      const asc = await get(`?search=${marker}&sortBy=id&sortOrder=asc`, adminToken);
+      const desc = await get(`?search=${marker}&sortBy=id&sortOrder=desc`, adminToken);
+      const ids = asc.body.items.map((item) => item.id);
+
+      expect(ids).toEqual([...ids].sort());
+      expect(desc.body.items.map((item) => item.id)).toEqual([...ids].reverse());
+    });
+
+    it('ignores letter case when sorting text columns', async () => {
+      const asc = await get(`?search=${caseMarker}&sortBy=username&sortOrder=asc`, adminToken);
+
+      expect(asc.body.items.map((item) => item.username)).toEqual([`${caseMarker}-x1`, `${caseMarker}-X2`, `${caseMarker}-y3`]);
+    });
+
+    it('keeps the order stable across pages when sorting', async () => {
+      const first = await get(`?search=${marker}&sortBy=username&sortOrder=asc&limit=2&page=1`, adminToken);
+      const second = await get(`?search=${marker}&sortBy=username&sortOrder=asc&limit=2&page=2`, adminToken);
+
+      expect([...first.body.items, ...second.body.items].map((item) => item.username)).toEqual([`${marker}-a`, `${marker}-b`, `${marker}-c`, `${marker}-d.e`]);
+    });
+
     it('returns an empty page when nothing matches (AC.1)', async () => {
       const { status, body } = await get(`?search=${marker}-does-not-exist`, adminToken);
 
@@ -182,7 +244,10 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       ['search over 100 characters', `?search=${'a'.repeat(101)}`],
       ['unsupported role', '?role=owner'],
       ['unsupported status', '?status=deleted'],
-      ['unsupported key', '?sortBy=email'],
+      ['unsupported sort column', '?sortBy=password_hash'],
+      ['unsupported sort order', '?sortOrder=sideways'],
+      ['non-boolean emailVerified', '?emailVerified=yes'],
+      ['unknown key', '?colour=red'],
     ])('rejects an invalid request: %s (EX.2)', async (_label, query) => {
       const { status, body } = await get(query, adminToken);
 

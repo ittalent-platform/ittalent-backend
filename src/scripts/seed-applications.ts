@@ -86,7 +86,7 @@ export const FOREIGN_APPLICATION_ID = objectIdFromIndex(APPLICATION_ID_OFFSET + 
 async function upsertCandidate(email: string, username: string): Promise<{ _id: mongoose.Types.ObjectId }> {
   const user = await User.findOneAndUpdate(
     { email },
-    { $setOnInsert: { email, username, role: 'user', status: 'active' } },
+    { $setOnInsert: { email, username, role: 'user', status: 'active', email_verified: true } },
     { upsert: true, returnDocument: 'after' },
   );
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, BCRYPT_ROUNDS);

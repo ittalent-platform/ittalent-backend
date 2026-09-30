@@ -34,6 +34,7 @@ describe('AuthService', () => {
       findById: vi.fn(),
       findByEmail: vi.fn(),
       updateStatus: vi.fn(),
+      markEmailVerified: vi.fn(),
       getUserById: vi.fn(),
       mapUserDto: vi.fn((user) => ({
         id: String(user._id),
@@ -41,6 +42,7 @@ describe('AuthService', () => {
         username: user.username,
         role: user.role,
         status: user.status,
+        emailVerified: user.email_verified === true,
         enterpriseId: user.enterprise_id ? String(user.enterprise_id) : null,
       })),
       blockExpiredInactiveUsers: vi.fn(),
@@ -437,12 +439,12 @@ describe('AuthService', () => {
         expires_at: new Date(Date.now() + 60000),
       } as never);
       mockAuthRepo.markTokenUsed = vi.fn().mockResolvedValue(undefined);
-      mockUserService.updateStatus = vi.fn().mockResolvedValue({} as never);
+      mockUserService.markEmailVerified = vi.fn().mockResolvedValue({} as never);
 
       const result = await authService.verifyEmail('valid-token');
       expect(result).toEqual({ stage: 'success' });
       expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-1');
-      expect(mockUserService.updateStatus).toHaveBeenCalledWith('user-1', 'active');
+      expect(mockUserService.markEmailVerified).toHaveBeenCalledWith('user-1');
     });
   });
 
@@ -630,13 +632,13 @@ describe('AuthService', () => {
         _id: 'user-1',
         status: 'inactive',
       } as never);
-      mockUserService.updateStatus = vi.fn().mockResolvedValue({} as never);
+      mockUserService.markEmailVerified = vi.fn().mockResolvedValue({} as never);
 
       const result = await authService.resetPassword({ token: 'valid-token', newPassword: 'newpassword123' });
 
       expect(result.success).toBe(true);
       expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
-      expect(mockUserService.updateStatus).toHaveBeenCalledWith('user-1', 'active');
+      expect(mockUserService.markEmailVerified).toHaveBeenCalledWith('user-1');
       expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-1');
     });
   });

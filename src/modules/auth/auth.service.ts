@@ -168,7 +168,7 @@ export class AuthService {
     }
 
     await this.repository.markTokenUsed(tokenDoc._id);
-    await this.userService.updateStatus(String(tokenDoc.user_id), 'active');
+    await this.userService.markEmailVerified(String(tokenDoc.user_id));
 
     return { stage: 'success' };
   }
@@ -335,7 +335,7 @@ export class AuthService {
 
     const user = await this.userService.findById(tokenDoc.user_id);
     if (user && user.status === 'inactive') {
-      await this.userService.updateStatus(String(tokenDoc.user_id), 'active');
+      await this.userService.markEmailVerified(String(tokenDoc.user_id));
     }
 
     await this.repository.markTokenUsed(tokenDoc._id);
