@@ -278,6 +278,22 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     });
   });
 
+  describe('OpenAPI', () => {
+    it('documents the user shape, including emailVerified, once for every endpoint that returns a user', async () => {
+      const response = await fetch(`${baseUrl}/openapi.json`);
+      const spec = (await response.json()) as {
+        components: { schemas: Record<string, { properties?: Record<string, unknown>; required?: string[] }> };
+        paths: Record<string, { get?: { parameters?: { name: string }[] } }>;
+      };
+      const user = spec.components.schemas['UserDTO'];
+
+      expect(Object.keys(user?.properties ?? {}).sort()).toEqual(ALLOWED_FIELDS);
+      expect(user?.required).toContain('emailVerified');
+      const parameters = spec.paths['/api/v1/users']?.get?.parameters?.map((parameter) => parameter.name) ?? [];
+      expect(parameters).toEqual(expect.arrayContaining(['search', 'role', 'status', 'emailVerified', 'sortBy', 'sortOrder']));
+    });
+  });
+
   describe('detail', () => {
     it('returns the allowed fields only, without credentials', async () => {
       const { status, body } = await get(`/${oldest}`, adminToken);
