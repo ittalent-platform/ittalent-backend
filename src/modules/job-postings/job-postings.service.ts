@@ -35,6 +35,8 @@ export class JobPostingsService {
   async findIdsByKeyword(keyword: string): Promise<string[]> { return this.repository.findIdsByKeyword(keyword); }
   // Returns the job only when it is Published and still open for applications.
   async findPublicJobById(id: string): Promise<JobPostingDoc | null> { return this.repository.findOpenPublishedById(id, new Date()); }
+  // Public detail: 404 unless the job is Published and not past its expiry date.
+  async getPublicById(id: string): Promise<JobPostingResponse> { const job = await this.findPublicJobById(id); if (!job) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'Job posting not found'); return this.map(job); }
   async listPublic(query: JobPostingListQuery): Promise<PaginatedJobPostings> { return this.list(query, { publicOnly: true }); }
   async listAdmin(query: JobPostingListQuery): Promise<PaginatedJobPostings> { return this.list(query, { publicOnly: false }); }
   async listRecruiter(recruiterId: string, query: JobPostingListQuery): Promise<PaginatedJobPostings> { return this.list(query, { publicOnly: false, enterpriseId: await this.getRecruiterEnterpriseId(recruiterId) }); }

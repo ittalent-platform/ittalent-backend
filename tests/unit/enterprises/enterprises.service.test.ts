@@ -355,6 +355,9 @@ describe('EnterprisesService', () => {
         items: [mockEnterpriseDoc as EnterpriseDoc],
         total: 1,
       });
+      mockRepo.countOpenRolesByEnterpriseIds = vi
+        .fn()
+        .mockResolvedValue(new Map([[sampleEnterpriseId.toString(), 3]]));
 
       const result = await service.listEnterprises({ page: 1, limit: 10 });
 
@@ -362,6 +365,7 @@ describe('EnterprisesService', () => {
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
       expect(result.items[0]?.name).toBe('Tech Alpha Inc');
+      expect(mockRepo.countOpenRolesByEnterpriseIds).toHaveBeenCalledWith([sampleEnterpriseId.toString()]);
     });
 
     it('passes isAdmin true when role is admin', async () => {
@@ -369,6 +373,7 @@ describe('EnterprisesService', () => {
         items: [mockEnterpriseDoc as EnterpriseDoc],
         total: 1,
       });
+      mockRepo.countOpenRolesByEnterpriseIds = vi.fn().mockResolvedValue(new Map());
 
       await service.listEnterprises({ page: 1, limit: 10, status: 'pending' }, 'admin');
 

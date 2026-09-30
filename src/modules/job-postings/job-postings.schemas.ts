@@ -45,6 +45,7 @@ export const jobPostingListQuerySchema = z.object({
   location: z.string().trim().min(1).max(LOCATION_MAX_LENGTH).optional(),
   employment_type: z.string().trim().min(1).max(SHORT_TEXT_MAX_LENGTH).optional(),
   level: z.string().trim().min(1).max(SHORT_TEXT_MAX_LENGTH).optional(),
+  enterprise_id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid enterprise ID').optional(),
   sort_by: z.enum(['created_at', 'title', 'expires_at']).default('created_at'),
   sort_order: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(PAGINATION.DEFAULT_PAGE),

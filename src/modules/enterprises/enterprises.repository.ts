@@ -7,6 +7,7 @@ import {
   type EnterpriseDoc,
   type EnterpriseStatus,
 } from '../../models/enterprise.model.js';
+import { JobPosting } from '../../models/job-posting.model.js';
 import { PUBLIC_ENTERPRISE_STATUS } from './enterprises.constants.js';
 
 export interface FindEnterprisesParams {
@@ -158,6 +159,25 @@ export class EnterprisesRepository {
       },
       { returnDocument: 'after' },
     ).exec();
+  }
+
+  // Published, not-yet-expired job postings per enterprise, for the public company list.
+  async countOpenRolesByEnterpriseIds(ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const now = new Date();
+    const rows = await JobPosting.aggregate<{ _id: mongoose.Types.ObjectId; count: number }>([
+      {
+        $match: {
+          enterprise_id: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
+          status: 'published',
+          $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
+        },
+      },
+      { $group: { _id: '$enterprise_id', count: { $sum: 1 } } },
+    ]).exec();
+    return new Map(rows.map((row) => [String(row._id), row.count]));
   }
 
   async countActiveJobs(enterpriseId: string | Types.ObjectId): Promise<number> {

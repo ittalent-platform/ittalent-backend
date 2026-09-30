@@ -2,6 +2,11 @@ import { Enterprise } from '../../models/enterprise.model.js';
 import { JobPosting, type JobPostingData, type JobPostingDoc } from '../../models/job-posting.model.js';
 import type { CreateJobPosting, JobPostingListQuery, UpdateJobPosting } from './job-postings.schemas.js';
 
+// Not past its expiry date: no expiry set, or expiry still in the future.
+const notExpired = (now: Date): Record<string, unknown> => ({
+  $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
+});
+
 export class JobPostingsRepository {
   async create(userId: string, enterpriseId: string, input: CreateJobPosting, slug: string): Promise<JobPostingDoc> {
     return new JobPosting({ enterprise_id: enterpriseId, posted_by_user_id: userId, title: input.title, slug, ...this.fields(input) }).save();
@@ -22,18 +27,18 @@ export class JobPostingsRepository {
   }
   // A job accepts applications only while it is Published and not past its expiry date.
   async findOpenPublishedById(id: string, now: Date): Promise<JobPostingDoc | null> {
-    return JobPosting.findOne({
-      _id: id,
-      status: 'published',
-      $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
-    }).exec();
+    return JobPosting.findOne({ _id: id, status: 'published', ...notExpired(now) }).exec();
   }
   async findBySlug(slug: string, exceptId?: string): Promise<JobPostingDoc | null> { return JobPosting.findOne({ slug, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).exec(); }
   async update(id: string, input: UpdateJobPosting, slug?: string): Promise<JobPostingDoc | null> { return JobPosting.findByIdAndUpdate(id, { $set: { ...this.fields(input), ...(slug ? { slug } : {}) } }, { returnDocument: 'after' }).exec(); }
   async delete(id: string): Promise<boolean> { return (await JobPosting.deleteOne({ _id: id }).exec()).deletedCount === 1; }
   async list(query: JobPostingListQuery, options: { publicOnly: boolean; enterpriseId?: string }): Promise<{ items: JobPostingDoc[]; total: number }> {
-    const filter: Record<string, unknown> = { ...(options.publicOnly ? { status: 'published' } : {}), ...(query.status && !options.publicOnly ? { status: query.status } : {}), ...(options.enterpriseId ? { enterprise_id: options.enterpriseId } : {}), ...(query.location ? { location: new RegExp(query.location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } : {}), ...(query.employment_type ? { employment_type: query.employment_type } : {}), ...(query.level ? { level: query.level } : {}) };
+    // A recruiter is locked to their own enterprise; everyone else may narrow by the enterprise_id query.
+    const enterpriseId = options.enterpriseId ?? query.enterprise_id;
+    const filter: Record<string, unknown> = { ...(options.publicOnly ? { status: 'published' } : {}), ...(query.status && !options.publicOnly ? { status: query.status } : {}), ...(enterpriseId ? { enterprise_id: enterpriseId } : {}), ...(query.location ? { location: new RegExp(query.location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } : {}), ...(query.employment_type ? { employment_type: query.employment_type } : {}), ...(query.level ? { level: query.level } : {}) };
     if (query.search) { const pattern = new RegExp(query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); filter.$or = [{ title: pattern }, { description: pattern }, { location: pattern }]; }
+    // Public listing only shows open jobs; $and avoids clashing with the search $or above.
+    if (options.publicOnly) filter.$and = [notExpired(new Date())];
     const field = query.sort_by === 'created_at' ? 'createdAt' : query.sort_by;
     const direction = query.sort_order === 'asc' ? 1 : -1;
     const [items, total] = await Promise.all([JobPosting.find(filter).sort({ [field]: direction, _id: direction }).skip((query.page - 1) * query.limit).limit(query.limit).exec(), JobPosting.countDocuments(filter).exec()]);

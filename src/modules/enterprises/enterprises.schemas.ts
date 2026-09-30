@@ -153,6 +153,7 @@ export const enterpriseSummarySchema = z.object({
   companySize: z.string().nullable(),
   companyType: z.string().nullable(),
   techStack: z.array(z.string()).default([]),
+  openRoleCount: z.number().default(0),
   status: z.string(),
 });
 
