@@ -37,6 +37,11 @@ export class DocumentsService {
     return this.repository.findByIdOwnerAndType(id, ownerId, type);
   }
 
+  // Returns the raw documents an application references, for its submitted-attachment metadata.
+  async findByIds(ids: string[]): Promise<DocumentDoc[]> {
+    return ids.length ? this.repository.findByIds(ids) : [];
+  }
+
   async list(ownerId: string | undefined, query: DocumentListQuery): Promise<PaginatedDocuments> {
     const result = await this.repository.list(ownerId, query.type, query.page, query.limit, query.sort_order === 'asc');
     return {

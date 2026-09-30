@@ -1,10 +1,16 @@
 import { Router } from 'express';
 
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { validateBody, validateQuery } from '../../middleware/validate.js';
+import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { APPLICANT_ROLE } from './applications.constants.js';
 import { applicationsController } from './applications.controller.js';
-import { createApplicationBodySchema, myApplicationQuerySchema } from './applications.schemas.js';
+import {
+  applicationHistoryQuerySchema,
+  applicationIdParamSchema,
+  applicationListQueryValidator,
+  createApplicationBodySchema,
+  withdrawApplicationBodySchema,
+} from './applications.schemas.js';
 
 export const applicationsRouter = Router();
 
@@ -17,11 +23,40 @@ applicationsRouter.post(
   applicationsController.createApplication,
 );
 
-// GET returns the caller's latest application for one job (or { item: null }).
+// UC-MYAPP-01 / 05: the candidate's own applications. Filter by `jobId` to see the caller's applications for one job.
 applicationsRouter.get(
-  '/mine',
+  '/',
   authenticate,
   authorize(APPLICANT_ROLE),
-  validateQuery(myApplicationQuerySchema),
-  applicationsController.getMyApplication,
+  validateQuery(applicationListQueryValidator),
+  applicationsController.listMine,
+);
+
+// UC-MYAPP-02
+applicationsRouter.get(
+  '/:id',
+  authenticate,
+  authorize(APPLICANT_ROLE),
+  validateParams(applicationIdParamSchema),
+  applicationsController.getDetail,
+);
+
+// UC-MYAPP-03
+applicationsRouter.get(
+  '/:id/history',
+  authenticate,
+  authorize(APPLICANT_ROLE),
+  validateParams(applicationIdParamSchema),
+  validateQuery(applicationHistoryQuerySchema),
+  applicationsController.getHistory,
+);
+
+// UC-MYAPP-04: a state transition, so PATCH rather than POST.
+applicationsRouter.patch(
+  '/:id/withdraw',
+  authenticate,
+  authorize(APPLICANT_ROLE),
+  validateParams(applicationIdParamSchema),
+  validateBody(withdrawApplicationBodySchema),
+  applicationsController.withdraw,
 );

@@ -79,6 +79,27 @@ npm run dev
 - OpenAPI Specification: `http://localhost:3000/openapi.json`
 - Health Probe: `http://localhost:3000/health`
 
+### My Applications API
+
+The authenticated candidate endpoints are:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/me/applications` | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired. |
+| `GET` | `/api/v1/me/applications` | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
+| `GET` | `/api/v1/me/applications/:id` | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries. |
+| `GET` | `/api/v1/me/applications/:id/history` | Chronological, bounded public status history. |
+| `PATCH` | `/api/v1/me/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application; Withdrawn is closed and never reopened. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`. |
+
+Successful responses are the resource/result objects directly (not wrapped in a `data` envelope). List and history responses use `{ items, page, limit, total, totalPages }`; list additionally returns `statusCounts`. Detail and withdrawal return the application detail object. Ownership is always derived from the authenticated JWT subject. Application history contains only status, stage, timestamp, and public actor role; attachment snapshots never contain file URLs or storage keys. The unique candidate/job index prevents reapplication in this scope.
+
+This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
+
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+
+---
+
+
 ---
 
 ## Available Scripts

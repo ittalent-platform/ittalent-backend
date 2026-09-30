@@ -14,7 +14,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use(jobPostingsRouter);
   apiV1Router.use('/users', usersRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
-  apiV1Router.use('/applications', applicationsRouter);
+  apiV1Router.use('/me/applications', applicationsRouter);
 
   app.use(healthRouter);
   app.use('/api/v1', apiV1Router);

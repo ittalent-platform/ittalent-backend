@@ -11,6 +11,7 @@ export const applicationStatuses = [
   'withdrawn',
 ] as const;
 export type ApplicationStatus = (typeof applicationStatuses)[number];
+export const APPLICATION_REASON_MAX_LENGTH = 500;
 
 // BR-APP-002 / BR-APP-010: a Withdrawn or Rejected record is closed and frees the applicant/job pair;
 // every other status keeps the pair occupied, so at most one active application exists per pair.
@@ -32,6 +33,8 @@ export interface ApplicationData {
   cover_letter_id?: Types.ObjectId;
   message?: string;
   status: ApplicationStatus;
+  // Optional reason the applicant gave when withdrawing; visible to the company.
+  withdrawal_reason?: string;
   // BR-APP-010: read-only links between a closed record and the single application that replaced it.
   reapplied_from?: Types.ObjectId;
   reapplied_as?: Types.ObjectId;
@@ -56,6 +59,7 @@ const applicationSchema = new Schema<ApplicationData>(
     cover_letter_id: { type: Schema.Types.ObjectId, ref: 'Document' },
     message: { type: String, trim: true },
     status: { type: String, enum: applicationStatuses, default: 'submitted', required: true },
+    withdrawal_reason: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
     reapplied_from: { type: Schema.Types.ObjectId, ref: 'Application' },
     reapplied_as: { type: Schema.Types.ObjectId, ref: 'Application' },
     status_history: { type: [statusHistorySchema], default: [] },

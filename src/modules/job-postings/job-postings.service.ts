@@ -6,6 +6,9 @@ import { jobPostingsRepository, type JobPostingsRepository } from './job-posting
 import type { CreateJobPosting, JobPostingListQuery, JobPostingResponse, UpdateJobPosting } from './job-postings.schemas.js';
 
 const PUBLISHED_DESCRIPTION_MIN_LENGTH = 20;
+
+// What an application shows about its job. `isOpen` = Published and not past its expiry date.
+export interface JobSummary { id: string; title: string; companyName: string; location: string | null; employmentType: string | null; expiresAt: Date | null; isOpen: boolean }
 type PaginatedJobPostings = { items: JobPostingResponse[]; page: number; limit: number; total: number; totalPages: number };
 function slugify(value: string): string { return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `job-${Date.now()}`; }
 
@@ -20,6 +23,16 @@ export class JobPostingsService {
   async getByIdForManagement(id: string, actorId: string, actorRole: string): Promise<JobPostingResponse> { const jobPosting = await this.getExisting(id); if (actorRole === 'recruiter') await this.assertRecruiterCanManage(jobPosting, actorId); return this.map(jobPosting); }
   async update(id: string, actorId: string, actorRole: string, input: UpdateJobPosting): Promise<JobPostingResponse> { const existing = await this.getExisting(id); if (actorRole === 'recruiter') await this.assertRecruiterCanManage(existing, actorId); const candidate = { ...existing.toObject(), ...input }; if (input.status === 'published' && (!candidate.description || candidate.description.length < PUBLISHED_DESCRIPTION_MIN_LENGTH || !candidate.requirements || !candidate.benefits || !candidate.location || !candidate.employment_type || !candidate.expires_at)) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Published job posting requires description, requirements, benefits, location, employment type, and expiry'); const updated = await this.repository.update(id, input, input.title ? await this.uniqueSlug(input.title, id) : undefined); if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'Job posting not found'); return this.map(updated); }
   async remove(id: string, actorId: string, actorRole: string): Promise<void> { const jobPosting = await this.getExisting(id); if (actorRole === 'recruiter') await this.assertRecruiterCanManage(jobPosting, actorId); if (!(await this.repository.delete(id))) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'Job posting not found'); }
+  async findSummariesByIds(ids: string[]): Promise<Map<string, JobSummary>> {
+    const jobs = await this.repository.findManyByIds(ids);
+    const names = await this.repository.findEnterpriseNames([...new Set(jobs.map((job) => String(job.enterprise_id)))]);
+    const now = Date.now();
+    return new Map(jobs.map((job) => [String(job._id), {
+      id: String(job._id), title: job.title, companyName: names.get(String(job.enterprise_id)) ?? '', location: job.location ?? null, employmentType: job.employment_type ?? null,
+      expiresAt: job.expires_at ?? null, isOpen: job.status === 'published' && (!job.expires_at || job.expires_at.getTime() > now),
+    }]));
+  }
+  async findIdsByKeyword(keyword: string): Promise<string[]> { return this.repository.findIdsByKeyword(keyword); }
   // Returns the job only when it is Published and still open for applications.
   async findPublicJobById(id: string): Promise<JobPostingDoc | null> { return this.repository.findOpenPublishedById(id, new Date()); }
   async listPublic(query: JobPostingListQuery): Promise<PaginatedJobPostings> { return this.list(query, { publicOnly: true }); }

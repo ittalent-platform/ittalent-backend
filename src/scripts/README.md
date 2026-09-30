@@ -55,6 +55,34 @@ npm run seed:admin
 - **Collision Protection:** If the desired username is already taken by a different email address, the script aborts with an error without modifying data.
 - **Idempotent:** Safe to run repeatedly in deployment pipelines or local development without duplicate accounts.
 
+### 2. Seed Applications Data (`seed-applications.ts`)
+
+Creates a candidate user and seed minimal application data for development and testing.
+
+#### Execution
+
+**Using Default Values:**
+```bash
+npm run seed:applications
+```
+Creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`) and fourteen applications covering every status (submitted, under review, interviewing, offered, hired, rejected, withdrawn, position filled), a BR-APP-008 withdrawn/reapplication pair, and a withdrawn record that can be applied for again. Each has attachments and an append-only status history.
+
+#### Extra accounts and reset
+Also creates `candidate-empty@example.com` (no applications, for the empty state) and `candidate-other@example.com` (owns one application the demo candidate must never see). All use the same password. Set `SEED_RESET=true` to delete these candidates' applications before seeding, which the end-to-end suite uses for a clean, deterministic start.
+
+#### Behavior & Idempotency
+- **Fresh Candidate:** If no user exists with `candidate-myapps@example.com`, a new `User` document is created with `role: 'user'` and `status: 'active'`.
+- **Existing Candidate:** Reuses the existing candidate user; no changes to the account.
+- **Applications:** For each seeded job ID, inserts an application if none exists for that candidate/job pair (unique index enforced).
+- **Idempotent:** Safe to run repeatedly; only missing applications are created.
+
+### 3. Sync Application Indexes (`sync-application-indexes.ts`)
+
+```bash
+npm run migrate:application-indexes
+```
+BR-APP-008 changed the `(applicant_id, job_id)` unique index to a partial index (Withdrawn records no longer occupy the pair). Run this once on any database created before that change; it drops indexes that are no longer in the schema and creates the new ones. New databases do not need it.
+
 ---
 
 ## Adding New Scripts

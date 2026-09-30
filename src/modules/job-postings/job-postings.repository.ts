@@ -1,3 +1,4 @@
+import { Enterprise } from '../../models/enterprise.model.js';
 import { JobPosting, type JobPostingData, type JobPostingDoc } from '../../models/job-posting.model.js';
 import type { CreateJobPosting, JobPostingListQuery, UpdateJobPosting } from './job-postings.schemas.js';
 
@@ -6,6 +7,19 @@ export class JobPostingsRepository {
     return new JobPosting({ enterprise_id: enterpriseId, posted_by_user_id: userId, title: input.title, slug, ...this.fields(input) }).save();
   }
   async findById(id: string): Promise<JobPostingDoc | null> { return JobPosting.findById(id).exec(); }
+  // Any state: an application keeps showing its job after the posting closes or expires.
+  async findManyByIds(ids: string[]): Promise<JobPostingDoc[]> { return JobPosting.find({ _id: { $in: ids } }).exec(); }
+  async findEnterpriseNames(ids: string[]): Promise<Map<string, string>> {
+    const enterprises = await Enterprise.find({ _id: { $in: ids } }, { name: 1 }).lean().exec();
+    return new Map(enterprises.map((enterprise) => [String(enterprise._id), enterprise.name]));
+  }
+  // Ids of jobs whose title or enterprise name contains the keyword (case-insensitive), for application search.
+  async findIdsByKeyword(keyword: string): Promise<string[]> {
+    const pattern = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const enterpriseIds = (await Enterprise.find({ name: pattern }, { _id: 1 }).lean().exec()).map((enterprise) => enterprise._id);
+    const jobs = await JobPosting.find({ $or: [{ title: pattern }, { enterprise_id: { $in: enterpriseIds } }] }, { _id: 1 }).lean().exec();
+    return jobs.map((job) => String(job._id));
+  }
   // A job accepts applications only while it is Published and not past its expiry date.
   async findOpenPublishedById(id: string, now: Date): Promise<JobPostingDoc | null> {
     return JobPosting.findOne({
