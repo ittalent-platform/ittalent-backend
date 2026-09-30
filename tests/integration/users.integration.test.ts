@@ -11,7 +11,7 @@ import { Account } from '../../src/models/account.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'id', 'role', 'status', 'updatedAt', 'username'];
+const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'fullName', 'id', 'phone', 'role', 'status', 'updatedAt', 'username'];
 const PASSWORD_HASH = 'bcrypt-hash-must-never-leave-the-server';
 
 let server: Server;
@@ -21,6 +21,7 @@ let userToken: string;
 let ownId: Types.ObjectId;
 const marker = `ulist${new Types.ObjectId().toHexString().slice(-8)}`;
 const caseMarker = `ucase${new Types.ObjectId().toHexString().slice(-8)}`;
+const nameMarker = `uname${new Types.ObjectId().toHexString().slice(-8)}`;
 const seeded: Types.ObjectId[] = [];
 
 const sign = (role: string, sub: string, options: jwt.SignOptions = { expiresIn: '15m' }) =>
@@ -30,6 +31,9 @@ const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 interface UserBody {
   id: string;
   username: string;
+  fullName: string | null;
+  phone: string | null;
+  role: string;
   email: string;
   createdAt: string;
   status: string;
@@ -46,6 +50,15 @@ interface Body extends Partial<UserBody> {
 async function get(path: string, token?: string): Promise<{ status: number; body: Body }> {
   const response = await fetch(`${baseUrl}/api/v1/users${path}`, token ? { headers: auth(token) } : {});
   return { status: response.status, body: (await response.json()) as Body };
+}
+
+async function patch(id: string | Types.ObjectId, body: unknown, token?: string): Promise<{ status: number; body: Body & { message?: string } }> {
+  const response = await fetch(`${baseUrl}/api/v1/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...(token ? auth(token) : {}) },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: (await response.json()) as Body & { message?: string } };
 }
 
 async function seed(name: string, extra: Record<string, unknown> = {}): Promise<Types.ObjectId> {
@@ -80,6 +93,10 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     await seed(`${marker}-d.e`, { createdAt: new Date('2026-04-01T00:00:00.000Z'), email_verified: true });
     // A legacy account created before the field existed: no email_verified value at all.
     await seed(`${marker}-dxe`, { createdAt: new Date('2026-04-01T00:00:00.000Z') });
+    // Accounts with personal details; one has no full name so it sorts by its username instead.
+    await seed(`${nameMarker}-1`, { full_name: 'Mai Dương', phone: '0901122334' });
+    await seed(`${nameMarker}-2`, { full_name: 'Lan Ngô', phone: '+84990123456' });
+    await seed(`${nameMarker}-zz`, {});
     // Mixed-case names to prove sorting ignores case.
     await seed(`${caseMarker}-x1`, { createdAt: new Date('2026-05-01T00:00:00.000Z') });
     await seed(`${caseMarker}-X2`, { createdAt: new Date('2026-05-02T00:00:00.000Z') });
@@ -228,6 +245,47 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       expect([...first.body.items, ...second.body.items].map((item) => item.username)).toEqual([`${marker}-a`, `${marker}-b`, `${marker}-c`, `${marker}-d.e`]);
     });
 
+    it('returns the full name and phone, or null when an account has none', async () => {
+      const { body } = await get(`?search=${nameMarker}`, adminToken);
+      const byName = Object.fromEntries(body.items.map((item) => [item.username, [item.fullName, item.phone]]));
+
+      expect(byName).toEqual({
+        [`${nameMarker}-1`]: ['Mai Dương', '0901122334'],
+        [`${nameMarker}-2`]: ['Lan Ngô', '+84990123456'],
+        [`${nameMarker}-zz`]: [null, null],
+      });
+    });
+
+    it('finds accounts by full name and by phone number, however the number is typed', async () => {
+      const byName = await get(`?search=${encodeURIComponent('lan ngô')}`, adminToken);
+      const byPhone = await get(`?search=${encodeURIComponent('0901 122')}`, adminToken);
+      const byInternational = await get(`?search=${encodeURIComponent('+84 990')}`, adminToken);
+
+      expect(byName.body.items.map((item) => item.username)).toContain(`${nameMarker}-2`);
+      expect(byPhone.body.items.map((item) => item.username)).toContain(`${nameMarker}-1`);
+      expect(byInternational.body.items.map((item) => item.username)).toContain(`${nameMarker}-2`);
+    });
+
+    it('sorts by the name people see: the full name, or the username when there is none', async () => {
+      const asc = await get(`?search=${nameMarker}&sortBy=name&sortOrder=asc`, adminToken);
+      const desc = await get(`?search=${nameMarker}&sortBy=name&sortOrder=desc`, adminToken);
+
+      // "Lan Ngô" < "Mai Dương" < "uname…-zz" (its username), letters compared without case.
+      expect(asc.body.items.map((item) => item.username)).toEqual([`${nameMarker}-2`, `${nameMarker}-1`, `${nameMarker}-zz`]);
+      expect(desc.body.items.map((item) => item.username)).toEqual([`${nameMarker}-zz`, `${nameMarker}-1`, `${nameMarker}-2`]);
+    });
+
+    it('pages a name-sorted list without repeating or skipping an account', async () => {
+      const first = await get(`?search=${nameMarker}&sortBy=name&sortOrder=asc&limit=2&page=1`, adminToken);
+      const second = await get(`?search=${nameMarker}&sortBy=name&sortOrder=asc&limit=2&page=2`, adminToken);
+
+      expect(first.body).toMatchObject({ total: 3, totalPages: 2 });
+      expect([...first.body.items, ...second.body.items].map((item) => item.username)).toEqual([`${nameMarker}-2`, `${nameMarker}-1`, `${nameMarker}-zz`]);
+      for (const item of first.body.items) {
+        expect(Object.keys(item).sort()).toEqual(ALLOWED_FIELDS);
+      }
+    });
+
     it('returns an empty page when nothing matches (AC.1)', async () => {
       const { status, body } = await get(`?search=${marker}-does-not-exist`, adminToken);
 
@@ -278,6 +336,126 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     });
   });
 
+  describe('edit (UC-USER-03)', () => {
+    let target: Types.ObjectId;
+    let adminId: Types.ObjectId;
+    let actorToken: string;
+
+    beforeAll(async () => {
+      target = await seed(`${marker}-edit`, { role: 'user', email_verified: true, full_name: 'Before Name', phone: '0911111111' });
+      adminId = await seed(`${marker}-admin`, { role: 'admin', email_verified: true });
+      actorToken = sign('admin', String(adminId));
+    });
+
+    const stored = async (id: Types.ObjectId) => await User.collection.findOne({ _id: id });
+
+    it('changes only the sent fields and returns the updated account', async () => {
+      const before = await stored(target);
+      const { status, body } = await patch(target, { fullName: '  Mai Dương  ' }, actorToken);
+
+      expect(status).toBe(HTTP_STATUS.HTTP_200_OK);
+      expect(Object.keys(body).sort()).toEqual(ALLOWED_FIELDS);
+      expect(body).toMatchObject({ id: String(target), fullName: 'Mai Dương', phone: '0911111111', role: 'user', email: `${marker}-edit@example.test` });
+      const after = await stored(target);
+      expect(after).toMatchObject({ full_name: 'Mai Dương', phone: '0911111111', email: before?.email, username: before?.username, status: before?.status, email_verified: true });
+    });
+
+    it('stores the mobile number without spaces and keeps the international prefix', async () => {
+      const first = await patch(target, { phone: '0901 234 567' }, actorToken);
+      expect(first.body.phone).toBe('0901234567');
+
+      const second = await patch(target, { phone: '+84 901 234 567' }, actorToken);
+      expect(second.body.phone).toBe('+84901234567');
+      expect((await stored(target))?.phone).toBe('+84901234567');
+    });
+
+    it('clears the number with null or an empty string', async () => {
+      await patch(target, { phone: '0911111111' }, actorToken);
+      const cleared = await patch(target, { phone: null }, actorToken);
+      expect(cleared.body.phone).toBeNull();
+      expect(await stored(target)).not.toHaveProperty('phone');
+
+      await patch(target, { phone: '0911111111' }, actorToken);
+      expect((await patch(target, { phone: '' }, actorToken)).body.phone).toBeNull();
+    });
+
+    it('changes the role of another account and lets the change show in the list', async () => {
+      const promoted = await patch(target, { role: 'admin' }, actorToken);
+      expect(promoted.body.role).toBe('admin');
+      const list = await get(`?search=${marker}-edit`, adminToken);
+      expect(list.body.items[0]?.role).toBe('admin');
+
+      expect((await patch(target, { role: 'user' }, actorToken)).body.role).toBe('user');
+    });
+
+    it('does not let an administrator change their own role, but lets them edit their details', async () => {
+      const blocked = await patch(adminId, { role: 'user' }, actorToken);
+      expect(blocked.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+      expect(blocked.body.message).toBe("You can't change your own role");
+      expect((await stored(adminId))?.role).toBe('admin');
+
+      const own = await patch(adminId, { fullName: 'Minh Admin', role: 'admin' }, actorToken);
+      expect(own.status).toBe(HTTP_STATUS.HTTP_200_OK);
+      expect(own.body.fullName).toBe('Minh Admin');
+    });
+
+    it.each([
+      ['an empty body', {}],
+      ['a one-letter name', { fullName: 'A' }],
+      ['a name over 100 characters', { fullName: 'a'.repeat(101) }],
+      ['a phone number that is too short', { phone: '12345' }],
+      ['a phone number with letters', { phone: '0901abc234' }],
+      ['a role that cannot be assigned here', { role: 'recruiter' }],
+      ['an email change (not editable here)', { email: 'new@example.test' }],
+      ['a status change (not editable here)', { status: 'blocked' }],
+      ['a verification flag', { emailVerified: true }],
+    ])('rejects %s with 400 and changes nothing', async (_label, body) => {
+      const before = await stored(target);
+      const { status } = await patch(target, body, adminToken);
+
+      expect(status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+      expect(await stored(target)).toEqual(before);
+    });
+
+    it('returns 404 for a well-formed identifier that does not exist', async () => {
+      const { status } = await patch(new Types.ObjectId(), { fullName: 'Mai Dương' }, adminToken);
+
+      expect(status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    });
+
+    it('returns 400 for a malformed identifier', async () => {
+      const { status } = await patch('not-an-id', { fullName: 'Mai Dương' }, adminToken);
+
+      expect(status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    });
+
+    it('rejects a missing or expired session with 401', async () => {
+      expect((await patch(target, { fullName: 'Mai Dương' })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+      expect((await patch(target, { fullName: 'Mai Dương' }, sign('admin', 'x', { expiresIn: -60 }))).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    });
+
+    it('rejects every non-administrator with 403, including the account owner, and changes nothing', async () => {
+      const before = await stored(target);
+      for (const role of ['user', 'applicant', 'recruiter', 'interviewer']) {
+        const { status } = await patch(target, { fullName: 'Intruder' }, sign(role, String(target)));
+        expect(status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+      }
+      expect(await stored(target)).toEqual(before);
+    });
+
+    it('checks the permission before validating the body', async () => {
+      expect((await patch(target, { fullName: 'A' }, userToken)).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    });
+
+    it('never touches the credential of the account it edits', async () => {
+      await Account.create({ user_id: target, provider: 'local', password_hash: PASSWORD_HASH });
+      await patch(target, { fullName: 'Someone Else', role: 'user' }, actorToken);
+
+      expect((await Account.findOne({ user_id: target }).select('+password_hash'))?.password_hash).toBe(PASSWORD_HASH);
+      await Account.deleteMany({ user_id: target });
+    });
+  });
+
   describe('OpenAPI', () => {
     it('documents the user shape, including emailVerified, once for every endpoint that returns a user', async () => {
       const response = await fetch(`${baseUrl}/openapi.json`);
@@ -291,6 +469,7 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       expect(user?.required).toContain('emailVerified');
       const parameters = spec.paths['/api/v1/users']?.get?.parameters?.map((parameter) => parameter.name) ?? [];
       expect(parameters).toEqual(expect.arrayContaining(['search', 'role', 'status', 'emailVerified', 'sortBy', 'sortOrder']));
+      expect(Object.keys(spec.paths['/api/v1/users/{id}'] ?? {})).toEqual(expect.arrayContaining(['get', 'patch']));
     });
   });
 

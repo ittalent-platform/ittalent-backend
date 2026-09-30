@@ -83,10 +83,11 @@ npm run dev
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
+| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username, full name, email or phone number, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `name`, `username`, `email`; `name` is the full name, or the username when there is none) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
 | `GET` | `/api/v1/users/:id` | UC-USER-02. One user account. |
+| `PATCH` | `/api/v1/users/:id` | UC-USER-03. Edits `fullName` (2–100 characters), `phone` (9–15 digits, optional leading `+`; spaces are removed; `null` or `""` clears it) and `role` (`admin` or `user`). Only the fields sent change; email, status and credentials cannot be edited here, and an administrator cannot change their own role (`403`). |
 
-Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
+All three are administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `fullName`, `phone`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
 
 ### My Applications API
 

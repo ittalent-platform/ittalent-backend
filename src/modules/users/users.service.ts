@@ -4,7 +4,7 @@ import { createHttpError, isHttpError } from '../../shared/errors/http-error.js'
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
 import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
 import { usersRepository, type UsersRepository, type CreateUserData } from './users.repository.js';
-import { strictUserDtoSchema, type UserDTO, type UserListQuery } from './users.schemas.js';
+import { strictUserDtoSchema, type UpdateUserBody, type UserDTO, type UserListQuery } from './users.schemas.js';
 
 export class UsersService {
   constructor(private readonly repository: UsersRepository = usersRepository) {}
@@ -15,6 +15,8 @@ export class UsersService {
       id: String(user._id),
       email: user.email,
       username: user.username,
+      fullName: raw.full_name ?? null,
+      phone: raw.phone ?? null,
       role: user.role,
       status: user.status,
       emailVerified: raw.email_verified === true,
@@ -51,6 +53,23 @@ export class UsersService {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
     }
     return this.mapUserDto(user);
+  }
+
+  // UC-USER-03. The administrator's own role is locked so the last admin cannot demote themselves.
+  async updateUser(actorId: string, id: string, patch: UpdateUserBody): Promise<UserDTO> {
+    const current = await this.guardStore(() => this.repository.findById(id));
+    if (!current) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    }
+    if (patch.role !== undefined && actorId === id && patch.role !== current.role) {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_ROLE_CHANGE);
+    }
+
+    const updated = await this.guardStore(() => this.repository.updateProfile(id, patch));
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    }
+    return this.mapUserDto(updated);
   }
 
   async listUsers(query: UserListQuery): Promise<PaginatedResult<UserDTO>> {
