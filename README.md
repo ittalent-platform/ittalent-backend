@@ -83,10 +83,10 @@ npm run dev
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status, newest first (`createdAt` desc, then `id` desc). Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`. Unknown query keys are rejected. |
+| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
 | `GET` | `/api/v1/users/:id` | UC-USER-02. One user account. |
 
-Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
+Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
 
 ### My Applications API
 

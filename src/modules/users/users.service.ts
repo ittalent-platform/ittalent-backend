@@ -17,6 +17,7 @@ export class UsersService {
       username: user.username,
       role: user.role,
       status: user.status,
+      emailVerified: raw.email_verified === true,
       enterpriseId: user.enterprise_id ? String(user.enterprise_id) : null,
       createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : undefined,
       updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : undefined,
@@ -85,6 +86,10 @@ export class UsersService {
 
   async createUser(data: CreateUserData): Promise<UserDoc> {
     return this.repository.createUser(data);
+  }
+
+  async markEmailVerified(id: string): Promise<UserDoc | null> {
+    return this.repository.markEmailVerified(id);
   }
 
   async updateStatus(id: string, status: UserStatus): Promise<UserDoc | null> {

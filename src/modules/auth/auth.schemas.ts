@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { userDtoSchema } from '../users/users.schemas.js';
 import { AUTH_CONFIG, PASSWORD_REGEX, USERNAME_REGEX } from './auth.constants.js';
 
 export const passwordSchema = z
@@ -53,17 +55,8 @@ export const refreshTokenRequestSchema = z.object({
 
 export type RefreshTokenRequest = z.infer<typeof refreshTokenRequestSchema>;
 
-export const userDtoSchema = z.object({
-  id: z.string(),
-  email: z.string().email(),
-  username: z.string(),
-  role: z.string(),
-  status: z.string(),
-  enterpriseId: z.string().nullable(),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
-});
-
+// One definition of the user shape for every endpoint that returns a user (auth responses and the users API).
+export { userDtoSchema };
 export type UserDTO = z.infer<typeof userDtoSchema>;
 
 export const authTokensSchema = z.object({

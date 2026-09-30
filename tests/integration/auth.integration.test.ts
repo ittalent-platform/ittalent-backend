@@ -127,6 +127,7 @@ describe('Auth Integration Tests', () => {
 
     const verifiedUser = await User.findOne({ email: 'john@example.com' });
     expect(verifiedUser?.status).toBe('active');
+    expect(verifiedUser?.email_verified).toBe(true);
 
     const replayVerifyRes = await fetch(`${baseUrl}/verify-email?token=${verifyToken}`, {
       redirect: 'manual',

@@ -126,9 +126,10 @@ describe('UsersService', () => {
     it('maps a page to the administration DTO with page metadata', async () => {
       mockRepo.findPage = vi.fn().mockResolvedValue({ items: [userDoc()], total: 21 });
 
-      const result = await usersService.listUsers({ page: 2, limit: 10 });
+      const query = { page: 2, limit: 10, sortBy: 'createdAt', sortOrder: 'desc' } as const;
+      const result = await usersService.listUsers(query);
 
-      expect(mockRepo.findPage).toHaveBeenCalledWith({ page: 2, limit: 10 });
+      expect(mockRepo.findPage).toHaveBeenCalledWith(query);
       expect(result).toEqual({
         items: [
           {
@@ -137,6 +138,7 @@ describe('UsersService', () => {
             username: 'alice',
             role: 'user',
             status: 'active',
+            emailVerified: false,
             enterpriseId: null,
             createdAt: '2026-09-01T00:00:00.000Z',
             updatedAt: '2026-09-02T00:00:00.000Z',
@@ -149,10 +151,22 @@ describe('UsersService', () => {
       });
     });
 
+    it('reports the stored email verification state', async () => {
+      mockRepo.findPage = vi.fn().mockResolvedValue({
+        items: [userDoc({ email_verified: true }), userDoc({ _id: 'user-id-2', email_verified: false }), userDoc({ _id: 'user-id-3' })],
+        total: 3,
+      });
+
+      const result = await usersService.listUsers({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      // Accounts created before the field existed have no value and count as not verified.
+      expect(result.items.map((item) => item.emailVerified)).toEqual([true, false, false]);
+    });
+
     it('returns an empty page with zero pages when nothing matches (AC.1)', async () => {
       mockRepo.findPage = vi.fn().mockResolvedValue({ items: [], total: 0 });
 
-      await expect(usersService.listUsers({ page: 1, limit: 20 })).resolves.toEqual({
+      await expect(usersService.listUsers({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' })).resolves.toEqual({
         items: [],
         page: 1,
         limit: 20,
@@ -166,7 +180,7 @@ describe('UsersService', () => {
         .fn()
         .mockResolvedValue({ items: [userDoc({ password_hash: 'secret-hash', token: 'secret-token' })], total: 1 });
 
-      const result = await usersService.listUsers({ page: 1, limit: 20 });
+      const result = await usersService.listUsers({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' });
 
       expect(JSON.stringify(result)).not.toMatch(/secret-hash|secret-token|password|token/);
     });
@@ -175,7 +189,7 @@ describe('UsersService', () => {
       const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       mockRepo.findPage = vi.fn().mockRejectedValue(new Error('connection refused at 10.0.0.5:27017'));
 
-      await expect(usersService.listUsers({ page: 1, limit: 20 })).rejects.toMatchObject({
+      await expect(usersService.listUsers({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' })).rejects.toMatchObject({
         statusCode: 503,
         message: 'Unable to load user accounts right now. Please try again later.',
       });
@@ -187,7 +201,7 @@ describe('UsersService', () => {
       const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
       mockRepo.findPage = vi.fn().mockResolvedValue({ items: [userDoc({ email: undefined })], total: 1 });
 
-      await expect(usersService.listUsers({ page: 1, limit: 20 })).rejects.toMatchObject({ statusCode: 500 });
+      await expect(usersService.listUsers({ page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' })).rejects.toMatchObject({ statusCode: 500 });
       expect(spy).toHaveBeenCalledWith('[users:projection:error]', expect.anything());
       spy.mockRestore();
     });
