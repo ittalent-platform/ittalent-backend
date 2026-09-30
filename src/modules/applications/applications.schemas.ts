@@ -46,7 +46,7 @@ export const applicationDtoSchema = z.object({
 
 export type ApplicationDTO = z.infer<typeof applicationDtoSchema>;
 
-// Query for GET /applications/mine: "have I applied to this job, and what is the status?"
+// Query for GET /me/applications/mine: "have I applied to this job, and what is the status?"
 export const myApplicationQuerySchema = z.object({
   jobPostingId: objectIdSchema('job posting ID'),
 });

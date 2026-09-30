@@ -26,7 +26,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/applications/mine',
+    path: '/api/v1/me/applications/mine',
     tags: ['Applications'],
     summary: 'Get my application for a job',
     description:
@@ -46,7 +46,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'post',
-    path: '/api/v1/applications',
+    path: '/api/v1/me/applications',
     tags: ['Applications'],
     summary: 'Apply for a job',
     description:
@@ -92,7 +92,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/applications',
+    path: '/api/v1/me/applications',
     tags: ['Applications'],
     summary: 'List my applications with filtering, sorting and pagination',
     description:
@@ -110,7 +110,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/applications/{id}',
+    path: '/api/v1/me/applications/{id}',
     tags: ['Applications'],
     summary: 'View one of my applications',
     description: 'Applicant only. Public job summary, submitted attachment metadata (no file URLs), status, stage label and the reapplication links. Another candidate\'s application is indistinguishable from a missing one (404).',
@@ -126,7 +126,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/applications/{id}/history',
+    path: '/api/v1/me/applications/{id}/history',
     tags: ['Applications'],
     summary: 'View the status history of one of my applications',
     description: 'Applicant only. Append-only, oldest first. Each entry has the public status, stage label, actor role (candidate, company or system) and timestamp; never account identifiers or private notes.',
@@ -142,7 +142,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
 
   registry.registerPath({
     method: 'patch',
-    path: '/api/v1/applications/{id}/withdraw',
+    path: '/api/v1/me/applications/{id}/withdraw',
     tags: ['Applications'],
     summary: 'Withdraw one of my applications',
     description:

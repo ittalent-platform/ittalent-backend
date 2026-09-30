@@ -85,12 +85,12 @@ The authenticated candidate endpoints are:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/applications` | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired. |
-| `GET` | `/api/v1/applications/mine?jobPostingId=` | The caller's latest application for one job, or `{ item: null }`. |
-| `GET` | `/api/v1/applications` | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
-| `GET` | `/api/v1/applications/:id` | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries. |
-| `GET` | `/api/v1/applications/:id/history` | Chronological, bounded public status history. |
-| `PATCH` | `/api/v1/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application; Withdrawn is closed and never reopened. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`. |
+| `POST` | `/api/v1/me/applications` | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired. |
+| `GET` | `/api/v1/me/applications/mine?jobPostingId=` | The caller's latest application for one job, or `{ item: null }`. |
+| `GET` | `/api/v1/me/applications` | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
+| `GET` | `/api/v1/me/applications/:id` | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries. |
+| `GET` | `/api/v1/me/applications/:id/history` | Chronological, bounded public status history. |
+| `PATCH` | `/api/v1/me/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application; Withdrawn is closed and never reopened. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`. |
 
 Successful responses are the resource/result objects directly (not wrapped in a `data` envelope). List and history responses use `{ items, page, limit, total, totalPages }`; list additionally returns `statusCounts`. Detail and withdrawal return the application detail object. Ownership is always derived from the authenticated JWT subject. Application history contains only status, stage, timestamp, and public actor role; attachment snapshots never contain file URLs or storage keys. The unique candidate/job index prevents reapplication in this scope.
 

@@ -33,12 +33,12 @@ async function newJob(): Promise<string> {
 }
 
 async function apply(jobPostingId: string, cvId: Types.ObjectId = cvA): Promise<{ status: number; body: ApplyResponse }> {
-  const response = await fetch(`${baseUrl}/api/v1/applications`, { method: 'POST', headers: bearer(), body: JSON.stringify({ jobPostingId, cvId: String(cvId) }) });
+  const response = await fetch(`${baseUrl}/api/v1/me/applications`, { method: 'POST', headers: bearer(), body: JSON.stringify({ jobPostingId, cvId: String(cvId) }) });
   return { status: response.status, body: (await response.json()) as ApplyResponse };
 }
 
 async function mine(jobPostingId: string): Promise<ApplyResponse | null> {
-  const response = await fetch(`${baseUrl}/api/v1/applications/mine?jobPostingId=${jobPostingId}`, { headers: bearer() });
+  const response = await fetch(`${baseUrl}/api/v1/me/applications/mine?jobPostingId=${jobPostingId}`, { headers: bearer() });
   return ((await response.json()) as { item: ApplyResponse | null }).item;
 }
 
