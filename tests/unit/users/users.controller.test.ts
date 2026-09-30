@@ -12,8 +12,25 @@ describe('UsersController', () => {
     mockService = {
       getUserById: vi.fn(),
       listUsers: vi.fn(),
+      updateUser: vi.fn(),
     };
     controller = new UsersController(mockService as UsersService);
+  });
+
+  describe('updateUser', () => {
+    it('passes the authenticated administrator and validated request to the service', async () => {
+      const result = { id: 'target', fullName: 'Mai Dương' };
+      mockService.updateUser = vi.fn().mockResolvedValue(result);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const response = { status, locals: { validated: { params: { id: 'target' }, body: { fullName: 'Mai Dương' } } } } as never;
+
+      await controller.updateUser({ user: { id: 'admin-user' } } as never, response, vi.fn());
+
+      expect(mockService.updateUser).toHaveBeenCalledWith('admin-user', 'target', { fullName: 'Mai Dương' });
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(result);
+    });
   });
 
   describe('getUserById', () => {

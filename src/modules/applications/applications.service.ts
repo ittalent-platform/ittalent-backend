@@ -171,6 +171,17 @@ export class ApplicationsService {
       throw this.alreadyApplied();
     }
 
+    // UC-JOB-03.EX.3: if the job was deleted while this application was being saved, drop it again so no
+    // application is left pointing at a job that no longer exists.
+    if (!(await this.jobs.stillExists(String(job._id)))) {
+      await this.repository.deleteById(application._id);
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.JOB_UNAVAILABLE,
+        APPLICATION_ERROR_CODES.JOB_UNAVAILABLE,
+      );
+    }
+
     await this.sendConfirmation(user.email, job.title);
 
     return this.mapDto(application);

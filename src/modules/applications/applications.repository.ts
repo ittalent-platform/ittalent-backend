@@ -78,6 +78,11 @@ export class ApplicationsRepository {
 
   // Returns null when the partial unique (job, applicant) index rejects the insert, i.e. another active
   // application exists (a concurrent duplicate). A reapplication also marks the closed record it replaces.
+  // Compensation only: removes an application saved for a job that was deleted at the same moment.
+  async deleteById(id: Types.ObjectId | string): Promise<void> {
+    await Application.deleteOne({ _id: id }).exec();
+  }
+
   async create(data: SubmitApplicationData): Promise<ApplicationDoc | null> {
     try {
       const application = await Application.create({

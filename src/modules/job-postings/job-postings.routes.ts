@@ -11,5 +11,5 @@ jobPostingsRouter.get('/admin/job-postings', authenticate, authorize('admin'), v
 jobPostingsRouter.get('/recruiter/job-postings', authenticate, authorize('recruiter'), validateQuery(jobPostingListQuerySchema), jobPostingsController.listRecruiter);
 jobPostingsRouter.post('/job-postings', authenticate, authorize('recruiter'), validateBody(createJobPostingSchema), jobPostingsController.create);
 jobPostingsRouter.get('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), jobPostingsController.getById);
-jobPostingsRouter.patch('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), validateBody(updateJobPostingSchema), jobPostingsController.update);
-jobPostingsRouter.delete('/job-postings/:id', authenticate, authorize('admin', 'recruiter'), validateParams(jobPostingIdParamSchema), jobPostingsController.remove);
+jobPostingsRouter.patch('/job-postings/:id', authenticate, authorize('recruiter'), validateParams(jobPostingIdParamSchema), validateBody(updateJobPostingSchema), jobPostingsController.update);
+jobPostingsRouter.delete('/job-postings/:id', authenticate, authorize('recruiter'), validateParams(jobPostingIdParamSchema), jobPostingsController.remove);

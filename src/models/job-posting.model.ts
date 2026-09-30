@@ -13,6 +13,7 @@ export interface JobPostingData {
   employment_type?: string;
   salary_min?: number;
   salary_max?: number;
+  salary_negotiable?: boolean;
   currency: string;
   level?: string;
   description?: string;
@@ -23,6 +24,8 @@ export interface JobPostingData {
   published_at?: Date;
   archived_at?: Date;
   expires_at?: Date;
+  /** Set while a delete is being checked, so no application can be accepted meanwhile. */
+  deleting?: boolean;
 }
 
 const jobPostingSchema = new Schema<JobPostingData>(
@@ -35,6 +38,7 @@ const jobPostingSchema = new Schema<JobPostingData>(
     employment_type: { type: String, trim: true },
     salary_min: { type: Number, min: 0 },
     salary_max: { type: Number, min: 0 },
+    salary_negotiable: { type: Boolean, default: false },
     currency: { type: String, default: 'VND', trim: true },
     level: { type: String, trim: true },
     description: { type: String, trim: true },
@@ -45,6 +49,7 @@ const jobPostingSchema = new Schema<JobPostingData>(
     published_at: { type: Date },
     archived_at: { type: Date },
     expires_at: { type: Date },
+    deleting: { type: Boolean },
   },
   { timestamps: true, collection: 'job_postings' },
 );

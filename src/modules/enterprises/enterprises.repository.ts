@@ -172,6 +172,7 @@ export class EnterprisesRepository {
         $match: {
           enterprise_id: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
           status: 'published',
+          deleting: { $ne: true },
           $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
         },
       },
