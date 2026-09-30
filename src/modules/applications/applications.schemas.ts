@@ -24,6 +24,9 @@ export const applicationDtoSchema = z.object({
   cvId: z.string(),
   coverLetterId: z.string().nullable(),
   message: z.string().nullable(),
+  // BR-APP-010: read-only links between a closed application and the one that replaced it.
+  reappliedFrom: z.string().nullable(),
+  reappliedAs: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

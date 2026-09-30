@@ -9,7 +9,6 @@ import {
   APPLICATION_CONFIG,
   APPLICATION_HIRED_STATUS,
   APPLICATION_INITIAL_STATUS,
-  REAPPLY_ALLOWED_STATUSES,
 } from './applications.constants.js';
 
 export interface SubmitApplicationData {
@@ -20,6 +19,8 @@ export interface SubmitApplicationData {
   message?: string | undefined;
   // User performing the action, stored in the status history.
   changedBy: string;
+  // BR-APP-010: the closed (Withdrawn/Rejected) record this application replaces.
+  reappliedFrom?: Types.ObjectId | string | undefined;
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -32,18 +33,27 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 export class ApplicationsRepository {
-  async findByJobAndApplicant(
+  // The pair can hold up to two records (BR-APP-010); the latest one decides what the applicant may do next.
+  async findLatestByJobAndApplicant(
     jobId: Types.ObjectId | string,
     applicantId: Types.ObjectId | string,
   ): Promise<ApplicationDoc | null> {
-    return Application.findOne({ job_id: jobId, applicant_id: applicantId }).lean<ApplicationDoc>().exec();
+    return Application.findOne({ job_id: jobId, applicant_id: applicantId })
+      .sort({ createdAt: -1, _id: -1 })
+      .lean<ApplicationDoc>()
+      .exec();
+  }
+
+  async countByJobAndApplicant(jobId: Types.ObjectId | string, applicantId: Types.ObjectId | string): Promise<number> {
+    return Application.countDocuments({ job_id: jobId, applicant_id: applicantId }).exec();
   }
 
   async countHiredByJobId(jobId: Types.ObjectId | string): Promise<number> {
     return Application.countDocuments({ job_id: jobId, status: APPLICATION_HIRED_STATUS }).exec();
   }
 
-  // Returns null when the unique (job, applicant) index rejects the insert, i.e. a concurrent duplicate.
+  // Returns null when the partial unique (job, applicant) index rejects the insert, i.e. another active
+  // application exists (a concurrent duplicate). A reapplication also marks the closed record it replaces.
   async create(data: SubmitApplicationData): Promise<ApplicationDoc | null> {
     try {
       const application = await Application.create({
@@ -52,9 +62,17 @@ export class ApplicationsRepository {
         cv_id: data.cvId,
         ...(data.coverLetterId ? { cover_letter_id: data.coverLetterId } : {}),
         ...(data.message ? { message: data.message } : {}),
+        ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}),
         status: APPLICATION_INITIAL_STATUS,
         status_history: [this.buildHistoryEntry(data.changedBy)],
       });
+      if (data.reappliedFrom) {
+        // Guarded so a closed record links to one replacement only.
+        await Application.updateOne(
+          { _id: data.reappliedFrom, reapplied_as: { $exists: false } },
+          { $set: { reapplied_as: application._id } },
+        ).exec();
+      }
       return application.toObject<ApplicationDoc>();
     } catch (error) {
       if (isDuplicateKeyError(error)) {
@@ -62,41 +80,6 @@ export class ApplicationsRepository {
       }
       throw error;
     }
-  }
-
-  // Reuses an existing Withdrawn/Rejected record. The status condition makes this atomic:
-  // returns null if the record is no longer reactivatable (e.g. changed by a concurrent request).
-  async reactivate(id: Types.ObjectId | string, data: SubmitApplicationData): Promise<ApplicationDoc | null> {
-    // The new submission fully replaces the old CV / cover letter / message.
-    const unset: Record<string, ''> = {};
-    const set: Record<string, unknown> = {
-      cv_id: data.cvId,
-      status: APPLICATION_INITIAL_STATUS,
-    };
-
-    if (data.coverLetterId) {
-      set.cover_letter_id = data.coverLetterId;
-    } else {
-      unset.cover_letter_id = '';
-    }
-
-    if (data.message) {
-      set.message = data.message;
-    } else {
-      unset.message = '';
-    }
-
-    return Application.findOneAndUpdate(
-      { _id: id, status: { $in: REAPPLY_ALLOWED_STATUSES } },
-      {
-        $set: set,
-        $unset: unset,
-        $push: { status_history: this.buildHistoryEntry(data.changedBy) },
-      },
-      { returnDocument: 'after' },
-    )
-      .lean<ApplicationDoc>()
-      .exec();
   }
 
   private buildHistoryEntry(changedBy: string): Pick<ApplicationStatusHistoryEntry, 'status' | 'changed_at'> & {

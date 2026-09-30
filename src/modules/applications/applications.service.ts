@@ -13,9 +13,11 @@ import { usersService, type UsersService } from '../users/users.service.js';
 import {
   APPLICATION_EMAIL_FAILED_LOG,
   APPLICATION_ERROR_CODES,
+  APPLICATION_HIRED_STATUS,
   APPLICATION_MESSAGES,
   APPLICATION_SUBMITTED_LABEL,
-  REAPPLY_ALLOWED_STATUSES,
+  CLOSED_APPLICATION_STATUSES,
+  MAX_APPLICATIONS_PER_JOB,
 } from './applications.constants.js';
 import {
   applicationsRepository,
@@ -40,6 +42,8 @@ export class ApplicationsService {
       cvId: String(application.cv_id),
       coverLetterId: application.cover_letter_id ? String(application.cover_letter_id) : null,
       message: application.message ?? null,
+      reappliedFrom: application.reapplied_from ? String(application.reapplied_from) : null,
+      reappliedAs: application.reapplied_as ? String(application.reapplied_as) : null,
       createdAt: application.createdAt.toISOString(),
       updatedAt: application.updatedAt.toISOString(),
     };
@@ -127,17 +131,24 @@ export class ApplicationsService {
       changedBy: userId,
     };
 
-    // E6: only Withdrawn/Rejected applications can be reactivated; any other status is a duplicate.
-    const existing = await this.repository.findByJobAndApplicant(job._id, userId);
-    let application: ApplicationDoc | null;
-    if (existing) {
-      if (!REAPPLY_ALLOWED_STATUSES.includes(existing.status)) {
+    // E5 / BR-APP-002: one active application per applicant/job. E6 / BR-APP-010: after a Withdrawn or
+    // Rejected one the applicant may apply again as a NEW record (the closed one is never reopened), at most
+    // twice per job, and never after Hired.
+    const latest = await this.repository.findLatestByJobAndApplicant(job._id, userId);
+    let reappliedFrom: Types.ObjectId | undefined;
+    if (latest) {
+      if (latest.status === APPLICATION_HIRED_STATUS) {
+        throw this.applyAgainNotAllowed();
+      }
+      if (!CLOSED_APPLICATION_STATUSES.includes(latest.status)) {
         throw this.alreadyApplied();
       }
-      application = await this.repository.reactivate(existing._id as Types.ObjectId, data);
-    } else {
-      application = await this.repository.create(data);
+      if ((await this.repository.countByJobAndApplicant(job._id, userId)) >= MAX_APPLICATIONS_PER_JOB) {
+        throw this.applyAgainNotAllowed();
+      }
+      reappliedFrom = latest._id as Types.ObjectId;
     }
+    const application = await this.repository.create({ ...data, reappliedFrom });
 
     // null = a concurrent request won the race (unique index / status condition).
     if (!application) {
@@ -149,11 +160,19 @@ export class ApplicationsService {
     return this.mapDto(application);
   }
 
-  // Powers the apply area on the job page. Any status is returned; the client decides whether the
-  // applicant may re-apply (Withdrawn/Rejected) or should see the "already applied" card.
+  // Powers the apply area on the job page. Returns the LATEST record of the pair in any status; the client
+  // decides whether the applicant may apply again (Withdrawn/Rejected) or should see the "already applied" card.
   async findMyApplication(userId: string, jobPostingId: string): Promise<ApplicationDTO | null> {
-    const application = await this.repository.findByJobAndApplicant(jobPostingId, userId);
+    const application = await this.repository.findLatestByJobAndApplicant(jobPostingId, userId);
     return application ? this.mapDto(application) : null;
+  }
+
+  private applyAgainNotAllowed(): Error {
+    return createHttpError(
+      HTTP_STATUS.HTTP_409_CONFLICT,
+      APPLICATION_MESSAGES.APPLY_AGAIN_NOT_ALLOWED,
+      APPLICATION_ERROR_CODES.APPLY_AGAIN_NOT_ALLOWED,
+    );
   }
 
   private alreadyApplied(): Error {
