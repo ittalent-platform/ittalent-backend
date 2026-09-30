@@ -1,6 +1,7 @@
-import type { Types } from 'mongoose';
+import type { QueryFilter, Types } from 'mongoose';
 
-import { User, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import type { UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
   email: string;
@@ -9,7 +10,41 @@ export interface CreateUserData {
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
+// Allow-list of fields an administrator may read; credentials and tokens live in other collections.
+const ADMIN_USER_FIELDS = 'email username role status enterprise_id createdAt updatedAt';
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class UsersRepository {
+  async findPage(query: UserListQuery): Promise<{ items: UserDoc[]; total: number }> {
+    const filter: QueryFilter<UserData> = {};
+
+    if (query.role) {
+      filter.role = query.role;
+    }
+    if (query.status) {
+      filter.status = query.status;
+    }
+    if (query.search) {
+      const pattern = new RegExp(escapeRegex(query.search), 'i');
+      filter.$or = [{ username: pattern }, { email: pattern }];
+    }
+
+    const [items, total] = await Promise.all([
+      User.find(filter)
+        .select(ADMIN_USER_FIELDS)
+        .sort({ createdAt: -1, _id: -1 })
+        .skip((query.page - 1) * query.limit)
+        .limit(query.limit)
+        .exec(),
+      User.countDocuments(filter).exec(),
+    ]);
+
+    return { items, total };
+  }
+
   async findById(id: string): Promise<UserDoc | null> {
     return User.findById(id).exec();
   }

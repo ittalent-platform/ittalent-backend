@@ -79,6 +79,15 @@ npm run dev
 - OpenAPI Specification: `http://localhost:3000/openapi.json`
 - Health Probe: `http://localhost:3000/health`
 
+### User Accounts API (System Administrator)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status, newest first (`createdAt` desc, then `id` desc). Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`. Unknown query keys are rejected. |
+| `GET` | `/api/v1/users/:id` | UC-USER-02. One user account. |
+
+Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
+
 ### My Applications API
 
 The authenticated candidate endpoints are:
