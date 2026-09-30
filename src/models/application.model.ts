@@ -20,7 +20,7 @@ export interface ApplicationStatusHistoryEntry {
 
 export interface ApplicationData {
   job_id: Types.ObjectId;
-  // Applicant Profile id. Documents (cv_id / cover_letter_id) are owned by the User instead (Document.owner_id).
+  // User id of the applicant. Documents (cv_id / cover_letter_id) are also owned by the User (Document.owner_id).
   applicant_id: Types.ObjectId;
   cv_id: Types.ObjectId;
   cover_letter_id?: Types.ObjectId;
@@ -42,7 +42,7 @@ const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
 const applicationSchema = new Schema<ApplicationData>(
   {
     job_id: { type: Schema.Types.ObjectId, ref: 'JobPosting', required: true },
-    applicant_id: { type: Schema.Types.ObjectId, ref: 'ApplicantProfile', required: true },
+    applicant_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     cv_id: { type: Schema.Types.ObjectId, ref: 'Document', required: true },
     cover_letter_id: { type: Schema.Types.ObjectId, ref: 'Document' },
     message: { type: String, trim: true },

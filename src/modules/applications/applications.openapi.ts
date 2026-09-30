@@ -39,7 +39,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Applications'],
     summary: 'Apply for a job',
     description:
-      'Applicant only. Requires a verified email, a saved applicant profile and a Published + Open job. ' +
+      'Applicant only. Requires a verified email and a Published + Open job. ' +
       'Re-applying after a Withdrawn/Rejected application reactivates the old record.',
     security: [{ bearerAuth: [] }],
     request: {
@@ -63,7 +63,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
         description: 'Email not verified, account not active, or caller is not an Applicant',
       },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
-        description: 'Job not found / no longer available, or applicant profile missing',
+        description: 'Job not found / no longer available',
       },
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
         description: 'Duplicate application, or the position has been filled',

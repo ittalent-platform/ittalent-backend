@@ -7,10 +7,6 @@ import {
   consumeEmailDeliveryStatus,
   sendApplicationConfirmationEmail,
 } from '../../shared/services/email.service.js';
-import {
-  applicantProfilesService,
-  type ApplicantProfilesService,
-} from '../applicant-profiles/applicant-profiles.service.js';
 import { documentsService, type DocumentsService } from '../documents/documents.service.js';
 import { jobPostingsService, type JobPostingsService } from '../job-postings/job-postings.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
@@ -33,7 +29,6 @@ export class ApplicationsService {
     private readonly repository: ApplicationsRepository = applicationsRepository,
     private readonly users: UsersService = usersService,
     private readonly jobs: JobPostingsService = jobPostingsService,
-    private readonly profiles: ApplicantProfilesService = applicantProfilesService,
     private readonly documents: DocumentsService = documentsService,
   ) {}
 
@@ -103,16 +98,6 @@ export class ApplicationsService {
       );
     }
 
-    // E5b: applicant profile is required.
-    const profile = await this.profiles.findByUserId(userId);
-    if (!profile) {
-      throw createHttpError(
-        HTTP_STATUS.HTTP_404_NOT_FOUND,
-        APPLICATION_MESSAGES.PROFILE_REQUIRED,
-        APPLICATION_ERROR_CODES.PROFILE_REQUIRED,
-      );
-    }
-
     // E3: CV (required) and cover letter (optional) must be owned by the signed-in user (Document.owner_id).
     const cv = await this.documents.findOwnedByType(input.cvId, userId, 'cv');
     if (!cv) {
@@ -135,7 +120,7 @@ export class ApplicationsService {
 
     const data: SubmitApplicationData = {
       jobId: job._id,
-      applicantId: profile._id,
+      applicantId: userId,
       cvId: input.cvId,
       coverLetterId: input.coverLetterId,
       message: input.message,
@@ -143,7 +128,7 @@ export class ApplicationsService {
     };
 
     // E6: only Withdrawn/Rejected applications can be reactivated; any other status is a duplicate.
-    const existing = await this.repository.findByJobAndApplicant(job._id, profile._id);
+    const existing = await this.repository.findByJobAndApplicant(job._id, userId);
     let application: ApplicationDoc | null;
     if (existing) {
       if (!REAPPLY_ALLOWED_STATUSES.includes(existing.status)) {
@@ -167,12 +152,7 @@ export class ApplicationsService {
   // Powers the apply area on the job page. Any status is returned; the client decides whether the
   // applicant may re-apply (Withdrawn/Rejected) or should see the "already applied" card.
   async findMyApplication(userId: string, jobPostingId: string): Promise<ApplicationDTO | null> {
-    const profile = await this.profiles.findByUserId(userId);
-    if (!profile) {
-      return null;
-    }
-
-    const application = await this.repository.findByJobAndApplicant(jobPostingId, profile._id);
+    const application = await this.repository.findByJobAndApplicant(jobPostingId, userId);
     return application ? this.mapDto(application) : null;
   }
 
