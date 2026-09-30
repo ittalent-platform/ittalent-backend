@@ -8,7 +8,7 @@ import { createApplicationBodySchema, myApplicationQuerySchema } from './applica
 
 export const applicationsRouter = Router();
 
-// POST creates a new application record (or reactivates a Withdrawn/Rejected one).
+// POST creates a new application record. After a Withdrawn/Rejected one it creates a NEW linked record (BR-APP-010).
 applicationsRouter.post(
   '/',
   authenticate,
@@ -17,7 +17,7 @@ applicationsRouter.post(
   applicationsController.createApplication,
 );
 
-// GET returns the caller's application for one job (or { item: null }).
+// GET returns the caller's latest application for one job (or { item: null }).
 applicationsRouter.get(
   '/mine',
   authenticate,

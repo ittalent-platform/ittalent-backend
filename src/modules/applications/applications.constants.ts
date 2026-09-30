@@ -7,8 +7,11 @@ export const APPLICANT_ROLE: UserRole = 'user';
 export const APPLICATION_INITIAL_STATUS: ApplicationStatus = 'submitted';
 export const APPLICATION_HIRED_STATUS: ApplicationStatus = 'hired';
 
-// An applicant may apply again only after the previous application is Withdrawn or Rejected.
-export const REAPPLY_ALLOWED_STATUSES: readonly ApplicationStatus[] = ['withdrawn', 'rejected'];
+// BR-APP-010: only a Withdrawn or Rejected application is closed, and only then may the applicant apply again
+// (as a new record). Any other status keeps the pair occupied.
+export const CLOSED_APPLICATION_STATUSES: readonly ApplicationStatus[] = ['withdrawn', 'rejected'];
+// BR-APP-010: a pair has at most two records; the second one is the last application to that job.
+export const MAX_APPLICATIONS_PER_JOB = 2;
 
 export const APPLICATION_CONFIG = {
   MESSAGE_MAX_LENGTH: 1000,
@@ -24,6 +27,7 @@ export const APPLICATION_MESSAGES = {
   INVALID_CV: 'Selected CV is not available',
   INVALID_COVER_LETTER: 'Selected cover letter is not available',
   ALREADY_APPLIED: 'You have already applied for this job',
+  APPLY_AGAIN_NOT_ALLOWED: 'You cannot apply for this job again',
 } as const;
 
 export const APPLICATION_ERROR_CODES = {
@@ -34,6 +38,7 @@ export const APPLICATION_ERROR_CODES = {
   INVALID_CV: 'INVALID_CV',
   INVALID_COVER_LETTER: 'INVALID_COVER_LETTER',
   ALREADY_APPLIED: 'ALREADY_APPLIED',
+  APPLY_AGAIN_NOT_ALLOWED: 'APPLY_AGAIN_NOT_ALLOWED',
 } as const;
 
 export const APPLICATION_SUBMITTED_LABEL = 'Submitted';

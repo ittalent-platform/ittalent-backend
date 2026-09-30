@@ -19,7 +19,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Applications'],
     summary: 'Get my application for a job',
     description:
-      'Applicant only. Returns the caller\'s application for the given job, or { item: null } when none exists.',
+      'Applicant only. Returns the caller\'s latest application for the given job, or { item: null } when none exists.',
     security: [{ bearerAuth: [] }],
     request: { query: myApplicationQuerySchema },
     responses: {
@@ -40,7 +40,9 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
     summary: 'Apply for a job',
     description:
       'Applicant only. Requires a verified email and a Published + Open job. ' +
-      'Re-applying after a Withdrawn/Rejected application reactivates the old record.',
+      'One active application per job: after a Withdrawn or Rejected application the applicant may apply again, ' +
+      'which creates a new linked record (the closed one is never reopened). At most two applications per job; ' +
+      'never after Hired.',
     security: [{ bearerAuth: [] }],
     request: {
       body: {
@@ -66,7 +68,8 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
         description: 'Job not found / no longer available',
       },
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
-        description: 'Duplicate application, or the position has been filled',
+        description:
+          'ALREADY_APPLIED (an active application exists), APPLY_AGAIN_NOT_ALLOWED (Hired, or two applications already used), or POSITION_FILLED',
       },
     },
   });
