@@ -20,7 +20,7 @@ export interface ApplicationStatusHistoryEntry {
 
 export interface ApplicationData {
   job_id: Types.ObjectId;
-  // Applicant Profile id (same owner key used by Document.applicant_id).
+  // Applicant Profile id. Documents (cv_id / cover_letter_id) are owned by the User instead (Document.owner_id).
   applicant_id: Types.ObjectId;
   cv_id: Types.ObjectId;
   cover_letter_id?: Types.ObjectId;

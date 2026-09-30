@@ -6,6 +6,14 @@ export class JobPostingsRepository {
     return new JobPosting({ enterprise_id: enterpriseId, posted_by_user_id: userId, title: input.title, slug, ...this.fields(input) }).save();
   }
   async findById(id: string): Promise<JobPostingDoc | null> { return JobPosting.findById(id).exec(); }
+  // A job accepts applications only while it is Published and not past its expiry date.
+  async findOpenPublishedById(id: string, now: Date): Promise<JobPostingDoc | null> {
+    return JobPosting.findOne({
+      _id: id,
+      status: 'published',
+      $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
+    }).exec();
+  }
   async findBySlug(slug: string, exceptId?: string): Promise<JobPostingDoc | null> { return JobPosting.findOne({ slug, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).exec(); }
   async update(id: string, input: UpdateJobPosting, slug?: string): Promise<JobPostingDoc | null> { return JobPosting.findByIdAndUpdate(id, { $set: { ...this.fields(input), ...(slug ? { slug } : {}) } }, { returnDocument: 'after' }).exec(); }
   async delete(id: string): Promise<boolean> { return (await JobPosting.deleteOne({ _id: id }).exec()).deletedCount === 1; }
