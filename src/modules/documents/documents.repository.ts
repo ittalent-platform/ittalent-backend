@@ -26,6 +26,11 @@ export class DocumentsRepository {
     }).save();
   }
 
+  // Documents are hard-owned by a user (owner_id); type is checked so a CV id cannot be used as a cover letter.
+  async findByIdOwnerAndType(id: string, ownerId: string, type: DocumentType): Promise<DocumentDoc | null> {
+    return Document.findOne({ _id: id, owner_id: ownerId, type }).exec();
+  }
+
   async list(
     ownerId: string | undefined,
     type: DocumentType | undefined,

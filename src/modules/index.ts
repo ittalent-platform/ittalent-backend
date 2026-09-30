@@ -1,4 +1,5 @@
 import { Router, type Express } from 'express';
+import { applicationsRouter } from './applications/index.js';
 import { authRouter } from './auth/index.js';
 import { documentsRouter } from './documents/index.js';
 import { enterprisesRouter } from './enterprises/index.js';
@@ -13,6 +14,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use(jobPostingsRouter);
   apiV1Router.use('/users', usersRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
+  apiV1Router.use('/applications', applicationsRouter);
 
   app.use(healthRouter);
   app.use('/api/v1', apiV1Router);
