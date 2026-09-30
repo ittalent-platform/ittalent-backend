@@ -15,6 +15,7 @@ export class UsersService {
       username: user.username,
       role: user.role,
       status: user.status,
+      enterpriseId: user.enterprise_id ? String(user.enterprise_id) : null,
       createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : undefined,
       updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : undefined,
     };
@@ -54,6 +55,19 @@ export class UsersService {
 
   async updateStatus(id: string, status: UserStatus): Promise<UserDoc | null> {
     return this.repository.updateStatus(id, status);
+  }
+
+  async getEnterpriseId(id: string): Promise<string | null> {
+    const user = await this.repository.findById(id);
+    return user?.enterprise_id ? String(user.enterprise_id) : null;
+  }
+
+  async assignEnterprise(id: string, enterpriseId: string): Promise<UserDoc | null> {
+    return this.repository.updateEnterpriseId(id, enterpriseId);
+  }
+
+  async findRecruitersByEnterpriseId(enterpriseId: string): Promise<UserDoc[]> {
+    return this.repository.findRecruitersByEnterpriseId(enterpriseId);
   }
 
   async blockExpiredInactiveUsers(cutoff: Date, excludedRoles?: UserRole[]): Promise<number> {

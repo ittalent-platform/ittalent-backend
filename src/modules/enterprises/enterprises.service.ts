@@ -4,6 +4,7 @@ import type { EnterpriseData, EnterpriseDoc } from '../../models/enterprise.mode
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
+import { usersService, type UsersService } from '../users/users.service.js';
 import {
   ENTERPRISE_MESSAGES,
   VALID_STATUS_TRANSITIONS,
@@ -22,7 +23,10 @@ import type {
 } from './enterprises.schemas.js';
 
 export class EnterprisesService {
-  constructor(private readonly repository: EnterprisesRepository = enterprisesRepository) {}
+  constructor(
+    private readonly repository: EnterprisesRepository = enterprisesRepository,
+    private readonly userService: UsersService = usersService,
+  ) {}
 
   private mapSummary(enterprise: EnterpriseDoc): EnterpriseSummaryDTO {
     return {
@@ -121,6 +125,13 @@ export class EnterprisesService {
       }
     }
 
+    if (role === 'recruiter' && await this.userService.getEnterpriseId(creatorId)) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        ENTERPRISE_MESSAGES.CREATOR_ALREADY_OWNS_ENTERPRISE,
+      );
+    }
+
     const initialStatus = role === 'admin' ? 'active' : 'pending';
 
     const entityPayload: Partial<EnterpriseData> = {
@@ -128,17 +139,21 @@ export class EnterprisesService {
       email: data.email.toLowerCase(),
       status: initialStatus,
       creator_account_id: new mongoose.Types.ObjectId(creatorId),
-      ...(role === 'recruiter' ? { recruiter_ids: [new mongoose.Types.ObjectId(creatorId)] } : {}),
       is_deleted: false,
     };
 
     const created = await this.repository.create(entityPayload);
+    if (role === 'recruiter') {
+      const assignedUser = await this.userService.assignEnterprise(creatorId, String(created._id));
+      if (!assignedUser) {
+        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'Recruiter not found');
+      }
+    }
     return this.mapDetail(created, 0);
   }
 
   async getRecruiterEnterpriseId(recruiterId: string): Promise<string | null> {
-    const enterprise = await this.repository.findByRecruiterId(recruiterId);
-    return enterprise ? String(enterprise._id) : null;
+    return this.userService.getEnterpriseId(recruiterId);
   }
 
   async updateEnterprise(
@@ -152,8 +167,13 @@ export class EnterprisesService {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, ENTERPRISE_MESSAGES.NOT_FOUND);
     }
 
-    const isOwner = String(enterprise.creator_account_id) === actorId;
-    if (role !== 'admin' && !isOwner) {
+    const recruiterEnterpriseId = role === 'recruiter'
+      ? await this.getRecruiterEnterpriseId(actorId)
+      : null;
+    const canManage = role === 'admin'
+      || (role === 'recruiter' && recruiterEnterpriseId === String(enterprise._id))
+      || (role !== 'recruiter' && String(enterprise.creator_account_id) === actorId);
+    if (!canManage) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, ENTERPRISE_MESSAGES.UNAUTHORIZED_UPDATE);
     }
 
@@ -272,7 +292,13 @@ export class EnterprisesService {
     }
 
     if (enterprise.status !== 'active') {
-      const isOwner = userId && String(enterprise.creator_account_id) === userId;
+      const recruiterEnterpriseId = role === 'recruiter' && userId
+        ? await this.getRecruiterEnterpriseId(userId)
+        : null;
+      const isOwner = userId && (
+        (role === 'recruiter' && recruiterEnterpriseId === String(enterprise._id))
+        || (role !== 'recruiter' && String(enterprise.creator_account_id) === userId)
+      );
       const isAdmin = role === 'admin';
 
       if (!isAdmin && !isOwner) {

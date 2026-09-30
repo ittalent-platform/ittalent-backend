@@ -84,7 +84,6 @@ export interface EnterpriseData {
   status_updated_at?: Date | undefined;
 
   creator_account_id: Types.ObjectId;
-  recruiter_ids?: Types.ObjectId[] | undefined;
   is_deleted: boolean;
   deleted_at?: Date | undefined;
   deleted_by?: Types.ObjectId | undefined;
@@ -164,7 +163,6 @@ const enterpriseSchema = new Schema<EnterpriseData>(
       ref: 'User',
       required: true,
     },
-    recruiter_ids: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     is_deleted: { type: Boolean, default: false, required: true, index: true },
     deleted_at: { type: Date },
     deleted_by: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -182,8 +180,6 @@ enterpriseSchema.index(
     partialFilterExpression: { is_deleted: false },
   },
 );
-enterpriseSchema.index({ recruiter_ids: 1, is_deleted: 1 });
-
 enterpriseSchema.index(
   { email: 1 },
   {

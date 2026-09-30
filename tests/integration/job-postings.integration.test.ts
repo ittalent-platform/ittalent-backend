@@ -10,6 +10,7 @@ import { Account } from '../../src/models/account.model.js';
 import { Enterprise } from '../../src/models/enterprise.model.js';
 import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User, type UserDoc } from '../../src/models/user.model.js';
+import { usersService } from '../../src/modules/users/users.service.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
 type LoginResponse = { user: { id: string; role: string }; tokens: { accessToken: string } };
@@ -69,7 +70,7 @@ describe('Job posting enterprise ownership integration', () => {
 
   beforeEach(async () => {
     await Promise.all([JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
-    recruiterA1 = await createUser('recruiter-a1@integration.test', 'recruiter_a1', 'recruiter');
+    recruiterA1 = await createUser('recruiter@gmail.com', 'recruiter_a1', 'recruiter');
     recruiterA2 = await createUser('recruiter-a2@integration.test', 'recruiter_a2', 'recruiter');
     recruiterB = await createUser('recruiter-b@integration.test', 'recruiter_b', 'recruiter');
     recruiterWithoutEnterprise = await createUser('recruiter-none@integration.test', 'recruiter_none', 'recruiter');
@@ -78,15 +79,20 @@ describe('Job posting enterprise ownership integration', () => {
     const enterpriseA = await Enterprise.create({
       name: 'Integration Enterprise A', tax_code: '9000000001', email: 'enterprise-a@integration.test', phone: '+84900000001',
       industry: 'Information Technology', company_size: '1-10', address: { street: 'A Street', city: 'Ho Chi Minh City', country: 'Vietnam' },
-      status: 'active', creator_account_id: recruiterA1._id, recruiter_ids: [recruiterA1._id, recruiterA2._id], is_deleted: false,
+      status: 'active', creator_account_id: recruiterA1._id, is_deleted: false,
     });
     const enterpriseB = await Enterprise.create({
       name: 'Integration Enterprise B', tax_code: '9000000002', email: 'enterprise-b@integration.test', phone: '+84900000002',
       industry: 'Information Technology', company_size: '1-10', address: { street: 'B Street', city: 'Ha Noi', country: 'Vietnam' },
-      status: 'active', creator_account_id: recruiterB._id, recruiter_ids: [recruiterB._id], is_deleted: false,
+      status: 'active', creator_account_id: recruiterB._id, is_deleted: false,
     });
     enterpriseAId = String(enterpriseA._id);
     enterpriseBId = String(enterpriseB._id);
+    await User.updateMany(
+      { _id: { $in: [recruiterA1._id, recruiterA2._id] } },
+      { $set: { enterprise_id: enterpriseA._id } },
+    );
+    await User.updateOne({ _id: recruiterB._id }, { $set: { enterprise_id: enterpriseB._id } });
     const jobA = await JobPosting.create({ enterprise_id: enterpriseA._id, posted_by_user_id: recruiterA1._id, title: 'Enterprise A Draft Job', slug: 'enterprise-a-draft-job', status: 'draft' });
     const jobB = await JobPosting.create({ enterprise_id: enterpriseB._id, posted_by_user_id: recruiterB._id, title: 'Enterprise B Draft Job', slug: 'enterprise-b-draft-job', status: 'draft' });
     jobAId = String(jobA._id);
@@ -97,6 +103,8 @@ describe('Job posting enterprise ownership integration', () => {
     const recruiterLogin = await login(recruiterA1.email);
     expect(recruiterLogin.user.role).toBe('recruiter');
     expect(recruiterLogin.tokens.accessToken).toBeTruthy();
+    const persistedRecruiter = await User.findById(recruiterA1._id).lean();
+    expect(String(persistedRecruiter?.enterprise_id)).toBe(enterpriseAId);
 
     const scopedResponse = await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(recruiterLogin.tokens.accessToken) });
     expect(scopedResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
@@ -108,6 +116,16 @@ describe('Job posting enterprise ownership integration', () => {
     expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`)).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
     const adminLogin = await login(admin.email);
     expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('queries only recruiters whose User.enterprise_id matches the enterprise', async () => {
+    const enterpriseARecruiters = await usersService.findRecruitersByEnterpriseId(enterpriseAId);
+    const recruiterIds = enterpriseARecruiters.map((recruiter) => String(recruiter._id));
+    const enterpriseA = await Enterprise.findById(enterpriseAId).lean();
+
+    expect(recruiterIds).toEqual(expect.arrayContaining([String(recruiterA1._id), String(recruiterA2._id)]));
+    expect(recruiterIds).not.toContain(String(recruiterB._id));
+    expect(Object.hasOwn(enterpriseA ?? {}, 'recruiter_ids')).toBe(false);
   });
 
   it('derives ownership from the recruiter and ignores client ownership fields', async () => {

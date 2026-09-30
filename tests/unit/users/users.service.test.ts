@@ -16,6 +16,7 @@ describe('UsersService', () => {
       existsByEmail: vi.fn(),
       existsByUsername: vi.fn(),
       createUser: vi.fn(),
+      findRecruitersByEnterpriseId: vi.fn(),
     };
     usersService = new UsersService(mockRepo as UsersRepository);
   });
@@ -42,6 +43,7 @@ describe('UsersService', () => {
       expect(result.id).toBe('user-id-1');
       expect(result.email).toBe('test@example.com');
       expect(result.username).toBe('testuser');
+      expect(result.enterpriseId).toBeNull();
     });
 
     it('throws 404 when user does not exist', async () => {
@@ -86,5 +88,19 @@ describe('UsersService', () => {
       expect(mockRepo.blockExpiredInactiveUsers).toHaveBeenCalledWith(cutoff, ['admin']);
       expect(count).toBe(3);
     });
+  });
+
+  it('returns the enterprise assigned to a recruiter', async () => {
+    mockRepo.findById = vi.fn().mockResolvedValue({ enterprise_id: 'enterprise-id' });
+
+    await expect(usersService.getEnterpriseId('user-id')).resolves.toBe('enterprise-id');
+  });
+
+  it('queries recruiters by enterprise_id', async () => {
+    const recruiters = [{ _id: 'recruiter-id' }];
+    mockRepo.findRecruitersByEnterpriseId = vi.fn().mockResolvedValue(recruiters);
+
+    await expect(usersService.findRecruitersByEnterpriseId('enterprise-id')).resolves.toBe(recruiters);
+    expect(mockRepo.findRecruitersByEnterpriseId).toHaveBeenCalledWith('enterprise-id');
   });
 });

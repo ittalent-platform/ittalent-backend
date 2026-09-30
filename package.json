@@ -18,6 +18,7 @@
     "test:all": "vitest run --fileParallelism=false",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "seed:recruiter": "tsx src/scripts/seed-recruiter.ts",
+    "migrate:enterprise-recruiters": "tsx src/scripts/migrate-enterprise-recruiters.ts",
     "migrate:job-posting-enterprises": "tsx src/scripts/migrate-job-posting-enterprises.ts"
   },
   "dependencies": {

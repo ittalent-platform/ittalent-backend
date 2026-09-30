@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { connectDatabase, disconnectDatabase } from '../config/db.js';
 import { Enterprise } from '../models/enterprise.model.js';
 import { JobPosting } from '../models/job-posting.model.js';
+import { User } from '../models/user.model.js';
 
 export interface JobPostingEnterpriseMigrationResult {
   migrated: number;
@@ -15,17 +16,18 @@ export async function migrateJobPostingEnterprises(): Promise<JobPostingEnterpri
   let skipped = 0;
 
   for (const job of legacyJobs) {
-    const enterprises = await Enterprise.find({
-      is_deleted: false,
-      $or: [{ creator_account_id: job.posted_by_user_id }, { recruiter_ids: job.posted_by_user_id }],
-    }).select('_id').exec();
-
-    if (enterprises.length !== 1) {
+    const recruiter = await User.findById(job.posted_by_user_id)
+      .select('enterprise_id')
+      .exec();
+    if (!recruiter?.enterprise_id) {
       skipped += 1;
       continue;
     }
 
-    const [enterprise] = enterprises;
+    const enterprise = await Enterprise.findOne({
+      _id: recruiter.enterprise_id,
+      is_deleted: false,
+    }).select('_id').exec();
     if (!enterprise) {
       skipped += 1;
       continue;

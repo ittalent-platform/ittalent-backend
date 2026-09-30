@@ -78,6 +78,7 @@ describe('Auth Integration Tests', () => {
     const dbUser = await User.findOne({ email: 'john@example.com' });
     expect(dbUser).toBeDefined();
     expect(dbUser?.status).toBe('inactive');
+    expect(dbUser?.enterprise_id).toBeNull();
 
     const dbToken = await Token.findOne({ user_id: dbUser!._id, type: 'email_verification' }).lean();
     expect(dbToken?.status).toBe('pending');

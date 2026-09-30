@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { JobPostingDoc } from '../../../src/models/job-posting.model.js';
-import type { EnterprisesService } from '../../../src/modules/enterprises/enterprises.service.js';
 import type { JobPostingsRepository } from '../../../src/modules/job-postings/job-postings.repository.js';
 import { JobPostingsService } from '../../../src/modules/job-postings/job-postings.service.js';
+import type { UsersService } from '../../../src/modules/users/users.service.js';
 
 const enterpriseA = '507f1f77bcf86cd799439011';
 const enterpriseB = '507f1f77bcf86cd799439012';
@@ -31,8 +31,8 @@ type MockRepository = {
 
 function createService(recruiterEnterpriseId: string | null): { service: JobPostingsService; repository: MockRepository } {
   const repository = { create: vi.fn(), findById: vi.fn(), findBySlug: vi.fn(), update: vi.fn(), delete: vi.fn(), list: vi.fn() };
-  const enterpriseService = { getRecruiterEnterpriseId: vi.fn().mockResolvedValue(recruiterEnterpriseId) };
-  return { service: new JobPostingsService(repository as unknown as JobPostingsRepository, enterpriseService as unknown as EnterprisesService), repository };
+  const userService = { getEnterpriseId: vi.fn().mockResolvedValue(recruiterEnterpriseId) };
+  return { service: new JobPostingsService(repository as unknown as JobPostingsRepository, userService as unknown as UsersService), repository };
 }
 
 const createInput = { title: 'Backend Engineer' };

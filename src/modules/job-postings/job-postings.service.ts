@@ -1,7 +1,7 @@
 import type { JobPostingDoc } from '../../models/job-posting.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
+import { usersService, type UsersService } from '../users/users.service.js';
 import { jobPostingsRepository, type JobPostingsRepository } from './job-postings.repository.js';
 import type { CreateJobPosting, JobPostingListQuery, JobPostingResponse, UpdateJobPosting } from './job-postings.schemas.js';
 
@@ -10,10 +10,10 @@ type PaginatedJobPostings = { items: JobPostingResponse[]; page: number; limit: 
 function slugify(value: string): string { return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `job-${Date.now()}`; }
 
 export class JobPostingsService {
-  constructor(private readonly repository: JobPostingsRepository = jobPostingsRepository, private readonly enterpriseService: EnterprisesService = enterprisesService) {}
+  constructor(private readonly repository: JobPostingsRepository = jobPostingsRepository, private readonly userService: UsersService = usersService) {}
   private map(record: JobPostingDoc): JobPostingResponse { const raw = record.toObject(); return { id: String(record._id), enterpriseId: String(record.enterprise_id), postedByUserId: String(record.posted_by_user_id), title: record.title, slug: record.slug, ...(record.location ? { location: record.location } : {}), ...(record.employment_type ? { employmentType: record.employment_type } : {}), ...(record.salary_min !== undefined ? { salaryMin: record.salary_min } : {}), ...(record.salary_max !== undefined ? { salaryMax: record.salary_max } : {}), currency: record.currency, ...(record.level ? { level: record.level } : {}), ...(record.description ? { description: record.description } : {}), ...(record.requirements ? { requirements: record.requirements } : {}), ...(record.benefits ? { benefits: record.benefits } : {}), ...(record.openings !== undefined ? { openings: record.openings } : {}), status: record.status, ...(record.expires_at ? { expiresAt: record.expires_at.toISOString() } : {}), createdAt: new Date(raw.createdAt).toISOString(), updatedAt: new Date(raw.updatedAt).toISOString() }; }
   private async uniqueSlug(title: string, exceptId?: string): Promise<string> { const base = slugify(title); let slug = base; let suffix = 2; while (await this.repository.findBySlug(slug, exceptId)) { slug = `${base}-${suffix}`; suffix += 1; } return slug; }
-  private async getRecruiterEnterpriseId(recruiterId: string): Promise<string> { const enterpriseId = await this.enterpriseService.getRecruiterEnterpriseId(recruiterId); if (!enterpriseId) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Recruiter is not assigned to an enterprise'); return enterpriseId; }
+  private async getRecruiterEnterpriseId(recruiterId: string): Promise<string> { const enterpriseId = await this.userService.getEnterpriseId(recruiterId); if (!enterpriseId) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Recruiter is not assigned to an enterprise'); return enterpriseId; }
   private async assertRecruiterCanManage(jobPosting: JobPostingDoc, recruiterId: string): Promise<void> { if (String(jobPosting.enterprise_id) !== await this.getRecruiterEnterpriseId(recruiterId)) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Job posting belongs to another enterprise'); }
   private async getExisting(id: string): Promise<JobPostingDoc> { const jobPosting = await this.repository.findById(id); if (!jobPosting) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'Job posting not found'); return jobPosting; }
   async create(recruiterId: string, input: CreateJobPosting): Promise<JobPostingResponse> { const enterpriseId = await this.getRecruiterEnterpriseId(recruiterId); return this.map(await this.repository.create(recruiterId, enterpriseId, input, await this.uniqueSlug(input.title))); }

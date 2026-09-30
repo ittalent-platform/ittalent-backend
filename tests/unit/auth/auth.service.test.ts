@@ -41,6 +41,7 @@ describe('AuthService', () => {
         username: user.username,
         role: user.role,
         status: user.status,
+        enterpriseId: user.enterprise_id ? String(user.enterprise_id) : null,
       })),
       blockExpiredInactiveUsers: vi.fn(),
     };

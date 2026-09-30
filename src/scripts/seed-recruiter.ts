@@ -30,11 +30,9 @@ export async function seedRecruiter(): Promise<SeedRecruiterResult> {
     await recruiter.save();
   }
 
-  const assignedElsewhere = await Enterprise.findOne({
-    is_deleted: false,
-    $or: [{ creator_account_id: recruiter._id }, { recruiter_ids: recruiter._id }],
-    tax_code: { $ne: ENTERPRISE_TAX_CODE },
-  });
+  const assignedElsewhere = recruiter.enterprise_id
+    ? await Enterprise.findOne({ _id: recruiter.enterprise_id, is_deleted: false, tax_code: { $ne: ENTERPRISE_TAX_CODE } })
+    : null;
   if (assignedElsewhere) {
     throw new Error(`Recruiter is already assigned to enterprise ${assignedElsewhere._id}`);
   }
@@ -51,13 +49,12 @@ export async function seedRecruiter(): Promise<SeedRecruiterResult> {
       address: { street: '1 Test Street', city: 'Ho Chi Minh City', country: 'Vietnam' },
       status: 'active',
       creator_account_id: recruiter._id,
-      recruiter_ids: [recruiter._id],
       is_deleted: false,
     });
-  } else if (!(enterprise.recruiter_ids ?? []).some((id) => String(id) === String(recruiter._id))) {
-    enterprise.recruiter_ids = [...(enterprise.recruiter_ids ?? []), recruiter._id];
-    await enterprise.save();
   }
+
+  recruiter.enterprise_id = enterprise._id;
+  await recruiter.save();
 
   const account = await Account.findOne({ user_id: recruiter._id, provider: 'local' }).select('+password_hash');
   if (account) {
