@@ -7,6 +7,7 @@ import { app } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { disconnectRedis } from '../../src/config/redis.js';
 import { Account } from '../../src/models/account.model.js';
+import { Application } from '../../src/models/application.model.js';
 import { Enterprise } from '../../src/models/enterprise.model.js';
 import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User, type UserDoc } from '../../src/models/user.model.js';
@@ -52,7 +53,7 @@ function auth(token: string): Record<string, string> {
 describe('Job posting enterprise ownership integration', () => {
   beforeAll(async () => {
     await connectDatabase();
-    await Promise.all([Account.syncIndexes(), User.syncIndexes(), Enterprise.syncIndexes(), JobPosting.syncIndexes()]);
+    await Promise.all([Account.syncIndexes(), User.syncIndexes(), Enterprise.createIndexes(), JobPosting.syncIndexes(), Application.syncIndexes()]);
     await new Promise<void>((resolve) => {
       server = app.listen(0, () => {
         baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -63,13 +64,13 @@ describe('Job posting enterprise ownership integration', () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await Promise.all([JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
+    await Promise.all([Application.deleteMany({}), JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
     await disconnectRedis();
     await disconnectDatabase();
   });
 
   beforeEach(async () => {
-    await Promise.all([JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
+    await Promise.all([Application.deleteMany({}), JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
     recruiterA1 = await createUser('recruiter@gmail.com', 'recruiter_a1', 'recruiter');
     recruiterA2 = await createUser('recruiter-a2@integration.test', 'recruiter_a2', 'recruiter');
     recruiterB = await createUser('recruiter-b@integration.test', 'recruiter_b', 'recruiter');
@@ -196,6 +197,33 @@ describe('Job posting enterprise ownership integration', () => {
     expect(deletion.status).toBe(HTTP_STATUS.HTTP_204_NO_CONTENT);
     expect(await JobPosting.findById(jobAId)).toBeNull();
     expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { headers: auth(recruiterLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+  });
+
+  it('rejects deletion when one application references the job posting', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    await Application.create({ job_posting_id: jobAId });
+
+    const deletion = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'DELETE', headers: auth(recruiterLogin.tokens.accessToken),
+    });
+
+    expect(deletion.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+    expect((await deletion.json() as { message: string }).message).toBe('Cannot delete job posting because applications already exist for this job.');
+    expect(await JobPosting.exists({ _id: jobAId })).not.toBeNull();
+    expect(await Application.exists({ job_posting_id: jobAId })).not.toBeNull();
+  });
+
+  it('rejects deletion when multiple applications reference the job posting', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    await Application.create([{ job_posting_id: jobAId }, { job_posting_id: jobAId }]);
+
+    const deletion = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'DELETE', headers: auth(recruiterLogin.tokens.accessToken),
+    });
+
+    expect(deletion.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+    expect(await JobPosting.exists({ _id: jobAId })).not.toBeNull();
+    expect(await Application.countDocuments({ job_posting_id: jobAId })).toBe(2);
   });
 
   it('preserves admin management access across enterprise boundaries', async () => {
