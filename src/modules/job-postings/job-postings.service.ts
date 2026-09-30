@@ -305,6 +305,12 @@ export class JobPostingsService {
   async findPublicJobById(id: string): Promise<JobPostingDoc | null> {
     return this.repository.findOpenPublishedById(id, new Date());
   }
+  // Public detail: 404 unless the job is Published, still open and owned by an Active enterprise.
+  async getPublicById(id: string): Promise<JobPostingResponse> {
+    const job = await this.findPublicJobById(id);
+    if (!job) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, JOB_POSTING_MESSAGES.NOT_FOUND);
+    return this.mapOne(job);
+  }
   // Used right after an application is saved: false means the job was deleted in the meantime.
   async stillExists(id: string): Promise<boolean> {
     return this.repository.exists(id);

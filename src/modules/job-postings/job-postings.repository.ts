@@ -14,6 +14,11 @@ import type {
   UpdateJobPosting,
 } from './job-postings.schemas.js';
 
+// Not past its expiry date: no expiry set, or expiry still in the future.
+const notExpired = (now: Date): Record<string, unknown> => ({
+  $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: now } }],
+});
+
 export class JobPostingsRepository {
   // Creating always publishes (Sprint 1 has no Draft choice); `expiresAt` is the already-normalised deadline.
   async create(
@@ -103,11 +108,7 @@ export class JobPostingsRepository {
       _id: id,
       status: 'published',
       deleting: { $ne: true },
-      $or: [
-        { expires_at: { $exists: false } },
-        { expires_at: null },
-        { expires_at: { $gt: now } },
-      ],
+      ...notExpired(now),
     }).exec();
     if (!job) return null;
     return (await this.isEnterpriseActive(String(job.enterprise_id))) ? job : null;
@@ -185,15 +186,16 @@ export class JobPostingsRepository {
     options: { publicOnly: boolean; enterpriseId?: string; activeEnterpriseIds?: string[] },
   ): Promise<{ items: JobPostingDoc[]; total: number }> {
     const filter: Record<string, unknown> = {
+      // Public listing: Published, not being deleted, before the deadline and owned by an Active enterprise.
+      // The conditions sit in $and so they combine with the enterprise_id filter and the search $or.
       ...(options.publicOnly
         ? {
             status: 'published',
             deleting: { $ne: true },
-            enterprise_id: { $in: options.activeEnterpriseIds ?? [] },
-            $and: [{ $or: [{ expires_at: { $exists: false } }, { expires_at: null }, { expires_at: { $gt: new Date() } }] }],
+            $and: [notExpired(new Date()), { enterprise_id: { $in: options.activeEnterpriseIds ?? [] } }],
           }
         : {}),
-      ...(options.enterpriseId ? { enterprise_id: options.enterpriseId } : {}),
+      ...(options.enterpriseId ?? query.enterprise_id ? { enterprise_id: options.enterpriseId ?? query.enterprise_id } : {}),
       ...(query.location
         ? {
             location: new RegExp(

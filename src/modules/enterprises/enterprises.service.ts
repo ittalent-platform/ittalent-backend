@@ -28,7 +28,7 @@ export class EnterprisesService {
     private readonly userService: UsersService = usersService,
   ) {}
 
-  private mapSummary(enterprise: EnterpriseDoc): EnterpriseSummaryDTO {
+  private mapSummary(enterprise: EnterpriseDoc, openRoleCount = 0): EnterpriseSummaryDTO {
     return {
       id: String(enterprise._id),
       name: enterprise.name,
@@ -39,6 +39,7 @@ export class EnterprisesService {
       companySize: enterprise.company_size ?? null,
       companyType: enterprise.company_type ?? null,
       techStack: enterprise.tech_stack ?? [],
+      openRoleCount,
       status: enterprise.status,
       email: enterprise.email ?? null,
       phone: enterprise.phone ?? null,
@@ -275,9 +276,12 @@ export class EnterprisesService {
   ): Promise<PaginatedResult<EnterpriseSummaryDTO>> {
     const isAdmin = role === 'admin';
     const { items, total } = await this.repository.findPage(query, isAdmin);
+    const openRoles = await this.repository.countOpenRolesByEnterpriseIds(
+      items.map((enterprise) => String(enterprise._id)),
+    );
 
     return {
-      items: items.map((enterprise) => this.mapSummary(enterprise)),
+      items: items.map((enterprise) => this.mapSummary(enterprise, openRoles.get(String(enterprise._id)) ?? 0)),
       page: query.page,
       limit: query.limit,
       total,

@@ -6,6 +6,7 @@ import { createJobPostingSchema, jobPostingIdParamSchema, jobPostingListQuerySch
 
 export const jobPostingsRouter = Router();
 jobPostingsRouter.get('/job-postings', validateQuery(jobPostingListQuerySchema), jobPostingsController.listPublic);
+jobPostingsRouter.get('/job-postings/:id/public', validateParams(jobPostingIdParamSchema), jobPostingsController.getPublic);
 jobPostingsRouter.get('/admin/job-postings', authenticate, authorize('admin'), validateQuery(jobPostingListQuerySchema), jobPostingsController.listAdmin);
 jobPostingsRouter.get('/recruiter/job-postings', authenticate, authorize('recruiter'), validateQuery(jobPostingListQuerySchema), jobPostingsController.listRecruiter);
 jobPostingsRouter.post('/job-postings', authenticate, authorize('recruiter'), validateBody(createJobPostingSchema), jobPostingsController.create);

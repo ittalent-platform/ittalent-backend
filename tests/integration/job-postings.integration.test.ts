@@ -371,6 +371,43 @@ describe('Job posting enterprise ownership integration', () => {
     expect(own.items.map((item) => item.id)).toEqual([jobBId]);
   });
 
+  it('narrows the public list by enterprise_id without leaking other companies or inactive ones', async () => {
+    const byCompany = async (id: string): Promise<string[]> =>
+      ((await (await fetch(`${baseUrl}/api/v1/job-postings?enterprise_id=${id}`)).json()) as { items: JobResponse[] }).items.map((item) => item.id);
+    expect(await byCompany(enterpriseAId)).toEqual([jobAId]);
+    expect(await byCompany(enterpriseBId)).toEqual([jobBId]);
+    // A suspended enterprise stays hidden even when asked for by id.
+    await Enterprise.updateOne({ _id: enterpriseBId }, { $set: { status: 'suspended' } });
+    expect(await byCompany(enterpriseBId)).toEqual([]);
+    expect((await fetch(`${baseUrl}/api/v1/job-postings?enterprise_id=not-an-id`)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+  });
+
+  it('counts only open, published jobs as the open roles of an enterprise', async () => {
+    await JobPosting.create([
+      { enterprise_id: enterpriseAId, posted_by_user_id: recruiterA1._id, title: 'Expired Job', slug: 'open-roles-expired', status: 'published', ...validFields, expires_at: new Date('2020-01-01T16:59:59.999Z') },
+      { enterprise_id: enterpriseAId, posted_by_user_id: recruiterA1._id, title: 'Legacy Draft', slug: 'open-roles-draft', status: 'draft' },
+    ]);
+    const list = (await (await fetch(`${baseUrl}/api/v1/enterprises?limit=100`)).json()) as { items: { id: string; openRoleCount: number }[] };
+    expect(list.items.find((item) => item.id === enterpriseAId)?.openRoleCount).toBe(1);
+  });
+
+  it('serves the public job detail only while the job is open', async () => {
+    const detail = async (id: string): Promise<Response> => fetch(`${baseUrl}/api/v1/job-postings/${id}/public`);
+    const open = await detail(jobAId);
+    expect(open.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const body = await open.json() as JobResponse;
+    expect(body.enterprise.name).toBe('Integration Enterprise A');
+    expect(body.applicationCount).toBeUndefined();
+
+    await JobPosting.updateOne({ _id: jobAId }, { $set: { expires_at: new Date('2020-01-01T16:59:59.999Z') } });
+    expect((await detail(jobAId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    await JobPosting.updateOne({ _id: jobAId }, { $set: { expires_at: new Date('2099-01-01T16:59:59.999Z'), status: 'archived' } });
+    expect((await detail(jobAId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    await Enterprise.updateOne({ _id: enterpriseBId }, { $set: { status: 'suspended' } });
+    expect((await detail(jobBId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await detail('not-an-id')).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+  });
+
   it('hard-removes a job with no application history in any state and writes a separate audit event (AC-JOB-03-01)', async () => {
     const recruiterLogin = await login(recruiterA1.email);
     const archived = await JobPosting.create({ enterprise_id: enterpriseAId, posted_by_user_id: recruiterA1._id, title: 'Archived Job', slug: 'integration-archived-job', status: 'archived' });
