@@ -40,6 +40,10 @@ export class EnterprisesService {
       companyType: enterprise.company_type ?? null,
       techStack: enterprise.tech_stack ?? [],
       status: enterprise.status,
+      email: enterprise.email ?? null,
+      phone: enterprise.phone ?? null,
+      createdAt: enterprise.createdAt ? enterprise.createdAt.toISOString() : null,
+      creatorAccountId: enterprise.creator_account_id ? String(enterprise.creator_account_id) : null,
     };
   }
 
