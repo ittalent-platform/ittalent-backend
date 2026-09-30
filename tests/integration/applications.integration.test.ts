@@ -37,9 +37,10 @@ async function apply(jobPostingId: string, cvId: Types.ObjectId = cvA): Promise<
   return { status: response.status, body: (await response.json()) as ApplyResponse };
 }
 
+// The latest application for one job: the list is newest-first, so the first item of a jobId-filtered page.
 async function mine(jobPostingId: string): Promise<ApplyResponse | null> {
-  const response = await fetch(`${baseUrl}/api/v1/me/applications/mine?jobPostingId=${jobPostingId}`, { headers: bearer() });
-  return ((await response.json()) as { item: ApplyResponse | null }).item;
+  const response = await fetch(`${baseUrl}/api/v1/me/applications?jobId=${jobPostingId}&limit=1`, { headers: bearer() });
+  return ((await response.json()) as { items: ApplyResponse[] }).items[0] ?? null;
 }
 
 const setStatus = (id: string, status: string) => Application.updateOne({ _id: id }, { $set: { status } });
@@ -65,7 +66,7 @@ describe('Applications: one active application per job, apply again as a new rec
     await disconnectDatabase();
   });
 
-  it('accepts the first application and reports it through /mine', async () => {
+  it('accepts the first application and reports it through the jobId-filtered list', async () => {
     const job = await newJob();
     expect(await mine(job)).toBeNull();
     const first = await apply(job);

@@ -9,7 +9,6 @@ import {
   applicationIdParamSchema,
   applicationListQueryValidator,
   createApplicationBodySchema,
-  myApplicationQuerySchema,
   withdrawApplicationBodySchema,
 } from './applications.schemas.js';
 
@@ -24,16 +23,7 @@ applicationsRouter.post(
   applicationsController.createApplication,
 );
 
-// GET returns the caller's latest application for one job (or { item: null }).
-applicationsRouter.get(
-  '/mine',
-  authenticate,
-  authorize(APPLICANT_ROLE),
-  validateQuery(myApplicationQuerySchema),
-  applicationsController.getMyApplication,
-);
-
-// UC-MYAPP-01 / 05: the candidate's own applications. Declared after `/mine`, which is a fixed path.
+// UC-MYAPP-01 / 05: the candidate's own applications. Filter by `jobId` to see the caller's applications for one job.
 applicationsRouter.get(
   '/',
   authenticate,

@@ -83,12 +83,6 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
     await expect(service.applyToJob(userId, body)).rejects.toMatchObject({ statusCode: 409, code: APPLICATION_ERROR_CODES.ALREADY_APPLIED });
   });
 
-  it('returns the latest record of the pair from findMyApplication', async () => {
-    repository.findLatestByJobAndApplicant.mockResolvedValue(application('withdrawn'));
-    expect(await service.findMyApplication(userId, jobId)).toMatchObject({ status: 'withdrawn' });
-    repository.findLatestByJobAndApplicant.mockResolvedValue(null);
-    expect(await service.findMyApplication(userId, jobId)).toBeNull();
-  });
 });
 
 // ---- UC-MYAPP-01..05: the candidate's own applications ----

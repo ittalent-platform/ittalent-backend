@@ -46,17 +46,6 @@ export const applicationDtoSchema = z.object({
 
 export type ApplicationDTO = z.infer<typeof applicationDtoSchema>;
 
-// Query for GET /me/applications/mine: "have I applied to this job, and what is the status?"
-export const myApplicationQuerySchema = z.object({
-  jobPostingId: objectIdSchema('job posting ID'),
-});
-
-export type MyApplicationQuery = z.infer<typeof myApplicationQuerySchema>;
-
-export const myApplicationResponseSchema = z.object({
-  item: applicationDtoSchema.nullable(),
-});
-
 // ---- UC-MYAPP-01..05: the candidate's own applications (list, detail, history, withdraw) ----
 
 export const applicationIdParamSchema = z.object({ id: objectIdSchema('application ID') });

@@ -86,7 +86,6 @@ The authenticated candidate endpoints are:
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/me/applications` | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired. |
-| `GET` | `/api/v1/me/applications/mine?jobPostingId=` | The caller's latest application for one job, or `{ item: null }`. |
 | `GET` | `/api/v1/me/applications` | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
 | `GET` | `/api/v1/me/applications/:id` | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries. |
 | `GET` | `/api/v1/me/applications/:id/history` | Chronological, bounded public status history. |

@@ -10,39 +10,16 @@ import {
   applicationListQuerySchema,
   applicationListResponseSchema,
   createApplicationBodySchema,
-  myApplicationQuerySchema,
-  myApplicationResponseSchema,
   withdrawApplicationBodySchema,
 } from './applications.schemas.js';
 
 export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
   const registeredBody = registry.register('CreateApplicationRequest', createApplicationBodySchema);
   const registeredDto = registry.register('ApplicationDTO', applicationDtoSchema);
-  const registeredMine = registry.register('MyApplicationResponse', myApplicationResponseSchema);
   const registeredDetail = registry.register('ApplicationDetailDTO', applicationDetailDtoSchema);
   const registeredList = registry.register('ApplicationListResponse', applicationListResponseSchema);
   const registeredHistory = registry.register('ApplicationHistoryResponse', applicationHistoryResponseSchema);
   const registeredWithdrawBody = registry.register('WithdrawApplicationBody', withdrawApplicationBodySchema);
-
-  registry.registerPath({
-    method: 'get',
-    path: '/api/v1/me/applications/mine',
-    tags: ['Applications'],
-    summary: 'Get my application for a job',
-    description:
-      'Applicant only. Returns the caller\'s latest application for the given job, or { item: null } when none exists.',
-    security: [{ bearerAuth: [] }],
-    request: { query: myApplicationQuerySchema },
-    responses: {
-      [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'The application (any status) or null',
-        content: { 'application/json': { schema: registeredMine } },
-      },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid job posting ID' },
-      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
-      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Caller is not an Applicant' },
-    },
-  });
 
   registry.registerPath({
     method: 'post',

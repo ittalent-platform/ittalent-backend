@@ -176,13 +176,6 @@ export class ApplicationsService {
     return this.mapDto(application);
   }
 
-  // Powers the apply area on the job page. Returns the LATEST record of the pair in any status; the client
-  // decides whether the applicant may apply again (Withdrawn/Rejected) or should see the "already applied" card.
-  async findMyApplication(userId: string, jobPostingId: string): Promise<ApplicationDTO | null> {
-    const application = await this.repository.findLatestByJobAndApplicant(jobPostingId, userId);
-    return application ? this.mapDto(application) : null;
-  }
-
   // ---- UC-MYAPP-01..05: the candidate's own applications ----
 
   // UC-MYAPP-01.EX.2: an account that is not an active candidate is rejected without touching any data.
