@@ -39,7 +39,7 @@ Refer to [`AGENTS.md`](./AGENTS.md) for full architectural constraints.
 ### 1. Install dependencies
 
 ```bash
- npm ci
+npm install
 ```
 
 ### 2. Configure Environment
@@ -74,12 +74,10 @@ docker exec -it ittalent-backend-mongodb mongosh --eval 'rs.initiate({ _id: "rs0
 npm run dev
 ```
 
-- API Base: `http://localhost:3001/api/v1`
-- Swagger UI Documentation: `http://localhost:3001/docs`
-- OpenAPI Specification: `http://localhost:3001/openapi.json`
-- Health Probe: `http://localhost:3001/health`
-
-The supplied Compose project maps MongoDB to host `127.0.0.1:27018` and Redis to `127.0.0.1:6380` to avoid collisions with other local services. Keep `directConnection=true` in the host MongoDB URI: the single-node replica set advertises its container-local `localhost:27017`. Never run demo seeding against production data. Run `npm run seed:applications` after copying `.env.example` to `.env`; sign in as `candidate-myapps@example.com` / `Candidate123!` in local development only. The optional database-backed integration checks run only when `MONGODB_URI` contains `ittalent_myapps_test` (for example the same URI with a test database name).
+- API Base: `http://localhost:3000/api/v1`
+- Swagger UI Documentation: `http://localhost:3000/docs`
+- OpenAPI Specification: `http://localhost:3000/openapi.json`
+- Health Probe: `http://localhost:3000/health`
 
 ### My Applications API
 
@@ -98,7 +96,10 @@ Successful responses are the resource/result objects directly (not wrapped in a 
 
 This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
 
-The demo seeder is idempotent and produces seven example statuses. It does not implement an apply-for-job flow. Attachment snapshots are metadata only: preview/download requires a future authorization-aware API.
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+
+---
+
 
 ---
 
