@@ -1,0 +1,192 @@
+import bcrypt from 'bcryptjs';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
+import { app } from '../../src/app.js';
+import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
+import { disconnectRedis } from '../../src/config/redis.js';
+import { Account } from '../../src/models/account.model.js';
+import { Enterprise } from '../../src/models/enterprise.model.js';
+import { JobPosting } from '../../src/models/job-posting.model.js';
+import { User, type UserDoc } from '../../src/models/user.model.js';
+import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
+
+type LoginResponse = { user: { id: string; role: string }; tokens: { accessToken: string } };
+type JobResponse = { id: string; enterpriseId: string; postedByUserId: string; status: string; title: string };
+
+const password = 'Password123!';
+let server: Server;
+let baseUrl: string;
+let recruiterA1: UserDoc;
+let recruiterA2: UserDoc;
+let recruiterB: UserDoc;
+let recruiterWithoutEnterprise: UserDoc;
+let admin: UserDoc;
+let enterpriseAId: string;
+let enterpriseBId: string;
+let jobAId: string;
+let jobBId: string;
+
+async function createUser(email: string, username: string, role: 'admin' | 'recruiter'): Promise<UserDoc> {
+  const user = await User.create({ email, username, role, status: 'active' });
+  await Account.create({ user_id: user._id, provider: 'local', password_hash: await bcrypt.hash(password, 10) });
+  return user;
+}
+
+async function login(email: string): Promise<LoginResponse> {
+  const response = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: email, password }),
+  });
+  expect(response.status).toBe(HTTP_STATUS.HTTP_200_OK);
+  return response.json() as Promise<LoginResponse>;
+}
+
+function auth(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+describe('Job posting enterprise ownership integration', () => {
+  beforeAll(async () => {
+    await connectDatabase();
+    await Promise.all([Account.syncIndexes(), User.syncIndexes(), Enterprise.syncIndexes(), JobPosting.syncIndexes()]);
+    await new Promise<void>((resolve) => {
+      server = app.listen(0, () => {
+        baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        resolve();
+      });
+    });
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await Promise.all([JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
+    await disconnectRedis();
+    await disconnectDatabase();
+  });
+
+  beforeEach(async () => {
+    await Promise.all([JobPosting.deleteMany({}), Enterprise.deleteMany({}), Account.deleteMany({}), User.deleteMany({})]);
+    recruiterA1 = await createUser('recruiter-a1@integration.test', 'recruiter_a1', 'recruiter');
+    recruiterA2 = await createUser('recruiter-a2@integration.test', 'recruiter_a2', 'recruiter');
+    recruiterB = await createUser('recruiter-b@integration.test', 'recruiter_b', 'recruiter');
+    recruiterWithoutEnterprise = await createUser('recruiter-none@integration.test', 'recruiter_none', 'recruiter');
+    admin = await createUser('admin@integration.test', 'integration_admin', 'admin');
+
+    const enterpriseA = await Enterprise.create({
+      name: 'Integration Enterprise A', tax_code: '9000000001', email: 'enterprise-a@integration.test', phone: '+84900000001',
+      industry: 'Information Technology', company_size: '1-10', address: { street: 'A Street', city: 'Ho Chi Minh City', country: 'Vietnam' },
+      status: 'active', creator_account_id: recruiterA1._id, recruiter_ids: [recruiterA1._id, recruiterA2._id], is_deleted: false,
+    });
+    const enterpriseB = await Enterprise.create({
+      name: 'Integration Enterprise B', tax_code: '9000000002', email: 'enterprise-b@integration.test', phone: '+84900000002',
+      industry: 'Information Technology', company_size: '1-10', address: { street: 'B Street', city: 'Ha Noi', country: 'Vietnam' },
+      status: 'active', creator_account_id: recruiterB._id, recruiter_ids: [recruiterB._id], is_deleted: false,
+    });
+    enterpriseAId = String(enterpriseA._id);
+    enterpriseBId = String(enterpriseB._id);
+    const jobA = await JobPosting.create({ enterprise_id: enterpriseA._id, posted_by_user_id: recruiterA1._id, title: 'Enterprise A Draft Job', slug: 'enterprise-a-draft-job', status: 'draft' });
+    const jobB = await JobPosting.create({ enterprise_id: enterpriseB._id, posted_by_user_id: recruiterB._id, title: 'Enterprise B Draft Job', slug: 'enterprise-b-draft-job', status: 'draft' });
+    jobAId = String(jobA._id);
+    jobBId = String(jobB._id);
+  });
+
+  it('authenticates recruiters and scopes the recruiter list to their enterprise', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    expect(recruiterLogin.user.role).toBe('recruiter');
+    expect(recruiterLogin.tokens.accessToken).toBeTruthy();
+
+    const scopedResponse = await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(recruiterLogin.tokens.accessToken) });
+    expect(scopedResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const scoped = await scopedResponse.json() as { items: JobResponse[] };
+    expect(scoped.items.map((item) => item.id)).toContain(jobAId);
+    expect(scoped.items.map((item) => item.id)).not.toContain(jobBId);
+    expect(scoped.items.every((item) => item.enterpriseId === enterpriseAId)).toBe(true);
+
+    expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`)).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    const adminLogin = await login(admin.email);
+    expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('derives ownership from the recruiter and ignores client ownership fields', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    const response = await fetch(`${baseUrl}/api/v1/job-postings`, {
+      method: 'POST', headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({ title: 'Integration Created Draft', enterprise_id: enterpriseBId, posted_by_user_id: String(recruiterB._id) }),
+    });
+    expect(response.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+    const body = await response.json() as JobResponse;
+    expect(body.enterpriseId).toBe(enterpriseAId);
+    expect(body.postedByUserId).toBe(String(recruiterA1._id));
+    expect(body.status).toBe('draft');
+    const stored = await JobPosting.findById(body.id).lean();
+    expect(String(stored?.enterprise_id)).toBe(enterpriseAId);
+    expect(String(stored?.posted_by_user_id)).toBe(String(recruiterA1._id));
+  });
+
+  it('rejects a recruiter without enterprise membership', async () => {
+    const recruiterLogin = await login(recruiterWithoutEnterprise.email);
+    const response = await fetch(`${baseUrl}/api/v1/job-postings`, {
+      method: 'POST', headers: auth(recruiterLogin.tokens.accessToken), body: JSON.stringify({ title: 'Unassigned Recruiter Job' }),
+    });
+    expect(response.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect((await response.json() as { message: string }).message).toBe('Recruiter is not assigned to an enterprise');
+  });
+
+  it('allows same-enterprise recruiters and blocks cross-enterprise management', async () => {
+    const recruiterA2Login = await login(recruiterA2.email);
+    const sameEnterpriseUpdate = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH', headers: auth(recruiterA2Login.tokens.accessToken), body: JSON.stringify({ title: 'Updated By Recruiter A2', enterprise_id: enterpriseBId }),
+    });
+    expect(sameEnterpriseUpdate.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const stored = await JobPosting.findById(jobAId).lean();
+    expect(stored?.title).toBe('Updated By Recruiter A2');
+    expect(String(stored?.enterprise_id)).toBe(enterpriseAId);
+
+    const recruiterBLogin = await login(recruiterB.email);
+    const crossDetail = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { headers: auth(recruiterBLogin.tokens.accessToken) });
+    expect(crossDetail.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect((await crossDetail.json() as { message: string }).message).toBe('Job posting belongs to another enterprise');
+    const crossUpdate = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'PATCH', headers: auth(recruiterBLogin.tokens.accessToken), body: JSON.stringify({ title: 'Not Allowed' }) });
+    expect(crossUpdate.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    const crossDelete = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'DELETE', headers: auth(recruiterBLogin.tokens.accessToken) });
+    expect(crossDelete.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('enforces publish validation, exposes only published jobs publicly, and supports archive/delete', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    const incompletePublish = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'PATCH', headers: auth(recruiterLogin.tokens.accessToken), body: JSON.stringify({ status: 'published' }) });
+    expect(incompletePublish.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    const publish = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH', headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({ status: 'published', description: 'A sufficiently detailed backend engineering position.', requirements: 'Node.js and TypeScript', benefits: 'Flexible schedule', location: 'Ho Chi Minh City', employment_type: 'full_time', expires_at: '2027-01-01T00:00:00.000Z' }),
+    });
+    expect(publish.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await publish.json() as JobResponse).status).toBe('published');
+    await JobPosting.create({ enterprise_id: enterpriseAId, posted_by_user_id: recruiterA1._id, title: 'Archived Job', slug: 'integration-archived-job', status: 'archived' });
+    const publicList = await fetch(`${baseUrl}/api/v1/job-postings`);
+    const publicBody = await publicList.json() as { items: JobResponse[] };
+    expect(publicList.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(publicBody.items.map((item) => item.id)).toContain(jobAId);
+    expect(publicBody.items.every((item) => item.status === 'published')).toBe(true);
+
+    const archive = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'PATCH', headers: auth(recruiterLogin.tokens.accessToken), body: JSON.stringify({ status: 'archived' }) });
+    expect(archive.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const deletion = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'DELETE', headers: auth(recruiterLogin.tokens.accessToken) });
+    expect(deletion.status).toBe(HTTP_STATUS.HTTP_204_NO_CONTENT);
+    expect(await JobPosting.findById(jobAId)).toBeNull();
+    expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { headers: auth(recruiterLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+  });
+
+  it('preserves admin management access across enterprise boundaries', async () => {
+    const adminLogin = await login(admin.email);
+    const list = await fetch(`${baseUrl}/api/v1/admin/job-postings`, { headers: auth(adminLogin.tokens.accessToken) });
+    expect(list.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await list.json() as { items: JobResponse[] }).items).toHaveLength(2);
+    expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { method: 'PATCH', headers: auth(adminLogin.tokens.accessToken), body: JSON.stringify({ title: 'Admin Updated Job B' }) })).status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { method: 'DELETE', headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_204_NO_CONTENT);
+  });
+});
