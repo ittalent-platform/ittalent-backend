@@ -5,7 +5,7 @@ services:
     container_name: ittalent-backend-mongodb
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27018:27017"
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -45,8 +45,7 @@ services:
     image: redis:7.4.9-alpine3.21
     container_name: ittalent-backend-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6380:6379"
 
 volumes:
   mongodb_data:
-

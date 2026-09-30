@@ -39,7 +39,7 @@ Refer to [`AGENTS.md`](./AGENTS.md) for full architectural constraints.
 ### 1. Install dependencies
 
 ```bash
-npm install
+ npm ci
 ```
 
 ### 2. Configure Environment
@@ -74,10 +74,29 @@ docker exec -it ittalent-backend-mongodb mongosh --eval 'rs.initiate({ _id: "rs0
 npm run dev
 ```
 
-- API Base: `http://localhost:3000/api/v1`
-- Swagger UI Documentation: `http://localhost:3000/docs`
-- OpenAPI Specification: `http://localhost:3000/openapi.json`
-- Health Probe: `http://localhost:3000/health`
+- API Base: `http://localhost:3001/api/v1`
+- Swagger UI Documentation: `http://localhost:3001/docs`
+- OpenAPI Specification: `http://localhost:3001/openapi.json`
+- Health Probe: `http://localhost:3001/health`
+
+The supplied Compose project maps MongoDB to host `127.0.0.1:27018` and Redis to `127.0.0.1:6380` to avoid collisions with other local services. Keep `directConnection=true` in the host MongoDB URI: the single-node replica set advertises its container-local `localhost:27017`. Never run demo seeding against production data. Run `npm run seed:applications` after copying `.env.example` to `.env`; sign in as `candidate-myapps@example.com` / `Candidate123!` in local development only. The optional database-backed integration checks run only when `MONGODB_URI` contains `ittalent_myapps_test` (for example the same URI with a test database name).
+
+### My Applications API
+
+The authenticated candidate endpoints are:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/me/applications` | Bounded newest-first list; supports `page`, `limit`, `status` (one value or a comma-separated list of the eight statuses, including `position_filled`), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Every summary carries `canWithdraw`, `canApplyAgain` and the BR-APP-008 links `reappliedFrom` / `reappliedAs`. Includes `statusCounts` over the matching filter set. |
+| `GET` | `/api/v1/me/applications/:id` | Owned application detail with public job snapshot and submitted attachment metadata only. |
+| `GET` | `/api/v1/me/applications/:id/history` | Chronological, bounded public status history. |
+| `PATCH` | `/api/v1/me/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`. |
+
+Successful responses are the resource/result objects directly (not wrapped in a `data` envelope). List and history responses use `{ items, page, limit, total, totalPages }`; list additionally returns `statusCounts`. Detail and withdrawal return the application detail object. Ownership is always derived from the authenticated JWT subject. Application history contains only status, stage, timestamp, and public actor role; attachment snapshots never contain file URLs or storage keys. The unique candidate/job index prevents reapplication in this scope.
+
+This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
+
+The demo seeder is idempotent and produces seven example statuses. It does not implement an apply-for-job flow. Attachment snapshots are metadata only: preview/download requires a future authorization-aware API.
 
 ---
 

@@ -4,6 +4,7 @@ import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
 import { registerDocumentsOpenApi } from '../modules/documents/documents.openapi.js';
 import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
+import { registerApplicationsOpenApi } from '../modules/applications/applications.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 
 export const registry = new OpenAPIRegistry();
@@ -19,3 +20,4 @@ registerAuthOpenApi(registry);
 registerDocumentsOpenApi(registry);
 registerUsersOpenApi(registry);
 registerEnterprisesOpenApi(registry);
+registerApplicationsOpenApi(registry);
