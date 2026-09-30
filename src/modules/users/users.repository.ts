@@ -6,6 +6,7 @@ export interface CreateUserData {
   email: string;
   username: string;
   status?: UserStatus;
+  enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
 export class UsersRepository {
@@ -42,12 +43,28 @@ export class UsersRepository {
       email: data.email,
       username: data.username,
       ...(data.status ? { status: data.status } : {}),
+      ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
     return user.save();
   }
 
   async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {
     return User.findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' }).exec();
+  }
+
+  async updateEnterpriseId(
+    id: Types.ObjectId | string,
+    enterpriseId: Types.ObjectId | string | null,
+  ): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: { enterprise_id: enterpriseId } },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async findRecruitersByEnterpriseId(enterpriseId: Types.ObjectId | string): Promise<UserDoc[]> {
+    return User.find({ enterprise_id: enterpriseId, role: 'recruiter' }).exec();
   }
 
   async blockExpiredInactiveUsers(cutoff: Date, excludedRoles: UserRole[] = ['admin']): Promise<number> {

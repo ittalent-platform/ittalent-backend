@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { app } from '../../src/app.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-describe('GET /api/v1/me/applications (integration)', () => {
+describe('GET /api/v1/applications (integration)', () => {
   let server: Server;
   let baseUrl: string;
   let userToken: string;
@@ -35,7 +35,7 @@ describe('GET /api/v1/me/applications (integration)', () => {
   });
 
   it('requires authentication', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications`);
+    const response = await fetch(`${baseUrl}/api/v1/applications`);
     expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
   });
 
@@ -45,14 +45,14 @@ describe('GET /api/v1/me/applications (integration)', () => {
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
-    const response = await fetch(`${baseUrl}/api/v1/me/applications`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
   });
 
   it('rejects malformed application ID parameter', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/not-an-id`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/not-an-id`, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
@@ -60,7 +60,7 @@ describe('GET /api/v1/me/applications (integration)', () => {
 
   it('rejects contradictory date range in query', async () => {
     const response = await fetch(
-      `${baseUrl}/api/v1/me/applications?submittedFrom=2026-12-31T23:59:59.000Z&submittedTo=2026-01-01T00:00:00.000Z`,
+      `${baseUrl}/api/v1/applications?submittedFrom=2026-12-31T23:59:59.000Z&submittedTo=2026-01-01T00:00:00.000Z`,
       {
         headers: { Authorization: `Bearer ${userToken}` },
       },
@@ -69,7 +69,7 @@ describe('GET /api/v1/me/applications (integration)', () => {
   });
 });
 
-describe('GET /api/v1/me/applications/:id/history (integration)', () => {
+describe('GET /api/v1/applications/:id/history (integration)', () => {
   let server: Server;
   let baseUrl: string;
   let userToken: string;
@@ -97,7 +97,7 @@ describe('GET /api/v1/me/applications/:id/history (integration)', () => {
   });
 
   it('requires authentication', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/507f1f77bcf86cd799439011/history`);
+    const response = await fetch(`${baseUrl}/api/v1/applications/507f1f77bcf86cd799439011/history`);
     expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
   });
 
@@ -107,14 +107,14 @@ describe('GET /api/v1/me/applications/:id/history (integration)', () => {
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/507f1f77bcf86cd799439011/history`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/507f1f77bcf86cd799439011/history`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
   });
 
   it('rejects malformed application ID', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/bad-id/history`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/bad-id/history`, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
@@ -122,7 +122,7 @@ describe('GET /api/v1/me/applications/:id/history (integration)', () => {
 
 });
 
-describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
+describe('PATCH /api/v1/applications/:id/withdraw (integration)', () => {
   let server: Server;
   let baseUrl: string;
   let userToken: string;
@@ -150,7 +150,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
   });
 
   it('requires authentication', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/507f1f77bcf86cd799439011/withdraw`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/507f1f77bcf86cd799439011/withdraw`, {
       method: 'PATCH',
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
@@ -162,7 +162,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/507f1f77bcf86cd799439011/withdraw`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/507f1f77bcf86cd799439011/withdraw`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${adminToken}` },
     });
@@ -170,7 +170,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
   });
 
   it('requires expectedVersion in body', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/507f1f77bcf86cd799439011/withdraw`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/507f1f77bcf86cd799439011/withdraw`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ reason: 'test' }), // missing expectedVersion
@@ -179,7 +179,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
   });
 
   it('rejects malformed application ID', async () => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications/bad-id/withdraw`, {
+    const response = await fetch(`${baseUrl}/api/v1/applications/bad-id/withdraw`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ expectedVersion: 0 }),
@@ -188,7 +188,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
   });
 });
 
-describe('GET /api/v1/me/applications query validation (integration)', () => {
+describe('GET /api/v1/applications query validation (integration)', () => {
   let server: Server;
   let baseUrl: string;
   let userToken: string;
@@ -217,13 +217,13 @@ describe('GET /api/v1/me/applications query validation (integration)', () => {
     ['unsupported filter key', 'company=Nova'],
     ['malformed job id', 'jobId=abc'],
   ])('rejects %s', async (_label, queryString) => {
-    const response = await fetch(`${baseUrl}/api/v1/me/applications?${queryString}`, { headers: { Authorization: `Bearer ${userToken}` } });
+    const response = await fetch(`${baseUrl}/api/v1/applications?${queryString}`, { headers: { Authorization: `Bearer ${userToken}` } });
     expect(response.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
   });
 
   it('documents the list contract in openapi, including sort and multi-status filters', async () => {
     const spec = (await (await fetch(`${baseUrl}/openapi.json`)).json()) as { paths: Record<string, { get?: { parameters?: { name: string }[] } }> };
-    const names = spec.paths['/api/v1/me/applications']?.get?.parameters?.map((parameter) => parameter.name) ?? [];
+    const names = spec.paths['/api/v1/applications']?.get?.parameters?.map((parameter) => parameter.name) ?? [];
     expect(names).toEqual(expect.arrayContaining(['status', 'sortBy', 'sortOrder', 'search', 'submittedFrom', 'submittedTo', 'jobId', 'reviewStage']));
   });
 });

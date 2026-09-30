@@ -1,17 +1,13 @@
 import 'dotenv/config';
-import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 
 import { connectDatabase, disconnectDatabase } from '../config/db.js';
-import {
-  Application,
-  type ApplicationActorRole,
-  type ApplicationAttachmentType,
-  type ApplicationHistoryEntryData,
-  type ApplicationReviewStage,
-  type ApplicationStatus,
-} from '../models/application.model.js';
 import { Account } from '../models/account.model.js';
+import { Application, type ApplicationStatus } from '../models/application.model.js';
+import { Document, type DocumentType } from '../models/document.model.js';
+import { Enterprise } from '../models/enterprise.model.js';
+import { JobPosting } from '../models/job-posting.model.js';
 import { User } from '../models/user.model.js';
 
 const DEMO_PASSWORD = 'Candidate123!';
@@ -28,9 +24,13 @@ const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const PDF_MIME_TYPE = 'application/pdf';
 const SAMPLE_FILE_SIZE = 120_000;
+const ENTERPRISE_TAX_CODE_BASE = 8_100_000_000;
+const FOREIGN_SEED_INDEX = 500;
+const JOB_LIFETIME_DAYS = 90;
+const PLACEHOLDER_USER_ID = new mongoose.Types.ObjectId('000000000000000000000abc');
 
 interface SeedApplication {
-  /** Index whose job id this record shares; defaults to its own index. Used for BR-APP-008 reapplications. */
+  /** Index whose job this record shares; used for the BR-APP-010 apply-again pair. */
   jobIndex?: number;
   reappliedFromIndex?: number;
   company: string;
@@ -39,10 +39,10 @@ interface SeedApplication {
   jobType: string;
   status: ApplicationStatus;
   daysAgo: number;
-  documents: readonly ApplicationAttachmentType[];
+  documents: readonly DocumentType[];
 }
 
-// One application per pipeline status so every column, badge and rule of the My Applications UI has data.
+// One application per status so every column, badge and rule of the My Applications UI has data.
 export const SEED_APPLICATIONS: readonly SeedApplication[] = [
   { company: 'Nova Fintech', title: 'Kỹ sư Phần mềm Frontend', location: 'Hà Nội', jobType: 'Full-time', status: 'submitted', daysAgo: 10, documents: ['cv'] },
   { company: 'DataWave', title: 'Chuyên viên Phân tích Dữ liệu', location: 'Hồ Chí Minh', jobType: 'Full-time', status: 'under_review', daysAgo: 12, documents: ['cv'] },
@@ -51,8 +51,7 @@ export const SEED_APPLICATIONS: readonly SeedApplication[] = [
   { company: 'Techno Vietnam', title: 'Kỹ sư Phần mềm Frontend', location: 'Hà Nội', jobType: 'Full-time', status: 'hired', daysAgo: 60, documents: ['cv'] },
   { company: 'Sunrise Apps', title: 'Thiết kế UI/UX', location: 'Remote', jobType: 'Contract', status: 'rejected', daysAgo: 15, documents: ['cv'] },
   { company: 'Nova Fintech', title: 'Chuyên viên Phân tích Dữ liệu', location: 'Hồ Chí Minh', jobType: 'Full-time', status: 'withdrawn', daysAgo: 8, documents: ['cv'] },
-  { company: 'Orbit Systems', title: 'Kỹ sư Backend', location: 'Hà Nội', jobType: 'Full-time', status: 'position_filled', daysAgo: 25, documents: ['cv'] },
-  // BR-APP-008: the single reapplication that replaced the withdrawn record above (same job, own history).
+  // BR-APP-010: the single application that replaced the withdrawn record above (same job, own history).
   { jobIndex: 6, reappliedFromIndex: 6, company: 'Nova Fintech', title: 'Chuyên viên Phân tích Dữ liệu', location: 'Hồ Chí Minh', jobType: 'Full-time', status: 'submitted', daysAgo: 3, documents: ['cv', 'cover_letter'] },
   // A withdrawn first application on a job that is still open: the detail page offers "Apply again".
   { company: 'Lumen Tech', title: 'Kỹ sư QA Automation', location: 'Đà Nẵng', jobType: 'Full-time', status: 'withdrawn', daysAgo: 6, documents: ['cv'] },
@@ -63,7 +62,7 @@ export const SEED_APPLICATIONS: readonly SeedApplication[] = [
   { company: 'Arc Security', title: 'Kỹ sư An ninh mạng', location: 'Hà Nội', jobType: 'Full-time', status: 'under_review', daysAgo: 7, documents: ['cv'] },
 ];
 
-// Lifecycle path per terminal status; the company moves an application one stage at a time.
+// Lifecycle path per status; the company moves an application one stage at a time.
 const STATUS_PATHS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   submitted: ['submitted'],
   under_review: ['submitted', 'under_review'],
@@ -72,38 +71,17 @@ const STATUS_PATHS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   hired: ['submitted', 'under_review', 'interviewing', 'offered', 'hired'],
   rejected: ['submitted', 'under_review', 'rejected'],
   withdrawn: ['submitted', 'withdrawn'],
-  position_filled: ['submitted', 'under_review', 'position_filled'],
 };
 
-// Application ids are derived from the seed index so the withdrawn <-> reapplication links are stable.
+// Ids are derived from the seed index so the withdrawn <-> apply-again links and the display ids are stable.
 const APPLICATION_ID_OFFSET = 1000;
-const FOREIGN_SEED_INDEX = 500;
-
-// Public-facing stage label shown with each status (UC-MYAPP-01 postcondition 3).
-const REVIEW_STAGES: Partial<Record<ApplicationStatus, ApplicationReviewStage>> = {
-  under_review: 'screening',
-  interviewing: 'interview',
-  offered: 'offer',
-  hired: 'hired',
-  rejected: 'rejected',
-};
 
 function objectIdFromIndex(index: number): mongoose.Types.ObjectId {
   return new mongoose.Types.ObjectId((index + 1).toString(OBJECT_ID_RADIX).padStart(OBJECT_ID_LENGTH, '0'));
 }
 
-function actorFor(status: ApplicationStatus, isFirst: boolean): ApplicationActorRole {
-  if (isFirst || status === 'withdrawn') return 'candidate';
-  return status === 'position_filled' ? 'system' : 'company';
-}
-
-function buildHistory(status: ApplicationStatus, submittedAt: Date): ApplicationHistoryEntryData[] {
-  return STATUS_PATHS[status].map((step, index) => ({
-    status: step,
-    actor_role: actorFor(step, index === 0),
-    occurred_at: new Date(submittedAt.getTime() + index * DAY_MS + index * HOUR_MS),
-  }));
-}
+// Deterministic id so tests can prove the demo candidate cannot read it (BR-APP-001).
+export const FOREIGN_APPLICATION_ID = objectIdFromIndex(APPLICATION_ID_OFFSET + FOREIGN_SEED_INDEX).toHexString();
 
 async function upsertCandidate(email: string, username: string): Promise<{ _id: mongoose.Types.ObjectId }> {
   const user = await User.findOneAndUpdate(
@@ -120,26 +98,36 @@ async function upsertCandidate(email: string, username: string): Promise<{ _id: 
   return user;
 }
 
-// Deterministic id so tests can prove the demo candidate cannot read it (BR-APP-001).
-export const FOREIGN_APPLICATION_ID = objectIdFromIndex(APPLICATION_ID_OFFSET + FOREIGN_SEED_INDEX).toHexString();
-
-async function seedForeignApplication(applicantId: mongoose.Types.ObjectId): Promise<void> {
-  const submittedAt = new Date(Date.now() - DAY_MS);
-  await Application.updateOne(
-    { _id: FOREIGN_APPLICATION_ID },
+// The application module reads job title and company from the job and enterprise, so both must exist.
+async function upsertJob(company: string, title: string, location: string, jobType: string, key: number): Promise<mongoose.Types.ObjectId> {
+  const taxCode = String(ENTERPRISE_TAX_CODE_BASE + [...company].reduce((sum, char) => sum + char.charCodeAt(0), 0));
+  const enterprise = await Enterprise.findOneAndUpdate(
+    { tax_code: taxCode, is_deleted: false },
     { $setOnInsert: {
-      applicant_id: applicantId,
-      job_id: objectIdFromIndex(FOREIGN_SEED_INDEX),
-      status: 'submitted',
-      version: 0,
-      job_snapshot: { title: 'Private role of another candidate', company_name: 'Hidden Corp', public_status: 'open' },
-      attachments: [],
-      submitted_at: submittedAt,
-      latest_status_at: submittedAt,
-      history: [{ status: 'submitted', actor_role: 'candidate', occurred_at: submittedAt }],
+      name: company, tax_code: taxCode, email: `hr@${company.replace(/\s+/g, '').toLowerCase()}.example`, phone: '+84900000000', industry: 'Information Technology',
+      company_size: '11-50', address: { street: '1 Demo Street', city: location, country: 'Vietnam' }, status: 'active', creator_account_id: PLACEHOLDER_USER_ID, is_deleted: false,
     } },
-    { upsert: true },
+    { upsert: true, returnDocument: 'after' },
   );
+  const job = await JobPosting.findOneAndUpdate(
+    { slug: `seed-job-${key}` },
+    { $setOnInsert: {
+      enterprise_id: enterprise._id, posted_by_user_id: PLACEHOLDER_USER_ID, title, slug: `seed-job-${key}`, location, employment_type: jobType, currency: 'VND', status: 'published',
+      openings: 5, description: `${title} at ${company}`, requirements: 'Demo requirements', benefits: 'Demo benefits',
+      published_at: new Date(), expires_at: new Date(Date.now() + JOB_LIFETIME_DAYS * DAY_MS),
+    } },
+    { upsert: true, returnDocument: 'after' },
+  );
+  return job._id;
+}
+
+async function upsertDocument(ownerId: mongoose.Types.ObjectId, type: DocumentType, fileName: string): Promise<mongoose.Types.ObjectId> {
+  const doc = await Document.findOneAndUpdate(
+    { owner_id: ownerId, storage_key: `seed/${ownerId}/${fileName}` },
+    { $setOnInsert: { owner_id: ownerId, type, file_url: `https://example.test/${fileName}`, storage_key: `seed/${ownerId}/${fileName}`, file_name: fileName, mime_type: PDF_MIME_TYPE, size: SAMPLE_FILE_SIZE } },
+    { upsert: true, returnDocument: 'after' },
+  );
+  return doc._id;
 }
 
 export async function seedApplications(): Promise<string> {
@@ -152,46 +140,46 @@ export async function seedApplications(): Promise<string> {
     if (process.env[SEED_RESET_ENV] === 'true') {
       await Application.deleteMany({ applicant_id: { $in: [user._id, emptyUser._id, otherUser._id] } });
     }
-    await seedForeignApplication(otherUser._id);
 
+    const cvId = await upsertDocument(user._id, 'cv', 'Nguyen_Van_An_CV.pdf');
+    const coverLetterId = await upsertDocument(user._id, 'cover_letter', 'Cover_letter.pdf');
     const reappliedAs = new Map<number, mongoose.Types.ObjectId>();
     for (const [index, sample] of SEED_APPLICATIONS.entries()) {
       if (sample.reappliedFromIndex !== undefined) reappliedAs.set(sample.reappliedFromIndex, objectIdFromIndex(APPLICATION_ID_OFFSET + index));
     }
 
     for (const [index, sample] of SEED_APPLICATIONS.entries()) {
-      const jobId = objectIdFromIndex(sample.jobIndex ?? index);
+      const jobId = await upsertJob(sample.company, sample.title, sample.location, sample.jobType, sample.jobIndex ?? index);
       const submittedAt = new Date(Date.now() - sample.daysAgo * DAY_MS);
-      const history = buildHistory(sample.status, submittedAt);
-      const latest = history[history.length - 1]!.occurred_at;
-      const reapplication = reappliedAs.get(index);
+      const history = STATUS_PATHS[sample.status].map((status, step) => ({
+        status,
+        changed_at: new Date(submittedAt.getTime() + step * DAY_MS + step * HOUR_MS),
+        // The candidate submits and withdraws; the company moves every stage in between.
+        changed_by: step === 0 || status === 'withdrawn' ? user._id : PLACEHOLDER_USER_ID,
+      }));
+      const latest = history[history.length - 1]!.changed_at;
+      const replaced = reappliedAs.get(index);
       await Application.updateOne(
         { _id: objectIdFromIndex(APPLICATION_ID_OFFSET + index) },
         { $setOnInsert: {
-          applicant_id: user._id,
-          job_id: jobId,
-          status: sample.status,
-          version: history.length - 1,
-          job_snapshot: { title: sample.title, company_name: sample.company, location: sample.location, job_type: sample.jobType, public_status: 'open' },
-          attachments: sample.documents.map((type) => ({
-            document_id: new mongoose.Types.ObjectId(),
-            type,
-            file_name: type === 'cv' ? 'Nguyen_Van_An_CV.pdf' : `Cover_letter_${sample.company.replace(/\s+/g, '')}.pdf`,
-            mime_type: PDF_MIME_TYPE,
-            size: SAMPLE_FILE_SIZE,
-            submitted_at: submittedAt,
-          })),
-          submitted_at: submittedAt,
-          latest_status_at: latest,
-          history,
-          ...(REVIEW_STAGES[sample.status] ? { review_stage: REVIEW_STAGES[sample.status] } : {}),
-          ...(sample.status === 'withdrawn' ? { withdrawn_at: latest } : {}),
+          job_id: jobId, applicant_id: user._id, cv_id: cvId, ...(sample.documents.includes('cover_letter') ? { cover_letter_id: coverLetterId } : {}),
+          status: sample.status, status_history: history, createdAt: submittedAt, updatedAt: latest,
           ...(sample.reappliedFromIndex !== undefined ? { reapplied_from: objectIdFromIndex(APPLICATION_ID_OFFSET + sample.reappliedFromIndex) } : {}),
-          ...(reapplication ? { reapplied_as: reapplication } : {}),
+          ...(replaced ? { reapplied_as: replaced } : {}),
         } },
-        { upsert: true },
+        { upsert: true, timestamps: false },
       );
     }
+
+    // Another candidate's application, to prove the demo candidate cannot read it.
+    const foreignJob = await upsertJob('Hidden Corp', 'Private role of another candidate', 'Hà Nội', 'Full-time', FOREIGN_SEED_INDEX);
+    const foreignCv = await upsertDocument(otherUser._id, 'cv', 'Other_CV.pdf');
+    const foreignAt = new Date(Date.now() - DAY_MS);
+    await Application.updateOne(
+      { _id: FOREIGN_APPLICATION_ID },
+      { $setOnInsert: { job_id: foreignJob, applicant_id: otherUser._id, cv_id: foreignCv, status: 'submitted', status_history: [{ status: 'submitted', changed_at: foreignAt, changed_by: otherUser._id }], createdAt: foreignAt, updatedAt: foreignAt } },
+      { upsert: true, timestamps: false },
+    );
     return `Demo sign-in: ${DEMO_EMAIL} / ${DEMO_PASSWORD} (empty account: ${EMPTY_DEMO_EMAIL})`;
   } finally {
     await disconnectDatabase();

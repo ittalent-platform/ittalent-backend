@@ -1,4 +1,4 @@
-import type { HydratedDocument, Types } from 'mongoose';
+import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
 export const applicationStatuses = [
@@ -9,150 +9,81 @@ export const applicationStatuses = [
   'hired',
   'rejected',
   'withdrawn',
-  // Set by the system when the company fills the job; never chosen by the candidate.
-  'position_filled',
 ] as const;
 export type ApplicationStatus = (typeof applicationStatuses)[number];
 export const APPLICATION_REASON_MAX_LENGTH = 500;
 
-// BR-APP-008: a Withdrawn record frees the candidate/job pair; every other status keeps it occupied.
-export const applicationOccupyingStatuses = applicationStatuses.filter((status) => status !== 'withdrawn');
+// BR-APP-002 / BR-APP-010: a Withdrawn or Rejected record is closed and frees the applicant/job pair;
+// every other status keeps the pair occupied, so at most one active application exists per pair.
+export const applicationOccupyingStatuses = applicationStatuses.filter(
+  (status) => status !== 'withdrawn' && status !== 'rejected',
+);
 
-export const applicationReviewStages = [
-  'screening',
-  'interview',
-  'offer',
-  'hired',
-  'rejected',
-] as const;
-export type ApplicationReviewStage = (typeof applicationReviewStages)[number];
-
-export const applicationAttachmentTypes = ['cv', 'cover_letter'] as const;
-export type ApplicationAttachmentType = (typeof applicationAttachmentTypes)[number];
-
-// Public-facing actor role only; account identifiers and display names are never stored here.
-export const applicationActorRoles = ['candidate', 'company', 'system'] as const;
-export type ApplicationActorRole = (typeof applicationActorRoles)[number];
-
-export interface JobSnapshotData {
-  title: string;
-  company_name: string;
-  location?: string | undefined;
-  job_type?: string | undefined;
-  deadline?: Date | undefined;
-  public_status: string;
-}
-
-// Metadata-only snapshot of the submitted document. Deliberately excludes file URLs
-// and storage keys so candidate-facing responses never leak direct document access.
-export interface AttachmentSnapshotData {
-  document_id: Types.ObjectId;
-  type: ApplicationAttachmentType;
-  file_name: string;
-  mime_type: string;
-  size: number;
-  submitted_at: Date;
-}
-
-// Append-only embedded history. Entries are only ever added via `$push`, never replaced.
-export interface ApplicationHistoryEntryData {
+export interface ApplicationStatusHistoryEntry {
   status: ApplicationStatus;
-  review_stage?: ApplicationReviewStage | undefined;
-  actor_role: ApplicationActorRole;
-  occurred_at: Date;
+  changed_at: Date;
+  changed_by: Types.ObjectId;
 }
 
 export interface ApplicationData {
-  applicant_id: Types.ObjectId;
   job_id: Types.ObjectId;
+  // User id of the applicant. Documents (cv_id / cover_letter_id) are also owned by the User (Document.owner_id).
+  applicant_id: Types.ObjectId;
+  cv_id: Types.ObjectId;
+  cover_letter_id?: Types.ObjectId;
+  message?: string;
   status: ApplicationStatus;
-  review_stage?: ApplicationReviewStage | undefined;
-  job_snapshot: JobSnapshotData;
-  attachments: AttachmentSnapshotData[];
-  message?: string | undefined;
-  withdrawal_reason?: string | undefined;
-  withdrawn_at?: Date | undefined;
-  // BR-APP-008: read-only links between a Withdrawn record and the single reapplication that replaced it.
-  reapplied_from?: Types.ObjectId | undefined;
-  reapplied_as?: Types.ObjectId | undefined;
-  version: number;
-  submitted_at: Date;
-  latest_status_at: Date;
-  history: ApplicationHistoryEntryData[];
-  createdAt?: Date | undefined;
-  updatedAt?: Date | undefined;
+  // Optional reason the applicant gave when withdrawing; visible to the company.
+  withdrawal_reason?: string;
+  // BR-APP-010: read-only links between a closed record and the single application that replaced it.
+  reapplied_from?: Types.ObjectId;
+  reapplied_as?: Types.ObjectId;
+  // Append-only: one entry per accepted status change.
+  status_history: ApplicationStatusHistoryEntry[];
 }
 
-const jobSnapshotSchema = new Schema<JobSnapshotData>(
-  {
-    title: { type: String, required: true, trim: true },
-    company_name: { type: String, required: true, trim: true },
-    location: { type: String, trim: true },
-    job_type: { type: String, trim: true },
-    deadline: { type: Date },
-    public_status: { type: String, required: true, trim: true },
-  },
-  { _id: false },
-);
-
-const attachmentSnapshotSchema = new Schema<AttachmentSnapshotData>(
-  {
-    document_id: { type: Schema.Types.ObjectId, ref: 'Document', required: true },
-    type: { type: String, enum: applicationAttachmentTypes, required: true },
-    file_name: { type: String, required: true, trim: true },
-    mime_type: { type: String, required: true, trim: true },
-    size: { type: Number, required: true, min: 0 },
-    submitted_at: { type: Date, required: true },
-  },
-  { _id: false },
-);
-
-const historyEntrySchema = new Schema<ApplicationHistoryEntryData>(
+const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
   {
     status: { type: String, enum: applicationStatuses, required: true },
-    review_stage: { type: String, enum: applicationReviewStages },
-    actor_role: { type: String, enum: applicationActorRoles, required: true },
-    occurred_at: { type: Date, required: true },
+    changed_at: { type: Date, required: true },
+    changed_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { _id: false },
 );
 
 const applicationSchema = new Schema<ApplicationData>(
   {
-    applicant_id: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    job_id: { type: Schema.Types.ObjectId, required: true, index: true },
-    status: {
-      type: String,
-      enum: applicationStatuses,
-      required: true,
-      default: 'submitted',
-      index: true,
-    },
-    review_stage: { type: String, enum: applicationReviewStages },
-    job_snapshot: { type: jobSnapshotSchema, required: true },
-    attachments: { type: [attachmentSnapshotSchema], default: [] },
+    job_id: { type: Schema.Types.ObjectId, ref: 'JobPosting', required: true },
+    applicant_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    cv_id: { type: Schema.Types.ObjectId, ref: 'Document', required: true },
+    cover_letter_id: { type: Schema.Types.ObjectId, ref: 'Document' },
     message: { type: String, trim: true },
+    status: { type: String, enum: applicationStatuses, default: 'submitted', required: true },
     withdrawal_reason: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
-    withdrawn_at: { type: Date },
     reapplied_from: { type: Schema.Types.ObjectId, ref: 'Application' },
     reapplied_as: { type: Schema.Types.ObjectId, ref: 'Application' },
-    version: { type: Number, required: true, default: 0 },
-    submitted_at: { type: Date, required: true, default: Date.now },
-    latest_status_at: { type: Date, required: true, default: Date.now },
-    history: { type: [historyEntrySchema], default: [] },
+    status_history: { type: [statusHistorySchema], default: [] },
   },
-  { timestamps: true, collection: 'applications' },
+  {
+    timestamps: true,
+    collection: 'applications',
+  },
 );
 
-// BR-APP-002 / BR-APP-008: at most one non-withdrawn application per candidate/job pair. A Withdrawn
-// record does not occupy the pair, so exactly one reapplication can follow it.
+// One ACTIVE record per applicant/job pair (BR-APP-002). Withdrawn and Rejected records do not occupy the
+// pair, so applying again creates a new record (BR-APP-010) and the closed one is never reopened. The
+// index also stops concurrent duplicate submissions.
 applicationSchema.index(
-  { applicant_id: 1, job_id: 1 },
+  { job_id: 1, applicant_id: 1 },
   { unique: true, partialFilterExpression: { status: { $in: applicationOccupyingStatuses } } },
 );
-// Deterministic newest-first list ordering plus indexed candidate scope (BR-APP-001, BR-APP-006).
-applicationSchema.index({ applicant_id: 1, submitted_at: -1, _id: -1 });
-applicationSchema.index({ applicant_id: 1, status: 1 });
+applicationSchema.index({ job_id: 1, applicant_id: 1, createdAt: -1 });
+applicationSchema.index({ job_id: 1, status: 1 });
+applicationSchema.index({ applicant_id: 1, createdAt: -1 });
 
-export const Application = model<ApplicationData>('Application', applicationSchema);
-export type ApplicationDoc = HydratedDocument<ApplicationData>;
+export const Application = model('Application', applicationSchema);
+export type ApplicationDoc = ApplicationData & {
+  _id: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+};

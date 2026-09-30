@@ -1,177 +1,173 @@
 import mongoose, { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Application } from '../../src/models/application.model.js';
+
+import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
+import { Application, type ApplicationStatus } from '../../src/models/application.model.js';
+import { Document } from '../../src/models/document.model.js';
+import { Enterprise } from '../../src/models/enterprise.model.js';
+import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User } from '../../src/models/user.model.js';
-import { applicationsRepository } from '../../src/modules/applications/applications.repository.js';
 import { applicationsService } from '../../src/modules/applications/applications.service.js';
 
-const uri = process.env.MONGODB_URI;
-const suite = uri?.includes('ittalent_myapps_test') ? describe : describe.skip;
+const DAY = 86_400_000;
+const base = Date.now() - 30 * DAY;
+const query = { page: 1, limit: 20, sortBy: 'submittedAt', sortOrder: 'desc' } as const;
 
-suite('My Applications database invariants', () => {
+// Behaviours that only a real database can prove: scoping, filters, sorting, keyword joins and atomic withdrawal.
+describe('My applications against MongoDB (UC-MYAPP-01..05)', () => {
   const owner = new Types.ObjectId();
   const other = new Types.ObjectId();
-  const job = new Types.ObjectId();
-  let id: string;
+  const company = new Types.ObjectId();
+  let cv: Types.ObjectId;
+  const enterprises = new Map<string, Types.ObjectId>();
 
-  beforeAll(async () => {
-    await mongoose.connect(uri!);
-    await Application.syncIndexes();
-    await User.create({ _id: owner, email: `${owner}@example.test`, username: String(owner), role: 'user', status: 'active' });
-    await User.create({ _id: other, email: `${other}@example.test`, username: String(other), role: 'user', status: 'active' });
-    const doc = await Application.create({ applicant_id: owner, job_id: job, status: 'submitted', version: 0, submitted_at: new Date(), latest_status_at: new Date(), job_snapshot: { title: 'Engineer', company_name: 'Example', public_status: 'closed' }, history: [{ status: 'submitted', actor_role: 'candidate', occurred_at: new Date() }] });
-    id = String(doc._id);
-  });
-  afterAll(async () => { await Application.deleteMany({ applicant_id: { $in: [owner, other] } }); await User.deleteMany({ _id: { $in: [owner, other] } }); await mongoose.disconnect(); });
-
-  it('scopes list, detail, history and withdraw to the owner', async () => {
-    expect((await applicationsService.list(String(other), { page: 1, limit: 10, sortBy: 'submittedAt', sortOrder: 'desc' })).total).toBe(0);
-    await expect(applicationsService.getDetail(String(other), id)).rejects.toMatchObject({ statusCode: 404 });
-    await expect(applicationsService.getHistory(String(other), id, 1, 10)).rejects.toMatchObject({ statusCode: 404 });
-    await expect(applicationsService.withdraw(String(other), id, 0, undefined)).rejects.toMatchObject({ statusCode: 404 });
-  });
-
-  it('counts statuses across the same ownership scope', async () => {
-    expect((await applicationsService.list(String(owner), { page: 1, limit: 10, sortBy: 'submittedAt', sortOrder: 'desc' })).statusCounts.submitted).toBe(1);
-    const matched = await applicationsService.list(String(owner), { page: 1, limit: 10, sortBy: 'submittedAt', sortOrder: 'desc', jobId: String(job), search: 'Engineer' });
-    expect(matched.total).toBe(1);
-    expect(matched.statusCounts.submitted).toBe(1);
-    const missing = await applicationsService.list(String(owner), { page: 1, limit: 10, sortBy: 'submittedAt', sortOrder: 'desc', jobId: String(new Types.ObjectId()) });
-    expect(missing.total).toBe(0);
-    expect(missing.statusCounts.submitted).toBe(0);
-  });
-
-  it('guards unique applicant/job pair and atomic concurrent withdrawal', async () => {
-    await expect(Application.create({ applicant_id: owner, job_id: job, status: 'submitted', submitted_at: new Date(), latest_status_at: new Date(), job_snapshot: { title: 'Duplicate', company_name: 'Example', public_status: 'closed' } })).rejects.toMatchObject({ code: 11000 });
-    const [first, second] = await Promise.all([
-      applicationsRepository.withdrawAtomically(id, String(owner), 0, undefined),
-      applicationsRepository.withdrawAtomically(id, String(owner), 0, undefined),
-    ]);
-    expect([first, second].filter(Boolean)).toHaveLength(1);
-    const updated = await Application.findById(id);
-    expect(updated?.status).toBe('withdrawn');
-    expect(updated?.history.filter((event) => event.status === 'withdrawn')).toHaveLength(1);
-    const history = await applicationsService.getHistory(String(owner), id, 1, 10);
-    expect(history.items[1]).toEqual(expect.objectContaining({ status: 'withdrawn', actorRole: 'candidate' }));
-    expect(JSON.stringify(history)).not.toMatch(/account_id|note|reviewer/);
-  });
-});
-
-// UC-MYAPP-01 / 05 / BR-APP-008 behaviours that only a real database can prove.
-suite('My Applications list, filters and reapplication invariants', () => {
-  const candidate = new Types.ObjectId();
-  const day = 86_400_000;
-  const base = Date.now() - 30 * day;
-  const query = { page: 1, limit: 20, sortBy: 'submittedAt', sortOrder: 'desc' } as const;
-
-  const make = (jobId: Types.ObjectId, overrides: Record<string, unknown> = {}) => Application.create({
-    applicant_id: candidate,
-    job_id: jobId,
-    status: 'submitted',
-    version: 0,
-    submitted_at: new Date(base),
-    latest_status_at: new Date(base),
-    job_snapshot: { title: 'Engineer', company_name: 'Example', public_status: 'open' },
-    history: [{ status: 'submitted', actor_role: 'candidate', occurred_at: new Date(base) }],
-    ...overrides,
-  });
-
-  beforeAll(async () => {
-    await mongoose.connect(uri!);
-    await Application.syncIndexes();
-    await User.create({ _id: candidate, email: `${candidate}@example.test`, username: String(candidate), role: 'user', status: 'active' });
-  });
-  afterAll(async () => { await Application.deleteMany({ applicant_id: candidate }); await User.deleteMany({ _id: candidate }); await mongoose.disconnect(); });
-
-  it('filters by one or several statuses and counts every status including position_filled', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    await make(new Types.ObjectId(), { status: 'submitted' });
-    await make(new Types.ObjectId(), { status: 'under_review' });
-    await make(new Types.ObjectId(), { status: 'position_filled' });
-    await make(new Types.ObjectId(), { status: 'hired' });
-
-    expect((await applicationsService.list(String(candidate), { ...query, status: 'submitted' })).total).toBe(1);
-    const several = await applicationsService.list(String(candidate), { ...query, status: 'submitted,position_filled' });
-    expect(several.items.map((item) => item.status).sort()).toEqual(['position_filled', 'submitted']);
-    const all = await applicationsService.list(String(candidate), query);
-    expect(all.statusCounts).toMatchObject({ submitted: 1, under_review: 1, position_filled: 1, hired: 1, withdrawn: 0 });
-  });
-
-  it('sorts by submitted date, last update and id in both directions with a stable tie-break', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    const oldest = await make(new Types.ObjectId(), { submitted_at: new Date(base), latest_status_at: new Date(base + 9 * day) });
-    const middle = await make(new Types.ObjectId(), { submitted_at: new Date(base + 2 * day), latest_status_at: new Date(base + 3 * day) });
-    const newest = await make(new Types.ObjectId(), { submitted_at: new Date(base + 4 * day), latest_status_at: new Date(base + day) });
-    const ids = async (sortBy: 'id' | 'latestStatusAt' | 'submittedAt', sortOrder: 'asc' | 'desc') => (await applicationsService.list(String(candidate), { ...query, sortBy, sortOrder })).items.map((item) => item.id);
-
-    expect(await ids('submittedAt', 'desc')).toEqual([String(newest._id), String(middle._id), String(oldest._id)]);
-    expect(await ids('submittedAt', 'asc')).toEqual([String(oldest._id), String(middle._id), String(newest._id)]);
-    expect(await ids('latestStatusAt', 'desc')).toEqual([String(oldest._id), String(middle._id), String(newest._id)]);
-    expect(await ids('id', 'asc')).toEqual([String(oldest._id), String(middle._id), String(newest._id)].sort());
-  });
-
-  it('paginates the sorted result without repeating or skipping rows', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    for (let index = 0; index < 5; index += 1) await make(new Types.ObjectId(), { submitted_at: new Date(base) });
-    const seen = new Set<string>();
-    for (const page of [1, 2, 3]) {
-      (await applicationsService.list(String(candidate), { ...query, page, limit: 2 })).items.forEach((item) => seen.add(item.id));
+  async function job(companyName: string, title: string, overrides: Record<string, unknown> = {}): Promise<Types.ObjectId> {
+    let enterpriseId = enterprises.get(companyName);
+    if (!enterpriseId) {
+      enterpriseId = (await Enterprise.create({
+        name: companyName, tax_code: `t${new Types.ObjectId()}`, email: `hr-${new Types.ObjectId()}@example.test`, phone: '+84900000000', industry: 'IT', company_size: '11-50',
+        address: { street: '1 Test', city: 'Hà Nội', country: 'Vietnam' }, status: 'active', creator_account_id: company, is_deleted: false,
+      }))._id;
+      enterprises.set(companyName, enterpriseId);
     }
-    expect(seen.size).toBe(5);
+    return (await JobPosting.create({
+      enterprise_id: enterpriseId, posted_by_user_id: company, title, slug: `db-${new Types.ObjectId()}`, status: 'published', location: 'Hà Nội',
+      employment_type: 'Full-time', expires_at: new Date(Date.now() + 90 * DAY), ...overrides,
+    }))._id;
+  }
+
+  async function application(jobId: Types.ObjectId, status: ApplicationStatus = 'submitted', overrides: Record<string, unknown> = {}, applicant = owner) {
+    const createdAt = (overrides.createdAt as Date | undefined) ?? new Date(base);
+    const history: { status: ApplicationStatus; changed_at: Date; changed_by: Types.ObjectId }[] = [{ status: 'submitted', changed_at: createdAt, changed_by: applicant }];
+    if (status !== 'submitted') history.push({ status, changed_at: new Date(createdAt.getTime() + DAY), changed_by: status === 'withdrawn' ? applicant : company });
+    // timestamps:false so the tests control createdAt (submitted) and updatedAt (last update).
+    const [record] = await Application.create(
+      [{ job_id: jobId, applicant_id: applicant, cv_id: cv, status, status_history: history, createdAt, updatedAt: createdAt, ...overrides }] as never,
+      { timestamps: false },
+    );
+    return record!;
+  }
+
+  const ids = async (extra: Record<string, unknown> = {}) => (await applicationsService.list(String(owner), { ...query, ...extra })).items.map((item) => item.id);
+
+  beforeAll(async () => {
+    await connectDatabase();
+    await Application.syncIndexes();
+    await User.create({ _id: owner, email: `${owner}@example.test`, username: `o_${owner}`, role: 'user', status: 'active' });
+    await User.create({ _id: other, email: `${other}@example.test`, username: `x_${other}`, role: 'user', status: 'active' });
+    cv = (await Document.create({ owner_id: owner, type: 'cv', file_url: 'https://example.test/cv.pdf', storage_key: `k-${owner}`, file_name: 'cv.pdf', mime_type: 'application/pdf', size: 10 }))._id;
+  });
+  afterAll(async () => {
+    await Application.deleteMany({ applicant_id: { $in: [owner, other] } });
+    await JobPosting.deleteMany({ posted_by_user_id: company });
+    await Enterprise.deleteMany({ creator_account_id: company });
+    await Document.deleteMany({ owner_id: owner });
+    await User.deleteMany({ _id: { $in: [owner, other] } });
+    await disconnectDatabase();
+    await mongoose.disconnect();
   });
 
-  it('matches the keyword against job title or company name, case-insensitively', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    await make(new Types.ObjectId(), { job_snapshot: { title: 'Kỹ sư Frontend', company_name: 'Nova Fintech', public_status: 'open' } });
-    await make(new Types.ObjectId(), { job_snapshot: { title: 'DevOps', company_name: 'Pixel Labs', public_status: 'open' } });
-    expect((await applicationsService.list(String(candidate), { ...query, search: 'frontend' })).total).toBe(1);
-    expect((await applicationsService.list(String(candidate), { ...query, search: 'PIXEL' })).total).toBe(1);
-    expect((await applicationsService.list(String(candidate), { ...query, search: 'nothing' })).total).toBe(0);
+  it('scopes list, detail, history and withdrawal to the owner (BR-APP-001)', async () => {
+    const record = await application(await job('Scope Co', 'Scoped role'));
+    expect((await applicationsService.list(String(other), query)).total).toBe(0);
+    await expect(applicationsService.getDetail(String(other), String(record._id))).rejects.toMatchObject({ statusCode: 404 });
+    await expect(applicationsService.getHistory(String(other), String(record._id), 1, 20)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(applicationsService.withdraw(String(other), String(record._id), 1, undefined)).rejects.toMatchObject({ statusCode: 404 });
+    expect((await Application.findById(record._id))?.status).toBe('submitted');
+    await Application.deleteMany({ applicant_id: owner });
   });
 
-  it('filters by the submitted date range and review stage', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    await make(new Types.ObjectId(), { submitted_at: new Date(base), review_stage: 'screening' });
-    await make(new Types.ObjectId(), { submitted_at: new Date(base + 10 * day), review_stage: 'interview' });
-    const window = await applicationsService.list(String(candidate), { ...query, submittedFrom: new Date(base + 5 * day), submittedTo: new Date(base + 20 * day) });
-    expect(window.total).toBe(1);
-    expect((await applicationsService.list(String(candidate), { ...query, reviewStage: 'screening' })).total).toBe(1);
+  it('shows the public job, company and attachment metadata without private fields', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const record = await application(await job('Nova Fintech', 'Frontend Engineer'), 'under_review');
+    const detail = await applicationsService.getDetail(String(owner), String(record._id));
+    expect(detail).toMatchObject({ job: { title: 'Frontend Engineer', companyName: 'Nova Fintech', location: 'Hà Nội', jobType: 'Full-time', publicStatus: 'open' }, reviewStage: 'screening', version: 2, attachments: [{ type: 'cv', fileName: 'cv.pdf' }] });
+    expect(JSON.stringify(detail)).not.toMatch(/file_url|storage_key|changed_by|applicant_id|example\.test/);
   });
 
-  // BR-APP-008: a Withdrawn record frees the pair for exactly one active reapplication.
-  it('allows one active application per pair, and a reapplication only after a withdrawal', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    const job = new Types.ObjectId();
-    const first = await make(job);
-    await expect(make(job)).rejects.toMatchObject({ code: 11000 });
-
-    await applicationsRepository.withdrawAtomically(String(first._id), String(candidate), 0, 'changed my mind');
-    const again = await make(job, { reapplied_from: first._id });
-    await Application.updateOne({ _id: first._id }, { reapplied_as: again._id });
-    await expect(make(job)).rejects.toMatchObject({ code: 11000 });
-
-    const detail = await applicationsService.getDetail(String(candidate), String(first._id));
-    expect(detail).toMatchObject({ status: 'withdrawn', reappliedAs: String(again._id), canApplyAgain: false });
-    const replacement = await applicationsService.getDetail(String(candidate), String(again._id));
-    expect(replacement).toMatchObject({ status: 'submitted', reappliedFrom: String(first._id), canWithdraw: true });
-    // Histories stay per record: the reapplication starts its own, never a copy of the withdrawn one.
-    expect((await applicationsService.getHistory(String(candidate), String(again._id), 1, 10)).items).toHaveLength(1);
-    expect((await applicationsService.list(String(candidate), query)).total).toBe(2);
+  it('filters by one or several statuses, stage and counts every status', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const submitted = await application(await job('A Co', 'One'), 'submitted');
+    const review = await application(await job('B Co', 'Two'), 'under_review');
+    await application(await job('C Co', 'Three'), 'hired');
+    expect(await ids({ status: 'submitted' })).toEqual([String(submitted._id)]);
+    expect((await ids({ status: 'submitted,under_review' })).sort()).toEqual([String(submitted._id), String(review._id)].sort());
+    expect(await ids({ reviewStage: 'screening' })).toEqual([String(review._id)]);
+    expect((await applicationsService.list(String(owner), query)).statusCounts).toMatchObject({ submitted: 1, under_review: 1, hired: 1, withdrawn: 0 });
   });
 
-  it('never lets a candidate withdraw a position_filled or rejected record', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    const filled = await make(new Types.ObjectId(), { status: 'position_filled' });
-    await expect(applicationsService.withdraw(String(candidate), String(filled._id), 0, undefined)).rejects.toMatchObject({ statusCode: 400 });
-    expect((await Application.findById(filled._id))?.status).toBe('position_filled');
+  it('matches the keyword against the job title or the company name, case-insensitively', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    await application(await job('Nova Fintech', 'Kỹ sư Frontend'));
+    await application(await job('Pixel Labs', 'DevOps'));
+    expect(await ids({ search: 'frontend' })).toHaveLength(1);
+    expect(await ids({ search: 'PIXEL' })).toHaveLength(1);
+    expect(await ids({ search: 'nothing-here' })).toHaveLength(0);
   });
 
-  it('rejects a stale version and leaves the record untouched (UC-MYAPP-04.EX.4)', async () => {
-    await Application.deleteMany({ applicant_id: candidate });
-    const record = await make(new Types.ObjectId(), { status: 'under_review', version: 3 });
-    await expect(applicationsService.withdraw(String(candidate), String(record._id), 2, undefined)).rejects.toMatchObject({ statusCode: 409 });
-    const stored = await Application.findById(record._id);
-    expect(stored).toMatchObject({ status: 'under_review', version: 3 });
-    expect(stored?.history).toHaveLength(1);
+  it('filters by job and by the submitted date range', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const recentJob = await job('Date Co', 'Recent');
+    await application(await job('Date Co', 'Old'), 'submitted', { createdAt: new Date(base) });
+    await application(recentJob, 'submitted', { createdAt: new Date(base + 10 * DAY) });
+    expect(await ids({ submittedFrom: new Date(base + 5 * DAY), submittedTo: new Date(base + 20 * DAY) })).toHaveLength(1);
+    expect(await ids({ jobId: String(recentJob) })).toHaveLength(1);
+    expect(await ids({ jobId: String(new Types.ObjectId()) })).toHaveLength(0);
+  });
+
+  it('sorts by submitted date, last update and id in both directions and pages without gaps', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const first = await application(await job('S Co', 'a'), 'submitted', { createdAt: new Date(base), updatedAt: new Date(base + 9 * DAY) });
+    const second = await application(await job('S Co', 'b'), 'submitted', { createdAt: new Date(base + 2 * DAY), updatedAt: new Date(base + 3 * DAY) });
+    const third = await application(await job('S Co', 'c'), 'submitted', { createdAt: new Date(base + 4 * DAY), updatedAt: new Date(base + DAY) });
+    const order = (a: { _id: unknown }[]) => a.map((item) => String(item._id));
+    expect(await ids({ sortBy: 'submittedAt', sortOrder: 'desc' })).toEqual(order([third, second, first]));
+    expect(await ids({ sortBy: 'submittedAt', sortOrder: 'asc' })).toEqual(order([first, second, third]));
+    expect(await ids({ sortBy: 'latestStatusAt', sortOrder: 'desc' })).toEqual(order([first, second, third]));
+    expect(await ids({ sortBy: 'id', sortOrder: 'asc' })).toEqual(order([first, second, third]).sort());
+    const seen = new Set<string>();
+    for (const page of [1, 2, 3]) (await applicationsService.list(String(owner), { ...query, page, limit: 1 })).items.forEach((item) => seen.add(item.id));
+    expect(seen.size).toBe(3);
+  });
+
+  it('withdraws atomically, records the candidate in history and lets only one of two concurrent requests win', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const record = await application(await job('W Co', 'Withdraw me'), 'under_review');
+    const [a, b] = await Promise.allSettled([
+      applicationsService.withdraw(String(owner), String(record._id), 2, 'changed my mind'),
+      applicationsService.withdraw(String(owner), String(record._id), 2, 'changed my mind'),
+    ]);
+    expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected']);
+    const stored = await Application.findById(record._id).lean();
+    expect(stored).toMatchObject({ status: 'withdrawn', withdrawal_reason: 'changed my mind' });
+    expect(stored?.status_history.filter((item) => item.status === 'withdrawn')).toHaveLength(1);
+    const history = await applicationsService.getHistory(String(owner), String(record._id), 1, 20);
+    expect(history.items.at(-1)).toMatchObject({ status: 'withdrawn', actorRole: 'candidate' });
+    expect(history.items.map((item) => item.actorRole)).toEqual(['candidate', 'company', 'candidate']);
+  });
+
+  it('rejects a stale version or a non-withdrawable status and leaves the record untouched (EX.3 / EX.4)', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const stale = await application(await job('X Co', 'Stale'), 'submitted');
+    await expect(applicationsService.withdraw(String(owner), String(stale._id), 7, undefined)).rejects.toMatchObject({ statusCode: 409 });
+    expect(await Application.findById(stale._id).then((doc) => doc?.status)).toBe('submitted');
+    for (const status of ['interviewing', 'offered', 'hired', 'rejected'] as const) {
+      const closed = await application(await job('X Co', `Closed ${status}`), status);
+      await expect(applicationsService.withdraw(String(owner), String(closed._id), 2, undefined)).rejects.toMatchObject({ statusCode: 400 });
+      expect(await Application.findById(closed._id).then((doc) => doc?.status)).toBe(status);
+    }
+  });
+
+  it('shows both records of an apply-again pair, linked, each with its own history (BR-APP-010)', async () => {
+    await Application.deleteMany({ applicant_id: owner });
+    const sharedJob = await job('Pair Co', 'Pair role');
+    const first = await application(sharedJob, 'withdrawn');
+    const second = await application(sharedJob, 'submitted', { reapplied_from: first._id, createdAt: new Date(base + 5 * DAY) });
+    await Application.updateOne({ _id: first._id }, { $set: { reapplied_as: second._id } }, { timestamps: false });
+    const list = (await applicationsService.list(String(owner), query)).items;
+    expect(list).toHaveLength(2);
+    expect(list.find((item) => item.id === String(first._id))).toMatchObject({ status: 'withdrawn', reappliedAs: String(second._id), canApplyAgain: false });
+    expect(list.find((item) => item.id === String(second._id))).toMatchObject({ status: 'submitted', reappliedFrom: String(first._id), canWithdraw: true });
+    expect((await applicationsService.getHistory(String(owner), String(second._id), 1, 20)).total).toBe(1);
   });
 });

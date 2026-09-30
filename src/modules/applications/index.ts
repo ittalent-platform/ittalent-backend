@@ -1,1 +1,6 @@
-export { applicationsRouter } from './applications.routes.js';
+export * from './applications.routes.js';
+export * from './applications.controller.js';
+export * from './applications.openapi.js';
+export * from './applications.service.js';
+export * from './applications.repository.js';
+export * from './applications.schemas.js';

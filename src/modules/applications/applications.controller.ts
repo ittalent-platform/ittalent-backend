@@ -7,6 +7,8 @@ import type {
   ApplicationHistoryQuery,
   ApplicationIdParam,
   ApplicationListQuery,
+  CreateApplicationBody,
+  MyApplicationQuery,
   WithdrawApplicationBody,
 } from './applications.schemas.js';
 import { applicationsService, type ApplicationsService } from './applications.service.js';
@@ -14,58 +16,94 @@ import { applicationsService, type ApplicationsService } from './applications.se
 export class ApplicationsController {
   constructor(private readonly service: ApplicationsService = applicationsService) {}
 
-  listMine: RequestHandler = async (req, res, next): Promise<void> => {
+  createApplication: RequestHandler = async (req, res, next) => {
     try {
-      if (!req.user) {
-        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED);
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
       }
 
+      const body = res.locals.validated?.body as CreateApplicationBody;
+      const result = await this.service.applyToJob(user.id, body);
+      res.status(HTTP_STATUS.HTTP_201_CREATED).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getMyApplication: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
+      }
+
+      const query = res.locals.validated?.query as MyApplicationQuery;
+      const item = await this.service.findMyApplication(user.id, query.jobPostingId);
+      res.json({ item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listMine: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
+      }
       const query = res.locals.validated?.query as ApplicationListQuery;
-      const result = await this.service.list(req.user.id, query);
+      const result = await this.service.list(user.id, query);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
   };
 
-  getDetail: RequestHandler = async (req, res, next): Promise<void> => {
+  getDetail: RequestHandler = async (req, res, next) => {
     try {
-      if (!req.user) {
-        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED);
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
       }
-
       const params = res.locals.validated?.params as ApplicationIdParam;
-      const result = await this.service.getDetail(req.user.id, params.id);
+      const result = await this.service.getDetail(user.id, params.id);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
   };
 
-  getHistory: RequestHandler = async (req, res, next): Promise<void> => {
+  getHistory: RequestHandler = async (req, res, next) => {
     try {
-      if (!req.user) {
-        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED);
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
       }
-
       const params = res.locals.validated?.params as ApplicationIdParam;
       const query = res.locals.validated?.query as ApplicationHistoryQuery;
-      const result = await this.service.getHistory(req.user.id, params.id, query.page, query.limit);
+      const result = await this.service.getHistory(user.id, params.id, query.page, query.limit);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
   };
 
-  withdraw: RequestHandler = async (req, res, next): Promise<void> => {
+  withdraw: RequestHandler = async (req, res, next) => {
     try {
-      if (!req.user) {
-        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED);
+      const user = req.user;
+      if (!user) {
+        next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, APPLICATION_MESSAGES.AUTH_REQUIRED));
+        return;
       }
-
       const params = res.locals.validated?.params as ApplicationIdParam;
       const body = res.locals.validated?.body as WithdrawApplicationBody;
-      const result = await this.service.withdraw(req.user.id, params.id, body.expectedVersion, body.reason);
+      const result = await this.service.withdraw(user.id, params.id, body.expectedVersion, body.reason);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

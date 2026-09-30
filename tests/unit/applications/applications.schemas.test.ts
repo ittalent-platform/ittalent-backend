@@ -162,7 +162,7 @@ describe('Applications schemas', () => {
 
   // UC-MYAPP-05.EX.3 / AC-MYAPP-05-05: the eight supported statuses, alone or as a comma-separated list.
   describe('status filter', () => {
-    it.each(['submitted', 'position_filled', 'submitted,under_review', 'hired,rejected,withdrawn,position_filled'])('accepts %s', (status) => {
+    it.each(['submitted', 'submitted,under_review', 'hired,rejected,withdrawn'])('accepts %s', (status) => {
       expect(applicationListQuerySchema.safeParse({ status }).success).toBe(true);
     });
 

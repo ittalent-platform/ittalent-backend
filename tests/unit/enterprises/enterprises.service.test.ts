@@ -4,9 +4,11 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { EnterpriseDoc } from '../../../src/models/enterprise.model.js';
 import type { EnterprisesRepository } from '../../../src/modules/enterprises/enterprises.repository.js';
 import { EnterprisesService } from '../../../src/modules/enterprises/enterprises.service.js';
+import type { UsersService } from '../../../src/modules/users/users.service.js';
 
 describe('EnterprisesService', () => {
   let mockRepo: Partial<EnterprisesRepository>;
+  let mockUsersService: Partial<UsersService>;
   let service: EnterprisesService;
 
   const sampleEnterpriseId = new mongoose.Types.ObjectId();
@@ -65,7 +67,11 @@ describe('EnterprisesService', () => {
       softDelete: vi.fn(),
       countActiveJobs: vi.fn(),
     };
-    service = new EnterprisesService(mockRepo as EnterprisesRepository);
+    mockUsersService = {
+      getEnterpriseId: vi.fn().mockResolvedValue(null),
+      assignEnterprise: vi.fn().mockResolvedValue({ _id: sampleCreatorId }),
+    };
+    service = new EnterprisesService(mockRepo as EnterprisesRepository, mockUsersService as UsersService);
   });
 
   describe('createEnterprise', () => {
@@ -102,6 +108,7 @@ describe('EnterprisesService', () => {
       );
       expect(result.status).toBe('pending');
       expect(result.name).toBe('Tech Alpha Inc');
+      expect(mockUsersService.assignEnterprise).toHaveBeenCalledWith(sampleCreatorId.toString(), sampleEnterpriseId.toString());
     });
 
     it('creates an enterprise with status "active" when role is admin', async () => {
@@ -148,10 +155,22 @@ describe('EnterprisesService', () => {
         service.createEnterprise(createDto, sampleCreatorId.toString(), 'recruiter'),
       ).rejects.toThrow('Your account is already associated with a registered enterprise profile');
     });
+
+    it('throws 409 when recruiter is already assigned through enterprise_id', async () => {
+      mockRepo.findByTaxCode = vi.fn().mockResolvedValue(null);
+      mockRepo.findByEmail = vi.fn().mockResolvedValue(null);
+      mockRepo.findByCreatorId = vi.fn().mockResolvedValue(null);
+      mockUsersService.getEnterpriseId = vi.fn().mockResolvedValue(sampleEnterpriseId.toString());
+
+      await expect(
+        service.createEnterprise(createDto, sampleCreatorId.toString(), 'recruiter'),
+      ).rejects.toThrow('Your account is already associated with a registered enterprise profile');
+    });
   });
 
   describe('updateEnterprise', () => {
     it('allows owner recruiter to update enterprise information', async () => {
+      mockUsersService.getEnterpriseId = vi.fn().mockResolvedValue(sampleEnterpriseId.toString());
       mockRepo.findById = vi.fn().mockResolvedValue(mockEnterpriseDoc as EnterpriseDoc);
       mockRepo.updateById = vi.fn().mockResolvedValue({
         ...mockEnterpriseDoc,
@@ -192,6 +211,7 @@ describe('EnterprisesService', () => {
       mockRepo.findById = vi.fn().mockResolvedValue(mockEnterpriseDoc as EnterpriseDoc);
 
       const otherUserId = new mongoose.Types.ObjectId().toString();
+      mockUsersService.getEnterpriseId = vi.fn().mockResolvedValue(new mongoose.Types.ObjectId().toString());
 
       await expect(
         service.updateEnterprise(
@@ -204,6 +224,7 @@ describe('EnterprisesService', () => {
     });
 
     it('throws 403 when recruiter attempts to modify tax_code on an active enterprise', async () => {
+      mockUsersService.getEnterpriseId = vi.fn().mockResolvedValue(sampleEnterpriseId.toString());
       mockRepo.findById = vi.fn().mockResolvedValue({
         ...mockEnterpriseDoc,
         status: 'active',
@@ -370,6 +391,7 @@ describe('EnterprisesService', () => {
     });
 
     it('allows owner recruiter to view pending enterprise', async () => {
+      mockUsersService.getEnterpriseId = vi.fn().mockResolvedValue(sampleEnterpriseId.toString());
       mockRepo.findById = vi.fn().mockResolvedValue({
         ...mockEnterpriseDoc,
         status: 'pending',

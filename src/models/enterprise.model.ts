@@ -180,7 +180,6 @@ enterpriseSchema.index(
     partialFilterExpression: { is_deleted: false },
   },
 );
-
 enterpriseSchema.index(
   { email: 1 },
   {

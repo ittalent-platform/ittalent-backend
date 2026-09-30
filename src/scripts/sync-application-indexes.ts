@@ -3,8 +3,9 @@ import 'dotenv/config';
 import { connectDatabase, disconnectDatabase } from '../config/db.js';
 import { Application } from '../models/application.model.js';
 
-// BR-APP-008 replaced the unique (applicant, job) index with a partial one. MongoDB refuses to
-// create an index whose name exists with different options, so existing databases must sync once.
+// BR-APP-010 replaced the unique (job, applicant) index with a partial one (Withdrawn/Rejected records no
+// longer occupy the pair). MongoDB refuses to create an index whose name exists with different options,
+// so databases created before that change must be synced once.
 export async function syncApplicationIndexes(): Promise<string[]> {
   await connectDatabase();
   try {

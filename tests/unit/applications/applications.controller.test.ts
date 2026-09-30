@@ -8,7 +8,7 @@ import type {
   ApplicationHistoryEntryDTO,
   ApplicationListResponse,
   ApplicationSummaryDTO,
-} from '../../../src/modules/applications/applications.openapi.js';
+} from '../../../src/modules/applications/applications.schemas.js';
 
 describe('ApplicationsController', () => {
 let mockService: Partial<ApplicationsService>;
@@ -73,7 +73,6 @@ let mockService: Partial<ApplicationsService>;
       hired: 0,
       rejected: 0,
       withdrawn: 0,
-      position_filled: 0,
     },
   };
 

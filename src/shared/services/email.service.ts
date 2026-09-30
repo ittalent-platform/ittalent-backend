@@ -102,3 +102,19 @@ export async function sendResetPasswordEmail(to: string, url: string): Promise<v
     `,
   });
 }
+
+export async function sendApplicationConfirmationEmail(
+  to: string,
+  jobTitle: string,
+  status: string,
+): Promise<void> {
+  await sendEmail({
+    to,
+    subject: 'Your ITTalent application has been submitted',
+    html: `
+      <p>Hello,</p>
+      <p>Your application for <strong>${escapeHtml(jobTitle)}</strong> has been received.</p>
+      <p>Current status: ${escapeHtml(status)}</p>
+    `,
+  });
+}
