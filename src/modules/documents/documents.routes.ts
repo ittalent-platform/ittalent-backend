@@ -1,5 +1,4 @@
 import { Router } from 'express';
-
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { uploadDocument } from '../../middleware/document-upload.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validate.js';

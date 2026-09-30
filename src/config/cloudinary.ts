@@ -11,7 +11,6 @@ export function getCloudinary(): typeof cloudinary {
     if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
       throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Document storage is not configured');
     }
-
     cloudinary.config({
       cloud_name: env.CLOUDINARY_CLOUD_NAME,
       api_key: env.CLOUDINARY_API_KEY,
@@ -20,6 +19,5 @@ export function getCloudinary(): typeof cloudinary {
     });
     configured = true;
   }
-
   return cloudinary;
 }

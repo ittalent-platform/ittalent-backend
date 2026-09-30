@@ -59,6 +59,7 @@ export const userDtoSchema = z.object({
   username: z.string(),
   role: z.string(),
   status: z.string(),
+  enterpriseId: z.string().nullable(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
 });

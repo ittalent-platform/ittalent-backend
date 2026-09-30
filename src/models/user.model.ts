@@ -12,6 +12,7 @@ export interface UserData {
   username: string;
   role?: UserRole;
   status?: UserStatus;
+  enterprise_id?: Types.ObjectId | null | undefined;
 }
 
 const userSchema = new Schema<UserData>(
@@ -42,6 +43,12 @@ const userSchema = new Schema<UserData>(
       type: String,
       enum: userStatuses,
       default: 'active',
+      index: true,
+    },
+    enterprise_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'Enterprise',
+      default: null,
       index: true,
     },
   },
