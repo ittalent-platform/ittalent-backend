@@ -1,15 +1,17 @@
 import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
-import { createHttpError } from '../../shared/errors/http-error.js';
+import { createHttpError, isHttpError } from '../../shared/errors/http-error.js';
+import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
+import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
 import { usersRepository, type UsersRepository, type CreateUserData } from './users.repository.js';
-import type { UserDTO } from './users.schemas.js';
+import { strictUserDtoSchema, type UserDTO, type UserListQuery } from './users.schemas.js';
 
 export class UsersService {
   constructor(private readonly repository: UsersRepository = usersRepository) {}
 
   mapUserDto(user: UserDoc): UserDTO {
     const raw = user.toObject();
-    return {
+    const dto = {
       id: String(user._id),
       email: user.email,
       username: user.username,
@@ -19,14 +21,46 @@ export class UsersService {
       createdAt: raw.createdAt ? new Date(raw.createdAt).toISOString() : undefined,
       updatedAt: raw.updatedAt ? new Date(raw.updatedAt).toISOString() : undefined,
     };
+
+    // Fail closed (UC-USER-01.EX.4 / UC-USER-02.EX.5): only this exact, allow-listed shape may leave the service.
+    const checked = strictUserDtoSchema.safeParse(dto);
+    if (!checked.success) {
+      console.error(USER_LOG_TAGS.PROJECTION_ERROR, { userId: dto.id, issues: checked.error.issues });
+      throw createHttpError(HTTP_STATUS.HTTP_500_INTERNAL_SERVER_ERROR, USER_MESSAGES.PROJECTION_FAILED);
+    }
+    return checked.data;
+  }
+
+  // UC-USER-01.EX.3 / UC-USER-02.EX.4: a storage failure is logged and reported without internal details.
+  private async guardStore<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (isHttpError(error)) {
+        throw error;
+      }
+      console.error(USER_LOG_TAGS.STORE_ERROR, error);
+      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, USER_MESSAGES.STORE_UNAVAILABLE);
+    }
   }
 
   async getUserById(id: string): Promise<UserDTO> {
-    const user = await this.repository.findById(id);
+    const user = await this.guardStore(() => this.repository.findById(id));
     if (!user) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'User not found');
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
     }
     return this.mapUserDto(user);
+  }
+
+  async listUsers(query: UserListQuery): Promise<PaginatedResult<UserDTO>> {
+    const { items, total } = await this.guardStore(() => this.repository.findPage(query));
+    return {
+      items: items.map((user) => this.mapUserDto(user)),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
   }
 
   async findByIdentifier(identifier: string): Promise<UserDoc | null> {
