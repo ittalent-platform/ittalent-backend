@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { objectIdSchema } from '../../shared/schemas/object-id.schema.js';
+import { objectIdSchema } from '../../shared/schemas/object-id.schemas.js';
 import { APPLICATION_CONFIG } from './applications.constants.js';
 
 // strictObject: the client cannot smuggle in fields such as applicant_id or status (BR-7).
@@ -29,3 +29,14 @@ export const applicationDtoSchema = z.object({
 });
 
 export type ApplicationDTO = z.infer<typeof applicationDtoSchema>;
+
+// Query for GET /applications/mine: "have I applied to this job, and what is the status?"
+export const myApplicationQuerySchema = z.object({
+  jobPostingId: objectIdSchema('job posting ID'),
+});
+
+export type MyApplicationQuery = z.infer<typeof myApplicationQuerySchema>;
+
+export const myApplicationResponseSchema = z.object({
+  item: applicationDtoSchema.nullable(),
+});

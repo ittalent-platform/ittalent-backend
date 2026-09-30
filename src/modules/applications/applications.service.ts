@@ -113,8 +113,8 @@ export class ApplicationsService {
       );
     }
 
-    // E3: CV (required) and cover letter (optional) must belong to the applicant and not be deleted.
-    const cv = await this.documents.findActiveByIdForApplicant(input.cvId, profile._id, 'cv');
+    // E3: CV (required) and cover letter (optional) must be owned by the signed-in user (Document.owner_id).
+    const cv = await this.documents.findOwnedByType(input.cvId, userId, 'cv');
     if (!cv) {
       throw createHttpError(
         HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -123,11 +123,7 @@ export class ApplicationsService {
       );
     }
     if (input.coverLetterId) {
-      const coverLetter = await this.documents.findActiveByIdForApplicant(
-        input.coverLetterId,
-        profile._id,
-        'cover_letter',
-      );
+      const coverLetter = await this.documents.findOwnedByType(input.coverLetterId, userId, 'cover_letter');
       if (!coverLetter) {
         throw createHttpError(
           HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -166,6 +162,18 @@ export class ApplicationsService {
     await this.sendConfirmation(user.email, job.title);
 
     return this.mapDto(application);
+  }
+
+  // Powers the apply area on the job page. Any status is returned; the client decides whether the
+  // applicant may re-apply (Withdrawn/Rejected) or should see the "already applied" card.
+  async findMyApplication(userId: string, jobPostingId: string): Promise<ApplicationDTO | null> {
+    const profile = await this.profiles.findByUserId(userId);
+    if (!profile) {
+      return null;
+    }
+
+    const application = await this.repository.findByJobAndApplicant(jobPostingId, profile._id);
+    return application ? this.mapDto(application) : null;
   }
 
   private alreadyApplied(): Error {
