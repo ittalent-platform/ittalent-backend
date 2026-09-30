@@ -1,9 +1,11 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { jobPostingIdParamSchema, jobPostingResponseSchema } from './job-postings.schemas.js';
+import { z } from 'zod';
+import { jobPostingIdParamSchema, jobPostingListQuerySchema, jobPostingResponseSchema } from './job-postings.schemas.js';
 
 export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
   const response = registry.register('JobPostingResponse', jobPostingResponseSchema);
-  registry.registerPath({ method: 'get', path: '/api/v1/job-postings', tags: ['Job Postings'], summary: 'List published job postings', responses: { 200: { description: 'Paginated job postings' } } });
+  const paginated = registry.register('PaginatedJobPostingsResponse', z.object({ items: z.array(response), page: z.number(), limit: z.number(), total: z.number(), totalPages: z.number() }));
+  registry.registerPath({ method: 'get', path: '/api/v1/job-postings', tags: ['Job Postings'], summary: 'List published job postings', request: { query: jobPostingListQuerySchema }, responses: { 200: { description: 'Paginated job postings', content: { 'application/json': { schema: paginated } } } } });
   registry.registerPath({ method: 'get', path: '/api/v1/recruiter/job-postings', tags: ['Job Postings'], summary: "List the recruiter's enterprise job postings", security: [{ bearerAuth: [] }], responses: { 200: { description: 'Enterprise job postings' }, 403: { description: 'Recruiter is not assigned to an enterprise' } } });
   registry.registerPath({ method: 'post', path: '/api/v1/job-postings', tags: ['Job Postings'], summary: 'Create a job posting for the authenticated recruiter enterprise', security: [{ bearerAuth: [] }], responses: { 201: { description: 'Job posting created', content: { 'application/json': { schema: response } } }, 403: { description: 'Recruiter access and enterprise membership required' } } });
   registry.registerPath({ method: 'get', path: '/api/v1/job-postings/{id}', tags: ['Job Postings'], summary: 'Get a job posting for management', security: [{ bearerAuth: [] }], request: { params: jobPostingIdParamSchema }, responses: { 200: { description: 'Job posting', content: { 'application/json': { schema: response } } }, 403: { description: 'Job posting belongs to another enterprise' }, 404: { description: 'Job posting not found' } } });
