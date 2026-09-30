@@ -11,7 +11,7 @@ import { Account } from '../../src/models/account.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'id', 'role', 'status', 'updatedAt', 'username'];
+const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'fullName', 'id', 'phone', 'role', 'status', 'updatedAt', 'username'];
 const PASSWORD_HASH = 'bcrypt-hash-must-never-leave-the-server';
 
 let server: Server;
@@ -30,6 +30,8 @@ const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 interface UserBody {
   id: string;
   username: string;
+  fullName: string | null;
+  phone: string | null;
   email: string;
   createdAt: string;
   status: string;
@@ -45,6 +47,15 @@ interface Body extends Partial<UserBody> {
 
 async function get(path: string, token?: string): Promise<{ status: number; body: Body }> {
   const response = await fetch(`${baseUrl}/api/v1/users${path}`, token ? { headers: auth(token) } : {});
+  return { status: response.status, body: (await response.json()) as Body };
+}
+
+async function patch(id: string, body: unknown, token: string): Promise<{ status: number; body: Body }> {
+  const response = await fetch(`${baseUrl}/api/v1/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...auth(token) },
+    body: JSON.stringify(body),
+  });
   return { status: response.status, body: (await response.json()) as Body };
 }
 
@@ -283,14 +294,28 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       const response = await fetch(`${baseUrl}/openapi.json`);
       const spec = (await response.json()) as {
         components: { schemas: Record<string, { properties?: Record<string, unknown>; required?: string[] }> };
-        paths: Record<string, { get?: { parameters?: { name: string }[] } }>;
+        paths: Record<string, { get?: { parameters?: { name: string }[] }; patch?: { operationId?: string; requestBody?: { content?: Record<string, unknown> } } }>;
       };
       const user = spec.components.schemas['UserDTO'];
 
       expect(Object.keys(user?.properties ?? {}).sort()).toEqual(ALLOWED_FIELDS);
+      expect(user?.properties).toHaveProperty('fullName');
+      expect(user?.properties).toHaveProperty('phone');
       expect(user?.required).toContain('emailVerified');
       const parameters = spec.paths['/api/v1/users']?.get?.parameters?.map((parameter) => parameter.name) ?? [];
       expect(parameters).toEqual(expect.arrayContaining(['search', 'role', 'status', 'emailVerified', 'sortBy', 'sortOrder']));
+      expect(spec.paths['/api/v1/users/{id}']?.patch?.requestBody?.content?.['application/json']).toBeDefined();
+      expect(spec.paths['/api/v1/users/{id}']?.patch?.operationId).toBe('patchApiV1UsersById');
+      expect(spec.components.schemas).toHaveProperty('UpdateUserRequest');
+    });
+  });
+
+  describe('edit', () => {
+    it('updates fullName and phone through the administrator PATCH endpoint', async () => {
+      const result = await patch(String(oldest), { fullName: 'Mai Dương', phone: '0901 234 567' }, adminToken);
+
+      expect(result.status).toBe(HTTP_STATUS.HTTP_200_OK);
+      expect(result.body).toMatchObject({ id: String(oldest), fullName: 'Mai Dương', phone: '0901234567' });
     });
   });
 

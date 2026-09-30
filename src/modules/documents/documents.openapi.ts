@@ -1,21 +1,39 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { z } from 'zod';
 
-import { documentListQuerySchema, documentResponseSchema } from './documents.schemas.js';
+import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import {
+  documentListQuerySchema,
+  documentResponseSchema,
+  documentUploadRequestSchema,
+  paginatedDocumentsSchema,
+} from './documents.schemas.js';
 
 export function registerDocumentsOpenApi(registry: OpenAPIRegistry): void {
-  const document = registry.register('DocumentResponse', documentResponseSchema);
-  const paginatedDocuments = registry.register(
-    'PaginatedDocumentsResponse',
-    z.object({ items: z.array(document), page: z.number(), limit: z.number(), total: z.number(), totalPages: z.number() }),
-  );
+  const document = registry.register('Document', documentResponseSchema);
+  const uploadRequest = registry.register('UploadDocumentRequest', documentUploadRequestSchema);
+  const listQuery = registry.register('DocumentListQuery', documentListQuerySchema);
+  const paginatedDocuments = registry.register('PaginatedDocuments', paginatedDocumentsSchema);
   registry.registerPath({
     method: 'post',
     path: '/api/v1/documents',
     tags: ['Documents'],
     summary: 'Upload the current user CV or cover letter',
     security: [{ bearerAuth: [] }],
-    responses: { 201: { description: 'Document uploaded' } },
+    request: {
+      body: {
+        required: true,
+        content: { 'multipart/form-data': { schema: uploadRequest } },
+      },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_201_CREATED]: {
+        description: 'Document uploaded',
+        content: { 'application/json': { schema: document } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid document type or file' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_502_BAD_GATEWAY]: { description: 'Document storage upload failed' },
+    },
   });
   registry.registerPath({
     method: 'get',
@@ -23,8 +41,15 @@ export function registerDocumentsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Documents'],
     summary: 'List current user documents',
     security: [{ bearerAuth: [] }],
-    request: { query: documentListQuerySchema },
-    responses: { 200: { description: 'Paginated documents', content: { 'application/json': { schema: paginatedDocuments } } } },
+    request: { query: listQuery },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Paginated documents owned by the caller',
+        content: { 'application/json': { schema: paginatedDocuments } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid document list query' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+    },
   });
   registry.registerPath({
     method: 'get',
@@ -32,6 +57,15 @@ export function registerDocumentsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Documents'],
     summary: 'List all CVs and cover letters for administrators',
     security: [{ bearerAuth: [] }],
-    responses: { 200: { description: 'Paginated documents' } },
+    request: { query: listQuery },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Paginated documents across all owners',
+        content: { 'application/json': { schema: paginatedDocuments } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid document list query' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Administrator role required' },
+    },
   });
 }

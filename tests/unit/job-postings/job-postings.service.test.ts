@@ -24,13 +24,22 @@ type MockRepository = {
   create: ReturnType<typeof vi.fn>;
   findById: ReturnType<typeof vi.fn>;
   findBySlug: ReturnType<typeof vi.fn>;
+  findEnterpriseSummaries: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
   list: ReturnType<typeof vi.fn>;
 };
 
 function createService(recruiterEnterpriseId: string | null): { service: JobPostingsService; repository: MockRepository } {
-  const repository = { create: vi.fn(), findById: vi.fn(), findBySlug: vi.fn(), update: vi.fn(), delete: vi.fn(), list: vi.fn() };
+  const repository = {
+    create: vi.fn(),
+    findById: vi.fn(),
+    findBySlug: vi.fn(),
+    findEnterpriseSummaries: vi.fn().mockResolvedValue(new Map([[enterpriseA, { id: enterpriseA, name: 'Enterprise A', logoUrl: null }], [enterpriseB, { id: enterpriseB, name: 'Enterprise B', logoUrl: null }]])),
+    update: vi.fn(),
+    delete: vi.fn(),
+    list: vi.fn(),
+  };
   const userService = { getEnterpriseId: vi.fn().mockResolvedValue(recruiterEnterpriseId) };
   return { service: new JobPostingsService(repository as unknown as JobPostingsRepository, userService as unknown as UsersService), repository };
 }

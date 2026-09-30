@@ -13,6 +13,7 @@ export interface JobPostingData {
   employment_type?: string;
   salary_min?: number;
   salary_max?: number;
+  salary_negotiable?: boolean;
   currency: string;
   level?: string;
   description?: string;
@@ -35,6 +36,7 @@ const jobPostingSchema = new Schema<JobPostingData>(
     employment_type: { type: String, trim: true },
     salary_min: { type: Number, min: 0 },
     salary_max: { type: Number, min: 0 },
+    salary_negotiable: { type: Boolean, default: false },
     currency: { type: String, default: 'VND', trim: true },
     level: { type: String, trim: true },
     description: { type: String, trim: true },

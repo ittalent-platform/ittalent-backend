@@ -37,7 +37,25 @@ function publishComplete(input: z.infer<typeof fields>): boolean {
 }
 
 export const createJobPostingSchema = fields.refine(validSalary, { path: ['salary_min'], message: 'Salary range is invalid' }).refine(publishComplete, { path: ['status'], message: 'Description, requirements, benefits, location, employment type, and expiry are required to publish' });
-export const updateJobPostingSchema = fields.partial().refine((input) => Object.values(input).some((value) => value !== undefined), 'At least one field must be provided').refine(validSalary, { path: ['salary_min'], message: 'Salary range is invalid' });
+const nullableUpdateFields = fields.extend({
+  location: fields.shape.location.nullable(),
+  employment_type: fields.shape.employment_type.nullable(),
+  salary_min: fields.shape.salary_min.nullable(),
+  salary_max: fields.shape.salary_max.nullable(),
+  level: fields.shape.level.nullable(),
+  description: fields.shape.description.nullable(),
+  requirements: fields.shape.requirements.nullable(),
+  benefits: fields.shape.benefits.nullable(),
+  openings: fields.shape.openings.nullable(),
+  expires_at: fields.shape.expires_at.nullable(),
+});
+
+export const updateJobPostingSchema = nullableUpdateFields.partial()
+  .refine((input) => Object.values(input).some((value) => value !== undefined), 'At least one field must be provided')
+  .refine(
+    (input) => input.salary_negotiable === true || input.salary_min === undefined || input.salary_min === null || input.salary_max === undefined || input.salary_max === null || input.salary_min <= input.salary_max,
+    { path: ['salary_min'], message: 'Salary range is invalid' },
+  );
 export const jobPostingIdParamSchema = z.object({ id: objectId });
 export const jobPostingListQuerySchema = z.object({
   search: z.string().trim().min(1).max(SHORT_TEXT_MAX_LENGTH).optional(),
@@ -54,5 +72,20 @@ export type CreateJobPosting = z.infer<typeof createJobPostingSchema>;
 export type UpdateJobPosting = z.infer<typeof updateJobPostingSchema>;
 export type JobPostingIdParam = z.infer<typeof jobPostingIdParamSchema>;
 export type JobPostingListQuery = z.infer<typeof jobPostingListQuerySchema>;
-export const jobPostingResponseSchema = z.object({ id: z.string(), enterpriseId: z.string(), postedByUserId: z.string(), title: z.string(), slug: z.string(), location: z.string().optional(), employmentType: z.string().optional(), salaryMin: z.number().optional(), salaryMax: z.number().optional(), currency: z.string(), level: z.string().optional(), description: z.string().optional(), requirements: z.string().optional(), benefits: z.string().optional(), openings: z.number().optional(), status: z.enum(jobPostingStatuses), expiresAt: z.string().optional(), createdAt: z.string(), updatedAt: z.string() });
+export const jobPostingEnterpriseSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  logoUrl: z.string().nullable(),
+});
+export type JobPostingEnterpriseSummary = z.infer<typeof jobPostingEnterpriseSummarySchema>;
+export const jobPostingResponseSchema = z.object({ id: z.string(), enterpriseId: z.string(), enterprise: jobPostingEnterpriseSummarySchema, postedByUserId: z.string(), title: z.string(), slug: z.string(), location: z.string().optional(), employmentType: z.string().optional(), salaryMin: z.number().optional(), salaryMax: z.number().optional(), salaryNegotiable: z.boolean(), currency: z.string(), level: z.string().optional(), description: z.string().optional(), requirements: z.string().optional(), benefits: z.string().optional(), openings: z.number().optional(), status: z.enum(jobPostingStatuses), expiresAt: z.string().optional(), createdAt: z.string(), updatedAt: z.string() });
 export type JobPostingResponse = z.infer<typeof jobPostingResponseSchema>;
+
+export const jobPostingListResponseSchema = z.object({
+  items: z.array(jobPostingResponseSchema),
+  page: z.number().int(),
+  limit: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+});
+export type JobPostingListResponse = z.infer<typeof jobPostingListResponseSchema>;

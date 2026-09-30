@@ -15,7 +15,35 @@ import { usersService } from '../../src/modules/users/users.service.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
 type LoginResponse = { user: { id: string; role: string }; tokens: { accessToken: string } };
-type JobResponse = { id: string; enterpriseId: string; postedByUserId: string; status: string; title: string };
+type JobResponse = {
+  id: string;
+  enterpriseId: string;
+  enterprise: { id: string; name: string; logoUrl: string | null };
+  postedByUserId: string;
+  salaryNegotiable: boolean;
+  status: string;
+  title: string;
+  location?: string;
+  employmentType?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  level?: string;
+  description?: string;
+  requirements?: string;
+  benefits?: string;
+  openings?: number;
+  expiresAt?: string;
+};
+type OpenApiOperation = {
+  parameters?: { in: string; name: string }[];
+  requestBody?: { content: Record<string, { schema?: unknown }> };
+  responses?: Record<string, { content?: Record<string, { schema?: unknown }> }>;
+};
+type OpenApiDocument = {
+  components: { schemas: Record<string, OpenApiSchema> };
+  paths: Record<string, { delete?: OpenApiOperation; get?: OpenApiOperation; patch?: OpenApiOperation; post?: OpenApiOperation }>;
+};
+type OpenApiSchema = { properties?: Record<string, { nullable?: boolean }> };
 
 const password = 'Password123!';
 let server: Server;
@@ -80,7 +108,7 @@ describe('Job posting enterprise ownership integration', () => {
     const enterpriseA = await Enterprise.create({
       name: 'Integration Enterprise A', tax_code: '9000000001', email: 'enterprise-a@integration.test', phone: '+84900000001',
       industry: 'Information Technology', company_size: '1-10', address: { street: 'A Street', city: 'Ho Chi Minh City', country: 'Vietnam' },
-      status: 'active', creator_account_id: recruiterA1._id, is_deleted: false,
+      logo_url: 'https://cdn.example.test/enterprise-a-logo.png', status: 'active', creator_account_id: recruiterA1._id, is_deleted: false,
     });
     const enterpriseB = await Enterprise.create({
       name: 'Integration Enterprise B', tax_code: '9000000002', email: 'enterprise-b@integration.test', phone: '+84900000002',
@@ -113,10 +141,41 @@ describe('Job posting enterprise ownership integration', () => {
     expect(scoped.items.map((item) => item.id)).toContain(jobAId);
     expect(scoped.items.map((item) => item.id)).not.toContain(jobBId);
     expect(scoped.items.every((item) => item.enterpriseId === enterpriseAId)).toBe(true);
+    expect(scoped.items.every((item) => item.enterprise.id === enterpriseAId && item.enterprise.name === 'Integration Enterprise A' && item.enterprise.logoUrl === 'https://cdn.example.test/enterprise-a-logo.png')).toBe(true);
 
     expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`)).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
     const adminLogin = await login(admin.email);
     expect((await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('includes enterprise identity in public, recruiter, admin list, and management detail responses', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    const detailResponse = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { headers: auth(recruiterLogin.tokens.accessToken) });
+    const detail = await detailResponse.json() as JobResponse;
+    expect(detailResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(detail.enterprise).toEqual({ id: enterpriseAId, name: 'Integration Enterprise A', logoUrl: 'https://cdn.example.test/enterprise-a-logo.png' });
+
+    const recruiterListResponse = await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(recruiterLogin.tokens.accessToken) });
+    const recruiterList = await recruiterListResponse.json() as { items: JobResponse[] };
+    expect(recruiterList.items.find((item) => item.id === jobAId)?.enterprise).toEqual(detail.enterprise);
+
+    const adminLogin = await login(admin.email);
+    const adminListResponse = await fetch(`${baseUrl}/api/v1/admin/job-postings`, { headers: auth(adminLogin.tokens.accessToken) });
+    const adminList = await adminListResponse.json() as { items: JobResponse[] };
+    expect(adminListResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(adminList.items.find((item) => item.id === jobAId)?.enterprise).toEqual(detail.enterprise);
+    expect(adminList.items.find((item) => item.id === jobBId)?.enterprise).toEqual({ id: enterpriseBId, name: 'Integration Enterprise B', logoUrl: null });
+
+    const publishResponse = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH',
+      headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({ status: 'published', description: 'A sufficiently detailed backend engineering position.', requirements: 'Node.js and TypeScript', benefits: 'Flexible schedule', location: 'Ho Chi Minh City', employment_type: 'full_time', expires_at: '2027-01-01T00:00:00.000Z' }),
+    });
+    expect(publishResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const publicListResponse = await fetch(`${baseUrl}/api/v1/job-postings`);
+    const publicList = await publicListResponse.json() as { items: JobResponse[] };
+    expect(publicListResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(publicList.items.find((item) => item.id === jobAId)?.enterprise).toEqual(detail.enterprise);
   });
 
   it('queries only recruiters whose User.enterprise_id matches the enterprise', async () => {
@@ -133,16 +192,18 @@ describe('Job posting enterprise ownership integration', () => {
     const recruiterLogin = await login(recruiterA1.email);
     const response = await fetch(`${baseUrl}/api/v1/job-postings`, {
       method: 'POST', headers: auth(recruiterLogin.tokens.accessToken),
-      body: JSON.stringify({ title: 'Integration Created Draft', enterprise_id: enterpriseBId, posted_by_user_id: String(recruiterB._id) }),
+      body: JSON.stringify({ title: 'Integration Created Draft', salary_negotiable: true, enterprise_id: enterpriseBId, posted_by_user_id: String(recruiterB._id) }),
     });
     expect(response.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
     const body = await response.json() as JobResponse;
     expect(body.enterpriseId).toBe(enterpriseAId);
     expect(body.postedByUserId).toBe(String(recruiterA1._id));
     expect(body.status).toBe('draft');
+    expect(body.salaryNegotiable).toBe(true);
     const stored = await JobPosting.findById(body.id).lean();
     expect(String(stored?.enterprise_id)).toBe(enterpriseAId);
     expect(String(stored?.posted_by_user_id)).toBe(String(recruiterA1._id));
+    expect(stored?.salary_negotiable).toBe(true);
   });
 
   it('rejects a recruiter without enterprise membership', async () => {
@@ -174,6 +235,57 @@ describe('Job posting enterprise ownership integration', () => {
     expect(crossDelete.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
   });
 
+  it('clears nullable optional fields and omits them from detail and recruiter list responses', async () => {
+    const recruiterLogin = await login(recruiterA1.email);
+    const setOptionalFields = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH',
+      headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({
+        location: 'Ho Chi Minh City',
+        employment_type: 'full_time',
+        level: 'senior',
+        description: 'Build reliable systems for enterprise customers.',
+        requirements: 'TypeScript and MongoDB',
+        benefits: 'Flexible hours',
+        salary_min: 30000000,
+        salary_max: 50000000,
+        openings: 2,
+        expires_at: '2027-01-01T00:00:00.000Z',
+      }),
+    });
+    expect(setOptionalFields.status).toBe(HTTP_STATUS.HTTP_200_OK);
+
+    const clearTextFields = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH',
+      headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({ location: null, employment_type: null, level: null, description: null, requirements: null, benefits: null }),
+    });
+    expect(clearTextFields.status).toBe(HTTP_STATUS.HTTP_200_OK);
+
+    const clearNumberAndDateFields = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
+      method: 'PATCH',
+      headers: auth(recruiterLogin.tokens.accessToken),
+      body: JSON.stringify({ salary_min: null, salary_max: null, openings: null, expires_at: null }),
+    });
+    expect(clearNumberAndDateFields.status).toBe(HTTP_STATUS.HTTP_200_OK);
+
+    const detailResponse = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { headers: auth(recruiterLogin.tokens.accessToken) });
+    expect(detailResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const detail = await detailResponse.json() as JobResponse;
+    for (const field of ['location', 'employmentType', 'level', 'description', 'requirements', 'benefits', 'salaryMin', 'salaryMax', 'openings', 'expiresAt']) {
+      expect(detail).not.toHaveProperty(field);
+    }
+
+    const recruiterListResponse = await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, { headers: auth(recruiterLogin.tokens.accessToken) });
+    expect(recruiterListResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const recruiterList = await recruiterListResponse.json() as { items: JobResponse[] };
+    const listedJob = recruiterList.items.find((item) => item.id === jobAId);
+    expect(listedJob).toBeDefined();
+    for (const field of ['location', 'employmentType', 'level', 'description', 'requirements', 'benefits', 'salaryMin', 'salaryMax', 'openings', 'expiresAt']) {
+      expect(listedJob).not.toHaveProperty(field);
+    }
+  });
+
   it('enforces publish validation, exposes only published jobs publicly, and supports archive/delete', async () => {
     const recruiterLogin = await login(recruiterA1.email);
     const incompletePublish = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'PATCH', headers: auth(recruiterLogin.tokens.accessToken), body: JSON.stringify({ status: 'published' }) });
@@ -184,6 +296,8 @@ describe('Job posting enterprise ownership integration', () => {
     });
     expect(publish.status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect((await publish.json() as JobResponse).status).toBe('published');
+    const clearPublishedRequirement = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, { method: 'PATCH', headers: auth(recruiterLogin.tokens.accessToken), body: JSON.stringify({ description: null }) });
+    expect(clearPublishedRequirement.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
     await JobPosting.create({ enterprise_id: enterpriseAId, posted_by_user_id: recruiterA1._id, title: 'Archived Job', slug: 'integration-archived-job', status: 'archived' });
     const publicList = await fetch(`${baseUrl}/api/v1/job-postings`);
     const publicBody = await publicList.json() as { items: JobResponse[] };
@@ -201,7 +315,7 @@ describe('Job posting enterprise ownership integration', () => {
 
   it('rejects deletion when one application references the job posting', async () => {
     const recruiterLogin = await login(recruiterA1.email);
-    await Application.create({ job_posting_id: jobAId });
+    await Application.create({ job_id: jobAId, applicant_id: recruiterA1._id, cv_id: jobAId, status_history: [] });
 
     const deletion = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
       method: 'DELETE', headers: auth(recruiterLogin.tokens.accessToken),
@@ -210,12 +324,15 @@ describe('Job posting enterprise ownership integration', () => {
     expect(deletion.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
     expect((await deletion.json() as { message: string }).message).toBe('Cannot delete job posting because applications already exist for this job.');
     expect(await JobPosting.exists({ _id: jobAId })).not.toBeNull();
-    expect(await Application.exists({ job_posting_id: jobAId })).not.toBeNull();
+    expect(await Application.exists({ job_id: jobAId })).not.toBeNull();
   });
 
   it('rejects deletion when multiple applications reference the job posting', async () => {
     const recruiterLogin = await login(recruiterA1.email);
-    await Application.create([{ job_posting_id: jobAId }, { job_posting_id: jobAId }]);
+    await Application.create([
+      { job_id: jobAId, applicant_id: recruiterA1._id, cv_id: jobAId, status_history: [] },
+      { job_id: jobAId, applicant_id: recruiterA2._id, cv_id: jobAId, status_history: [] },
+    ]);
 
     const deletion = await fetch(`${baseUrl}/api/v1/job-postings/${jobAId}`, {
       method: 'DELETE', headers: auth(recruiterLogin.tokens.accessToken),
@@ -223,7 +340,7 @@ describe('Job posting enterprise ownership integration', () => {
 
     expect(deletion.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
     expect(await JobPosting.exists({ _id: jobAId })).not.toBeNull();
-    expect(await Application.countDocuments({ job_posting_id: jobAId })).toBe(2);
+    expect(await Application.countDocuments({ job_id: jobAId })).toBe(2);
   });
 
   it('preserves admin management access across enterprise boundaries', async () => {
@@ -234,5 +351,38 @@ describe('Job posting enterprise ownership integration', () => {
     expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { method: 'PATCH', headers: auth(adminLogin.tokens.accessToken), body: JSON.stringify({ title: 'Admin Updated Job B' }) })).status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect((await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, { method: 'DELETE', headers: auth(adminLogin.tokens.accessToken) })).status).toBe(HTTP_STATUS.HTTP_204_NO_CONTENT);
+  });
+
+  it('publishes concrete Job Posting and Document contracts in OpenAPI', async () => {
+    const spec = (await (await fetch(`${baseUrl}/openapi.json`)).json()) as OpenApiDocument;
+    const publicList = spec.paths['/api/v1/job-postings']?.get;
+    const recruiterList = spec.paths['/api/v1/recruiter/job-postings']?.get;
+    const adminList = spec.paths['/api/v1/admin/job-postings']?.get;
+    const create = spec.paths['/api/v1/job-postings']?.post;
+    const update = spec.paths['/api/v1/job-postings/{id}']?.patch;
+    const upload = spec.paths['/api/v1/documents']?.post;
+    const documentList = spec.paths['/api/v1/documents']?.get;
+    const adminDocumentList = spec.paths['/api/v1/admin/documents']?.get;
+
+    expect(adminList).toBeDefined();
+    for (const operation of [publicList, recruiterList, adminList, documentList, adminDocumentList]) {
+      expect(operation?.parameters?.some((parameter) => parameter.in === 'query' && parameter.name === 'page')).toBe(true);
+      expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toBeDefined();
+    }
+    expect(create?.requestBody?.content['application/json']?.schema).toBeDefined();
+    expect(update?.requestBody?.content['application/json']?.schema).toBeDefined();
+    expect(upload?.requestBody?.content['multipart/form-data']?.schema).toBeDefined();
+    expect(upload?.responses?.['201']?.content?.['application/json']?.schema).toBeDefined();
+    expect(spec.components.schemas).toHaveProperty('JobPosting');
+    expect(spec.components.schemas).toHaveProperty('JobPostingEnterpriseSummary');
+    expect(spec.components.schemas).toHaveProperty('PaginatedJobPostings');
+    const updateSchema = spec.components.schemas.UpdateJobPostingRequest;
+    for (const field of ['location', 'employment_type', 'salary_min', 'salary_max', 'level', 'description', 'requirements', 'benefits', 'openings', 'expires_at']) {
+      expect(updateSchema?.properties?.[field]?.nullable).toBe(true);
+    }
+    const jobPostingSchema = spec.components.schemas.JobPosting;
+    expect(jobPostingSchema?.properties?.enterprise).toBeDefined();
+    expect(spec.components.schemas).toHaveProperty('Document');
+    expect(spec.components.schemas).toHaveProperty('PaginatedDocuments');
   });
 });

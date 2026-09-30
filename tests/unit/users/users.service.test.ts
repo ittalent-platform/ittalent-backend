@@ -19,6 +19,7 @@ describe('UsersService', () => {
       createUser: vi.fn(),
       findRecruitersByEnterpriseId: vi.fn(),
       findPage: vi.fn(),
+      updateProfile: vi.fn(),
     };
     usersService = new UsersService(mockRepo as UsersRepository);
   });
@@ -136,6 +137,8 @@ describe('UsersService', () => {
             id: 'user-id-1',
             email: 'a@example.com',
             username: 'alice',
+            fullName: null,
+            phone: null,
             role: 'user',
             status: 'active',
             emailVerified: false,
@@ -220,6 +223,21 @@ describe('UsersService', () => {
       mockRepo.findById = vi.fn().mockRejectedValue(createHttpError(418, 'teapot'));
 
       await expect(usersService.getUserById('507f1f77bcf86cd799439011')).rejects.toMatchObject({ statusCode: 418 });
+    });
+  });
+
+  describe('updateUser', () => {
+    const userDoc = (overrides: Record<string, unknown> = {}) => {
+      const base = { _id: 'target-user', email: 'target@example.test', username: 'target', role: 'user', status: 'active', ...overrides };
+      return { ...base, toObject: () => base };
+    };
+
+    it('updates an account and returns the projected full name and phone', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(userDoc());
+      mockRepo.updateProfile = vi.fn().mockResolvedValue(userDoc({ full_name: 'Mai Dương', phone: '0901122334' }));
+
+      await expect(usersService.updateUser('admin-user', 'target-user', { fullName: 'Mai Dương', phone: '0901122334' })).resolves.toMatchObject({ fullName: 'Mai Dương', phone: '0901122334' });
+      expect(mockRepo.updateProfile).toHaveBeenCalledWith('target-user', { fullName: 'Mai Dương', phone: '0901122334' });
     });
   });
 });
