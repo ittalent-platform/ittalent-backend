@@ -47,12 +47,14 @@ export async function seedAdmin(input?: Partial<AdminSeedInput>): Promise<SeedAd
       username: validated.username,
       role: 'admin',
       status: 'active',
+      email_verified: true,
     });
     created = true;
   } else {
-    if (user.role !== 'admin' || user.status !== 'active') {
+    if (user.role !== 'admin' || user.status !== 'active' || !user.email_verified) {
       user.role = 'admin';
       user.status = 'active';
+      user.email_verified = true;
       await user.save();
       promoted = true;
     }

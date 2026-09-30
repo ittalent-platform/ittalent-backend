@@ -12,6 +12,7 @@ export interface UserData {
   username: string;
   role?: UserRole;
   status?: UserStatus;
+  email_verified?: boolean;
   enterprise_id?: Types.ObjectId | null | undefined;
 }
 
@@ -43,6 +44,11 @@ const userSchema = new Schema<UserData>(
       type: String,
       enum: userStatuses,
       default: 'active',
+      index: true,
+    },
+    email_verified: {
+      type: Boolean,
+      default: false,
       index: true,
     },
     enterprise_id: {

@@ -23,10 +23,11 @@ export async function seedRecruiter(): Promise<SeedRecruiterResult> {
   const passwordHash = await bcrypt.hash(RECRUITER_PASSWORD, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
   let recruiter = await User.findOne({ email: RECRUITER_EMAIL });
   if (!recruiter) {
-    recruiter = await User.create({ email: RECRUITER_EMAIL, username: RECRUITER_USERNAME, role: 'recruiter', status: 'active' });
+    recruiter = await User.create({ email: RECRUITER_EMAIL, username: RECRUITER_USERNAME, role: 'recruiter', status: 'active', email_verified: true });
   } else {
     recruiter.role = 'recruiter';
     recruiter.status = 'active';
+    recruiter.email_verified = true;
     await recruiter.save();
   }
 

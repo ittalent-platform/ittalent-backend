@@ -6,6 +6,10 @@ This directory contains standalone CLI scripts for administrative operations, da
 
 ## Available Scripts
 
+### User email verification migration
+
+Run `npm run migrate:user-email-verified` once on any database created before `User.email_verified` existed. It sets the flag for accounts that do not have it yet: `active` users become verified, `inactive` users are not verified, and `suspended`/`blocked` users are verified only when they have a consumed email-verification token. Accounts that already have a value are left alone, so it is safe to run again. New databases do not need it (seeded and verified accounts are written with `email_verified: true`).
+
 ### Enterprise recruiter ownership migration
 
 Run `npm run migrate:enterprise-recruiters` before `npm run migrate:job-posting-enterprises` when upgrading from the legacy `Enterprise.recruiter_ids` model. It assigns each legacy recruiter (and recruiter creator) to `User.enterprise_id`, then removes the legacy field only when every mapping is unambiguous. Conflicts and invalid legacy user records are left intact and reported for manual resolution.
