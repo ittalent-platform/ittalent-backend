@@ -3,12 +3,21 @@ import { z } from 'zod';
 import { PAGINATION } from '../../shared/constants/pagination.js';
 import { jobPostingStatuses } from '../../models/job-posting.model.js';
 
-import { JOB_EMPLOYMENT_TYPES, JOB_LIMITS, RECRUITMENT_STATUSES } from './job-postings.constants.js';
-import { isValidDeadlineInput } from './job-postings.deadline.js';
+import { JOB_DEADLINE, JOB_EMPLOYMENT_TYPES, JOB_LIMITS, JOB_POSTING_MESSAGES, RECRUITMENT_STATUSES } from './job-postings.constants.js';
+
+/** Accepts a calendar date or an ISO datetime; normalization belongs to the service. */
+function isValidDeadlineInput(value: string): boolean {
+  if (JOB_DEADLINE.DATE_ONLY_PATTERN.test(value)) {
+    const parsed = new Date(`${value}${JOB_DEADLINE.UTC_START_OF_DAY}`);
+    // Parsing can roll an impossible calendar date into the following month.
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value);
+  }
+  return !Number.isNaN(Date.parse(value)) && JOB_DEADLINE.DATETIME_PREFIX_PATTERN.test(value);
+}
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid job posting ID');
 const content = z.string().trim().min(JOB_LIMITS.CONTENT_MIN).max(JOB_LIMITS.CONTENT_MAX);
-const deadline = z.string().trim().refine(isValidDeadlineInput, 'Deadline must be a valid date (YYYY-MM-DD)');
+const deadline = z.string().trim().refine(isValidDeadlineInput, JOB_POSTING_MESSAGES.DEADLINE_INVALID);
 
 // Fields HR/Recruiter may set. Publication status, enterprise ownership and application data are deliberately
 // absent: both schemas are strict, so sending them is rejected (UC-JOB-01, UC-JOB-02.EX.2). Sprint 1 has no Draft or
