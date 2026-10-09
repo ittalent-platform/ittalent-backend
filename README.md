@@ -104,10 +104,22 @@ Successful responses are the resource/result objects directly (not wrapped in a 
 
 This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
 
-The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Application responses expose attachment metadata without storage URLs; authorized preview and download use the document endpoints below.
 
 ---
 
+### Document Library API
+
+All document operations require the `user` role and are scoped to the authenticated owner. Active lists support `search` by filename, `type`, `is_default`, `sort_by`, `sort_order`, and pagination. Deletion is a soft delete and is rejected while an application references the document. If the deleted document was the default, the newest remaining active document of the same type is promoted. Administrators do not have document-management access in this sprint.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/documents/:id/download` | Stream an owned document as an attachment. |
+| `GET` | `/api/v1/documents/:id/preview` | Stream an owned PDF inline or return a DOC/DOCX viewer URL. |
+| `DELETE` | `/api/v1/documents/:id` | Soft-delete an owned, unreferenced document. |
+| `PATCH` | `/api/v1/documents/:id/default` | Make an owned active document the sole default for its type. |
+
+Run `npm run migrate:document-indexes` once after deployment to create the partial unique default-document index.
 
 ---
 
@@ -125,6 +137,7 @@ The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo c
 | `npm run test:integration` | Runs integration tests |
 | `npm run test:all` | Runs all unit and integration tests |
 | `npm run generate:client` | Generates TypeScript client from OpenAPI |
+| `npm run migrate:document-indexes` | Synchronizes document indexes, including one active default per owner and type |
 
 ---
 

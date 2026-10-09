@@ -458,13 +458,15 @@ describe('Job posting enterprise ownership integration', () => {
     const update = spec.paths['/api/v1/job-postings/{id}']?.patch;
     const upload = spec.paths['/api/v1/documents']?.post;
     const documentList = spec.paths['/api/v1/documents']?.get;
-    const adminDocumentList = spec.paths['/api/v1/admin/documents']?.get;
 
     expect(adminList).toBeDefined();
-    for (const operation of [publicList, recruiterList, adminList, documentList, adminDocumentList]) {
+    for (const operation of [publicList, recruiterList, adminList, documentList]) {
       expect(operation?.parameters?.some((parameter) => parameter.in === 'query' && parameter.name === 'page')).toBe(true);
       expect(operation?.responses?.['200']?.content?.['application/json']?.schema).toBeDefined();
     }
+    expect(spec.paths['/api/v1/admin/documents']).toBeUndefined();
+    expect(spec.paths['/api/v1/admin/documents/{id}/download']).toBeUndefined();
+    expect(spec.paths['/api/v1/admin/documents/{id}/preview']).toBeUndefined();
     expect(create?.requestBody?.content['application/json']?.schema).toBeDefined();
     expect(update?.requestBody?.content['application/json']?.schema).toBeDefined();
     expect(upload?.requestBody?.content['multipart/form-data']?.schema).toBeDefined();
