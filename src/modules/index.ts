@@ -5,6 +5,7 @@ import { documentsRouter } from './documents/index.js';
 import { enterprisesRouter } from './enterprises/index.js';
 import { healthRouter } from './health/index.js';
 import { jobPostingsRouter } from './job-postings/index.js';
+import { interviewsRouter } from './interviews/index.js';
 import { usersRouter } from './users/index.js';
 
 export function registerRoutes(app: Express): void {
@@ -12,6 +13,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use('/auth', authRouter);
   apiV1Router.use(documentsRouter);
   apiV1Router.use(jobPostingsRouter);
+  apiV1Router.use(interviewsRouter);
   apiV1Router.use('/users', usersRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
   apiV1Router.use('/me/applications', applicationsRouter);

@@ -1,7 +1,12 @@
 import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
-export const jobPostingStatuses = ['draft', 'published', 'archived'] as const;
+export const jobPostingStatuses = [
+  'draft',
+  'published',
+  'closed',
+  'archived',
+] as const;
 export type JobPostingStatus = (typeof jobPostingStatuses)[number];
 
 export interface JobPostingData {
@@ -22,6 +27,7 @@ export interface JobPostingData {
   openings?: number;
   status: JobPostingStatus;
   published_at?: Date;
+  closed_at?: Date;
   archived_at?: Date;
   expires_at?: Date;
   /** Set while a delete is being checked, so no application can be accepted meanwhile. */
@@ -30,8 +36,18 @@ export interface JobPostingData {
 
 const jobPostingSchema = new Schema<JobPostingData>(
   {
-    enterprise_id: { type: Schema.Types.ObjectId, ref: 'Enterprise', required: true, index: true },
-    posted_by_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    enterprise_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'Enterprise',
+      required: true,
+      index: true,
+    },
+    posted_by_user_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
     title: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, index: true },
     location: { type: String, trim: true },
@@ -45,8 +61,14 @@ const jobPostingSchema = new Schema<JobPostingData>(
     requirements: { type: String, trim: true },
     benefits: { type: String, trim: true },
     openings: { type: Number, min: 1, validate: Number.isInteger },
-    status: { type: String, enum: jobPostingStatuses, default: 'draft', index: true },
+    status: {
+      type: String,
+      enum: jobPostingStatuses,
+      default: 'draft',
+      index: true,
+    },
     published_at: { type: Date },
+    closed_at: { type: Date },
     archived_at: { type: Date },
     expires_at: { type: Date },
     deleting: { type: Boolean },
@@ -59,4 +81,6 @@ jobPostingSchema.index({ enterprise_id: 1, status: 1, createdAt: -1 });
 jobPostingSchema.index({ title: 'text', location: 'text' });
 
 export const JobPosting = model<JobPostingData>('JobPosting', jobPostingSchema);
-export type JobPostingDoc = ReturnType<typeof JobPosting.prototype.toObject> & { _id: Types.ObjectId };
+export type JobPostingDoc = ReturnType<typeof JobPosting.prototype.toObject> & {
+  _id: Types.ObjectId;
+};

@@ -1,5 +1,8 @@
 import { Types } from 'mongoose';
-import type { JobPostingDoc } from '../../models/job-posting.model.js';
+import type {
+  JobPostingDoc,
+  JobPostingStatus,
+} from '../../models/job-posting.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { usersService, type UsersService } from '../users/users.service.js';
@@ -7,10 +10,17 @@ import {
   jobPostingsRepository,
   type JobPostingsRepository,
 } from './job-postings.repository.js';
-import { JOB_DEADLINE, JOB_POSTING_MESSAGES, type JobAuditAction, type RecruitmentStatus } from './job-postings.constants.js';
+import {
+  JOB_DEADLINE,
+  JOB_POSTING_MESSAGES,
+  type JobAuditAction,
+  type RecruitmentStatus,
+} from './job-postings.constants.js';
 import type {
   CreateJobPosting,
   JobPostingListQuery,
+  JobPostingHistoryQuery,
+  JobPostingHistoryResponse,
   JobPostingEnterpriseSummary,
   JobPostingResponse,
   UpdateJobPosting,
@@ -48,8 +58,12 @@ export class JobPostingsService {
     private readonly repository: JobPostingsRepository = jobPostingsRepository,
     private readonly userService: UsersService = usersService,
   ) {}
-  private recruitmentStatusOf(record: JobPostingDoc, now = new Date()): RecruitmentStatus {
-    return record.status === 'published' && (!record.expires_at || record.expires_at.getTime() >= now.getTime())
+  private recruitmentStatusOf(
+    record: JobPostingDoc,
+    now = new Date(),
+  ): RecruitmentStatus {
+    return record.status === 'published' &&
+      (!record.expires_at || record.expires_at.getTime() >= now.getTime())
       ? 'open'
       : 'closed';
   }
@@ -86,6 +100,13 @@ export class JobPostingsService {
       status: record.status,
       recruitmentStatus: this.recruitmentStatusOf(record),
       ...(applicationCount !== undefined ? { applicationCount } : {}),
+      ...(record.published_at
+        ? { publishedAt: record.published_at.toISOString() }
+        : {}),
+      ...(record.closed_at ? { closedAt: record.closed_at.toISOString() } : {}),
+      ...(record.archived_at
+        ? { archivedAt: record.archived_at.toISOString() }
+        : {}),
       ...(record.expires_at
         ? { expiresAt: record.expires_at.toISOString() }
         : {}),
@@ -93,16 +114,23 @@ export class JobPostingsService {
       updatedAt: new Date(raw.updatedAt).toISOString(),
     };
   }
-  private async mapOne(record: JobPostingDoc, withApplicationCount = false): Promise<JobPostingResponse> {
+  private async mapOne(
+    record: JobPostingDoc,
+    withApplicationCount = false,
+  ): Promise<JobPostingResponse> {
     const enterpriseId = String(record.enterprise_id);
-    const enterprise = (await this.repository.findEnterpriseSummaries([enterpriseId])).get(enterpriseId);
+    const enterprise = (
+      await this.repository.findEnterpriseSummaries([enterpriseId])
+    ).get(enterpriseId);
     if (!enterprise)
       throw createHttpError(
         HTTP_STATUS.HTTP_404_NOT_FOUND,
         'Enterprise not found for job posting',
       );
     const count = withApplicationCount
-      ? ((await this.repository.countApplicationsByJobIds([String(record._id)])).get(String(record._id)) ?? 0)
+      ? ((
+          await this.repository.countApplicationsByJobIds([String(record._id)])
+        ).get(String(record._id)) ?? 0)
       : undefined;
     return this.map(record, enterprise, count);
   }
@@ -168,7 +196,10 @@ export class JobPostingsService {
       });
     } catch {
       await undo().catch(() => undefined);
-      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, JOB_POSTING_MESSAGES.AUDIT_FAILED);
+      throw createHttpError(
+        HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE,
+        JOB_POSTING_MESSAGES.AUDIT_FAILED,
+      );
     }
   }
   /** The selected day ends at 23:59:59.999 in Asia/Ho_Chi_Minh (TBD-JOB-01). */
@@ -176,27 +207,44 @@ export class JobPostingsService {
     // ISO datetimes use their Vietnam calendar day, which can differ from their UTC day.
     const day = JOB_DEADLINE.DATE_ONLY_PATTERN.test(value)
       ? value
-      : new Date(Date.parse(value) + JOB_DEADLINE.ICT_OFFSET_MS).toISOString().slice(0, JOB_DEADLINE.DATE_LENGTH);
+      : new Date(Date.parse(value) + JOB_DEADLINE.ICT_OFFSET_MS)
+          .toISOString()
+          .slice(0, JOB_DEADLINE.DATE_LENGTH);
     return new Date(`${day}${JOB_DEADLINE.ICT_END_OF_DAY}`);
   }
   private assertDeadlineNotPast(deadline: Date): void {
     if (!(deadline.getTime() >= Date.now()))
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, JOB_POSTING_MESSAGES.DEADLINE_IN_PAST);
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        JOB_POSTING_MESSAGES.DEADLINE_IN_PAST,
+      );
   }
   // Recruiter-only mutations (the admin has no default company-job mutation permission).
   private assertRecruiter(actorRole: string): void {
     if (actorRole !== 'recruiter')
-      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Only recruiters can change job postings');
+      throw createHttpError(
+        HTTP_STATUS.HTTP_403_FORBIDDEN,
+        'Only recruiters can change job postings',
+      );
   }
   async create(
     recruiterId: string,
     input: CreateJobPosting,
   ): Promise<JobPostingResponse> {
     const enterpriseId = await this.getRecruiterEnterpriseId(recruiterId);
-    if (!(await this.repository.isEnterpriseActive(enterpriseId)))
-      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, JOB_POSTING_MESSAGES.ENTERPRISE_NOT_ACTIVE);
-    const deadline = this.deadlineFromInput(input.expires_at);
-    this.assertDeadlineNotPast(deadline);
+    const publicationStatus = input.publication_status ?? 'published';
+    if (
+      publicationStatus === 'published' &&
+      !(await this.repository.isEnterpriseActive(enterpriseId))
+    )
+      throw createHttpError(
+        HTTP_STATUS.HTTP_403_FORBIDDEN,
+        JOB_POSTING_MESSAGES.ENTERPRISE_NOT_ACTIVE,
+      );
+    const deadline = input.expires_at
+      ? this.deadlineFromInput(input.expires_at)
+      : undefined;
+    if (deadline) this.assertDeadlineNotPast(deadline);
     const created = await this.repository.create(
       recruiterId,
       enterpriseId,
@@ -228,24 +276,59 @@ export class JobPostingsService {
     this.assertRecruiter(actorRole);
     const existing = await this.getExisting(id);
     await this.assertRecruiterCanManage(existing, actorId);
-    // Archived postings (legacy data) are read-only; Sprint 1 cannot archive or reopen them.
     if (existing.status === 'archived')
-      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, JOB_POSTING_MESSAGES.ARCHIVED_NOT_EDITABLE);
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        JOB_POSTING_MESSAGES.ARCHIVED_NOT_EDITABLE,
+      );
+    if (existing.status === 'closed' && input.publication_status !== undefined)
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        JOB_POSTING_MESSAGES.REOPEN_NOT_ALLOWED,
+      );
     // A changed deadline must be today or later; an unchanged (possibly already passed) one is left alone.
-    const deadline = input.expires_at !== undefined ? this.deadlineFromInput(input.expires_at) : undefined;
-    const deadlineChanged = deadline !== undefined && deadline.getTime() !== existing.expires_at?.getTime();
+    const deadline =
+      input.expires_at !== undefined
+        ? this.deadlineFromInput(input.expires_at)
+        : undefined;
+    const deadlineChanged =
+      deadline !== undefined &&
+      deadline.getTime() !== existing.expires_at?.getTime();
     if (deadline && deadlineChanged) this.assertDeadlineNotPast(deadline);
-    const candidate = { ...existing.toObject(), ...input, expires_at: deadline ?? existing.expires_at };
-    if (
-      candidate.status === 'published' &&
-      (!candidate.description ||
+    const candidateStatus = input.publication_status ?? existing.status;
+    const candidateDeadline = deadline ?? existing.expires_at;
+    const candidate = {
+      ...existing.toObject(),
+      ...input,
+      status: candidateStatus,
+      expires_at: candidateDeadline,
+    };
+    if (candidateStatus === 'published') {
+      if (
+        !candidate.description ||
         !candidate.requirements ||
         !candidate.benefits ||
         !candidate.location ||
         !candidate.employment_type ||
-        !candidate.expires_at)
-    )
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, JOB_POSTING_MESSAGES.PUBLISHED_FIELDS_REQUIRED);
+        !candidateDeadline
+      )
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          JOB_POSTING_MESSAGES.PUBLISHED_FIELDS_REQUIRED,
+        );
+      if (existing.status !== 'published') {
+        this.assertDeadlineNotPast(candidateDeadline);
+        if (
+          !(await this.repository.isEnterpriseActive(
+            String(existing.enterprise_id),
+          ))
+        )
+          throw createHttpError(
+            HTTP_STATUS.HTTP_403_FORBIDDEN,
+            JOB_POSTING_MESSAGES.ENTERPRISE_NOT_ACTIVE,
+          );
+      }
+    }
     const snapshot = existing.toObject() as unknown as Record<string, unknown>;
     const updated = await this.repository.update(
       id,
@@ -254,9 +337,173 @@ export class JobPostingsService {
       deadlineChanged ? deadline : undefined,
     );
     if (!updated)
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, JOB_POSTING_MESSAGES.NOT_FOUND);
-    await this.audit('update', updated, actorId, () => this.repository.restore(snapshot), Object.keys(input));
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        JOB_POSTING_MESSAGES.NOT_FOUND,
+      );
+    const auditAction: JobAuditAction =
+      input.publication_status && input.publication_status !== existing.status
+        ? input.publication_status === 'published'
+          ? 'publish'
+          : 'draft'
+        : 'update';
+    await this.audit(
+      auditAction,
+      updated,
+      actorId,
+      () => this.repository.restore(snapshot),
+      Object.keys(input),
+    );
     return this.mapOne(updated, true);
+  }
+  private async transition(
+    id: string,
+    actorId: string,
+    actorRole: string,
+    currentStatus: JobPostingStatus,
+    nextStatus: JobPostingStatus,
+    action: JobAuditAction,
+  ): Promise<JobPostingResponse> {
+    this.assertRecruiter(actorRole);
+    const existing = await this.getExisting(id);
+    await this.assertRecruiterCanManage(existing, actorId);
+    if (existing.status !== currentStatus) {
+      const message =
+        action === 'close'
+          ? JOB_POSTING_MESSAGES.CLOSE_NOT_ALLOWED
+          : action === 'reopen'
+            ? JOB_POSTING_MESSAGES.REOPEN_NOT_ALLOWED
+            : action === 'archive'
+              ? JOB_POSTING_MESSAGES.ARCHIVE_NOT_ALLOWED
+              : JOB_POSTING_MESSAGES.RESTORE_NOT_ALLOWED;
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, message);
+    }
+    if (action === 'close' && this.recruitmentStatusOf(existing) !== 'open') {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        JOB_POSTING_MESSAGES.CLOSE_NOT_ALLOWED,
+      );
+    }
+    if (action === 'reopen') {
+      if (!existing.expires_at || existing.expires_at.getTime() < Date.now()) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_409_CONFLICT,
+          JOB_POSTING_MESSAGES.DEADLINE_IN_PAST,
+        );
+      }
+      if (
+        !(await this.repository.isEnterpriseActive(
+          String(existing.enterprise_id),
+        ))
+      ) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_403_FORBIDDEN,
+          JOB_POSTING_MESSAGES.ENTERPRISE_NOT_ACTIVE,
+        );
+      }
+    }
+    const snapshot = existing.toObject() as unknown as Record<string, unknown>;
+    const updated = await this.repository.transition(
+      id,
+      currentStatus,
+      nextStatus,
+      new Date(),
+    );
+    if (!updated)
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        'Job posting state changed before the request completed.',
+      );
+    await this.audit(action, updated, actorId, () =>
+      this.repository.restore(snapshot),
+    );
+    return this.mapOne(updated, true);
+  }
+  async close(
+    id: string,
+    actorId: string,
+    actorRole: string,
+  ): Promise<JobPostingResponse> {
+    return this.transition(
+      id,
+      actorId,
+      actorRole,
+      'published',
+      'closed',
+      'close',
+    );
+  }
+  async reopen(
+    id: string,
+    actorId: string,
+    actorRole: string,
+  ): Promise<JobPostingResponse> {
+    return this.transition(
+      id,
+      actorId,
+      actorRole,
+      'closed',
+      'published',
+      'reopen',
+    );
+  }
+  async archive(
+    id: string,
+    actorId: string,
+    actorRole: string,
+  ): Promise<JobPostingResponse> {
+    const existing = await this.getExisting(id);
+    if (existing.status === 'archived') {
+      this.assertRecruiter(actorRole);
+      await this.assertRecruiterCanManage(existing, actorId);
+      return this.mapOne(existing, true);
+    }
+    return this.transition(
+      id,
+      actorId,
+      actorRole,
+      'closed',
+      'archived',
+      'archive',
+    );
+  }
+  async restore(
+    id: string,
+    actorId: string,
+    actorRole: string,
+  ): Promise<JobPostingResponse> {
+    return this.transition(
+      id,
+      actorId,
+      actorRole,
+      'archived',
+      'closed',
+      'restore',
+    );
+  }
+  async getHistory(
+    id: string,
+    actorId: string,
+    actorRole: string,
+    query: JobPostingHistoryQuery,
+  ): Promise<JobPostingHistoryResponse> {
+    const job = await this.getExisting(id);
+    if (actorRole === 'recruiter')
+      await this.assertRecruiterCanManage(job, actorId);
+    const result = await this.repository.listAudit(id, query.page, query.limit);
+    return {
+      items: result.items.map((item) => ({
+        id: String(item._id),
+        action: item.action,
+        actorUserId: String(item.actor_user_id),
+        occurredAt: item.createdAt.toISOString(),
+        ...(item.changed_fields ? { changedFields: item.changed_fields } : {}),
+      })),
+      page: query.page,
+      limit: query.limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / query.limit),
+    };
   }
   async remove(id: string, actorId: string, actorRole: string): Promise<void> {
     this.assertRecruiter(actorRole);
@@ -266,13 +513,22 @@ export class JobPostingsService {
     // refuses flagged jobs and re-checks the job after saving (see ApplicationsService.submit).
     const flagged = await this.repository.markDeleting(id);
     if (!flagged)
-      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, 'This job posting is already being deleted.');
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        'This job posting is already being deleted.',
+      );
     const snapshot = flagged.toObject() as unknown as Record<string, unknown>;
     try {
       if (await this.repository.hasApplications(id))
-        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, JOB_POSTING_MESSAGES.CANNOT_DELETE_WITH_APPLICATIONS);
+        throw createHttpError(
+          HTTP_STATUS.HTTP_409_CONFLICT,
+          JOB_POSTING_MESSAGES.CANNOT_DELETE_WITH_APPLICATIONS,
+        );
       if (!(await this.repository.delete(id)))
-        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, JOB_POSTING_MESSAGES.NOT_FOUND);
+        throw createHttpError(
+          HTTP_STATUS.HTTP_404_NOT_FOUND,
+          JOB_POSTING_MESSAGES.NOT_FOUND,
+        );
     } catch (error) {
       await this.repository.clearDeleting(id).catch(() => undefined);
       throw error;
@@ -280,7 +536,9 @@ export class JobPostingsService {
     // A failed audit puts the job back without the flag: deletion is never reported as a success.
     const restorable = { ...snapshot };
     delete restorable.deleting;
-    await this.audit('delete', jobPosting, actorId, () => this.repository.restore(restorable));
+    await this.audit('delete', jobPosting, actorId, () =>
+      this.repository.restore(restorable),
+    );
   }
   async findSummariesByIds(ids: string[]): Promise<Map<string, JobSummary>> {
     const jobs = await this.repository.findManyByIds(ids);
@@ -315,7 +573,11 @@ export class JobPostingsService {
   // Public detail: 404 unless the job is Published, still open and owned by an Active enterprise.
   async getPublicById(id: string): Promise<JobPostingResponse> {
     const job = await this.findPublicJobById(id);
-    if (!job) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, JOB_POSTING_MESSAGES.NOT_FOUND);
+    if (!job)
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        JOB_POSTING_MESSAGES.NOT_FOUND,
+      );
     return this.mapOne(job);
   }
   // Used right after an application is saved: false means the job was deleted in the meantime.
@@ -323,7 +585,10 @@ export class JobPostingsService {
     return this.repository.exists(id);
   }
   async listPublic(query: JobPostingListQuery): Promise<PaginatedJobPostings> {
-    return this.list(query, { publicOnly: true, activeEnterpriseIds: await this.repository.findActiveEnterpriseIds() });
+    return this.list(query, {
+      publicOnly: true,
+      activeEnterpriseIds: await this.repository.findActiveEnterpriseIds(),
+    });
   }
   async listAdmin(query: JobPostingListQuery): Promise<PaginatedJobPostings> {
     return this.list(query, { publicOnly: false });
@@ -339,16 +604,22 @@ export class JobPostingsService {
   }
   private async list(
     query: JobPostingListQuery,
-    options: { publicOnly: boolean; enterpriseId?: string; activeEnterpriseIds?: string[] },
+    options: {
+      publicOnly: boolean;
+      enterpriseId?: string;
+      activeEnterpriseIds?: string[];
+    },
   ): Promise<PaginatedJobPostings> {
     const result = await this.repository.list(query, options);
     // Application counts are management data, not public.
     const counts = options.publicOnly
       ? undefined
-      : await this.repository.countApplicationsByJobIds(result.items.map((item) => String(item._id)));
-    const enterprises = await this.repository.findEnterpriseSummaries(
-      [...new Set(result.items.map((item) => String(item.enterprise_id)))],
-    );
+      : await this.repository.countApplicationsByJobIds(
+          result.items.map((item) => String(item._id)),
+        );
+    const enterprises = await this.repository.findEnterpriseSummaries([
+      ...new Set(result.items.map((item) => String(item.enterprise_id))),
+    ]);
     return {
       items: result.items.map((item) => {
         const enterpriseId = String(item.enterprise_id);
@@ -358,7 +629,11 @@ export class JobPostingsService {
             HTTP_STATUS.HTTP_404_NOT_FOUND,
             'Enterprise not found for job posting',
           );
-        return this.map(item, enterprise, counts ? (counts.get(String(item._id)) ?? 0) : undefined);
+        return this.map(
+          item,
+          enterprise,
+          counts ? (counts.get(String(item._id)) ?? 0) : undefined,
+        );
       }),
       page: query.page,
       limit: query.limit,

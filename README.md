@@ -28,7 +28,7 @@ Every feature module in `src/modules/<module-name>/` strictly implements 6 core 
 4. `<module>.repository.ts`: Database queries and storage interactions.
 5. `<module>.openapi.ts`: OpenAPI path and schema definitions.
 6. `<module>.schemas.ts`: Zod validation schemas for requests.
-7. `<module>.constants.ts`: *(Optional)* Domain-specific constants.
+7. `<module>.constants.ts`: _(Optional)_ Domain-specific constants.
 
 Refer to [`AGENTS.md`](./AGENTS.md) for full architectural constraints.
 
@@ -81,10 +81,10 @@ npm run dev
 
 ### User Accounts API (System Administrator)
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
-| `GET` | `/api/v1/users/:id` | UC-USER-02. One user account. |
+| Method | Path                | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/users`     | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
+| `GET`  | `/api/v1/users/:id` | UC-USER-02. One user account.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
 
@@ -92,39 +92,70 @@ Both are read-only and administrator-only (`401` without a valid session, `403` 
 
 The authenticated candidate endpoints are:
 
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/v1/me/applications` | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired. |
-| `GET` | `/api/v1/me/applications` | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
-| `GET` | `/api/v1/me/applications/:id` | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries. |
-| `GET` | `/api/v1/me/applications/:id/history` | Chronological, bounded public status history. |
-| `PATCH` | `/api/v1/me/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application; Withdrawn is closed and never reopened. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`. |
+| Method  | Path                                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`  | `/api/v1/me/applications`              | Apply for a Published, open job with a CV (required), cover letter and message (optional). One active application per job; after Withdrawn or Rejected the candidate may apply again as a new linked record (`reapplied_from` / `reapplied_as`), at most two per job, never after Hired.                                                                                                                                                                                              |
+| `GET`   | `/api/v1/me/applications`              | Bounded list of the caller's own applications, newest first; supports `page`, `limit`, `status` (one value or a comma-separated list), `jobId`, `submittedFrom`, `submittedTo`, `reviewStage`, `search` (job title or company name), `sortBy` (`submittedAt` default, `latestStatusAt`, `id`) and `sortOrder` (`desc` default, `asc`). Includes `statusCounts` over the matching filter set; every summary carries `canWithdraw`, `canApplyAgain`, `reappliedFrom` and `reappliedAs`. |
+| `GET`   | `/api/v1/me/applications/:id`          | Owned application detail with the public job summary (from the job and its enterprise) and submitted attachment metadata only. `version` is the number of history entries.                                                                                                                                                                                                                                                                                                            |
+| `GET`   | `/api/v1/me/applications/:id/history`  | Chronological, bounded public status history.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `PATCH` | `/api/v1/me/applications/:id/withdraw` | Withdraws a `submitted` or `under_review` application; Withdrawn is closed and never reopened. Body: `{ "expectedVersion": 0, "reason": "optional, max 500 characters" }`.                                                                                                                                                                                                                                                                                                            |
 
 Successful responses are the resource/result objects directly (not wrapped in a `data` envelope). List and history responses use `{ items, page, limit, total, totalPages }`; list additionally returns `statusCounts`. Detail and withdrawal return the application detail object. Ownership is always derived from the authenticated JWT subject. Application history contains only status, stage, timestamp, and public actor role; attachment snapshots never contain file URLs or storage keys. The unique candidate/job index prevents reapplication in this scope.
 
 This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
 
-The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Application responses expose attachment metadata without storage URLs; authorized preview and download use the document endpoints below.
+
+### Job Posting Lifecycle and History
+
+Recruiters can create a draft by sending `publication_status: "draft"`; omitting it preserves the existing create-and-publish behavior. `PATCH /api/v1/job-postings/:id` accepts `publication_status: "draft" | "published"`. Published jobs must contain all public fields and a non-expired deadline.
+
+| Method  | Path                               | Purpose                                                                                        |
+| ------- | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `PATCH` | `/api/v1/job-postings/:id/close`   | Close an owned Published/Open posting.                                                         |
+| `PATCH` | `/api/v1/job-postings/:id/reopen`  | Reopen an owned Closed posting whose deadline and enterprise are still valid.                  |
+| `PATCH` | `/api/v1/job-postings/:id/archive` | Archive an owned Closed posting; repeated archive requests are idempotent.                     |
+| `PATCH` | `/api/v1/job-postings/:id/restore` | Restore an owned Archived posting to Closed.                                                   |
+| `GET`   | `/api/v1/job-postings/:id/history` | Read paginated create/edit/delete/lifecycle audit history as recruiter owner or administrator. |
+
+### Document Library API
+
+All non-admin operations are scoped to the authenticated owner. Active lists support `search` by filename, `type`, `is_default`, `sort_by`, `sort_order`, and pagination. Deletion is a soft delete and is rejected while an application references the document. If the deleted document was the default, the newest remaining active document of the same type is promoted.
+
+| Method   | Path                                   | Purpose                                                      |
+| -------- | -------------------------------------- | ------------------------------------------------------------ |
+| `GET`    | `/api/v1/documents/:id/download`       | Stream an owned document as an attachment.                   |
+| `GET`    | `/api/v1/documents/:id/preview`        | Stream an owned PDF inline or return a DOC/DOCX viewer URL.  |
+| `DELETE` | `/api/v1/documents/:id`                | Soft-delete an owned, unreferenced document.                 |
+| `PATCH`  | `/api/v1/documents/:id/default`        | Make an owned active document the sole default for its type. |
+| `GET`    | `/api/v1/admin/documents/:id/download` | Administrator download of an active document.                |
+| `GET`    | `/api/v1/admin/documents/:id/preview`  | Administrator preview of an active document.                 |
+
+Run `npm run migrate:document-indexes` once after deployment to create the partial unique default-document index.
+
+### Interview Response API
+
+`PATCH /api/v1/interviews/:id/respond` lets the candidate who owns the linked application respond once while the interview is Scheduled and Pending. The body uses `response: "accepted" | "declined" | "reschedule_requested"`; rescheduling also requires a future `proposedDateTime` and a reason.
 
 ---
-
 
 ---
 
 ## Available Scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Starts server in watch mode using `tsx` |
-| `npm run build` | Compiles TypeScript into `dist/` |
-| `npm start` | Runs production build from `dist/server.js` |
-| `npm run lint` | Runs ESLint on `src/` and `tests/` |
-| `npm run lint:fix` | Fixes autofixable ESLint errors |
-| `npm run typecheck` | Typechecks code without emitting files |
-| `npm test` | Runs unit tests with Vitest |
-| `npm run test:integration` | Runs integration tests |
-| `npm run test:all` | Runs all unit and integration tests |
-| `npm run generate:client` | Generates TypeScript client from OpenAPI |
+| Command                            | Description                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| `npm run dev`                      | Starts server in watch mode using `tsx`                                        |
+| `npm run build`                    | Compiles TypeScript into `dist/`                                               |
+| `npm start`                        | Runs production build from `dist/server.js`                                    |
+| `npm run lint`                     | Runs ESLint on `src/` and `tests/`                                             |
+| `npm run lint:fix`                 | Fixes autofixable ESLint errors                                                |
+| `npm run typecheck`                | Typechecks code without emitting files                                         |
+| `npm test`                         | Runs unit tests with Vitest                                                    |
+| `npm run test:integration`         | Runs integration tests                                                         |
+| `npm run test:all`                 | Runs all unit and integration tests                                            |
+| `npm run generate:client`          | Generates TypeScript client from OpenAPI                                       |
+| `npm run migrate:document-indexes` | Synchronizes document indexes, including one active default per owner and type |
 
 ---
 

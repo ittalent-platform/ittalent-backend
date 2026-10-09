@@ -1,7 +1,15 @@
 export const JOB_POSTING_MESSAGES = {
-  CANNOT_DELETE_WITH_APPLICATIONS: 'Cannot delete job posting because applications already exist for this job.',
-  ENTERPRISE_NOT_ACTIVE: 'The enterprise is not active, so it cannot publish job postings.',
+  CANNOT_DELETE_WITH_APPLICATIONS:
+    'Cannot delete job posting because applications already exist for this job.',
+  ENTERPRISE_NOT_ACTIVE:
+    'The enterprise is not active, so it cannot publish job postings.',
   ARCHIVED_NOT_EDITABLE: 'Archived job postings cannot be edited.',
+  CLOSE_NOT_ALLOWED: 'Only an open published job posting can be closed.',
+  REOPEN_NOT_ALLOWED: 'Only a closed job posting can be reopened.',
+  ARCHIVE_NOT_ALLOWED: 'Only a closed job posting can be archived.',
+  RESTORE_NOT_ALLOWED: 'Only an archived job posting can be restored.',
+  PUBLICATION_CHANGE_NOT_ALLOWED:
+    'Archived job postings must be restored before changing publication status.',
   DEADLINE_IN_PAST: 'Deadline must be today or later.',
   DEADLINE_INVALID: 'Deadline must be a valid date (YYYY-MM-DD).',
   PUBLISHED_FIELDS_REQUIRED:
@@ -21,7 +29,13 @@ export const JOB_DEADLINE = {
 } as const;
 
 /** Job types HR/Recruiter can choose (AC-JOB-01-04). */
-export const JOB_EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Internship', 'Contract', 'Remote'] as const;
+export const JOB_EMPLOYMENT_TYPES = [
+  'Full-time',
+  'Part-time',
+  'Internship',
+  'Contract',
+  'Remote',
+] as const;
 export type JobEmploymentType = (typeof JOB_EMPLOYMENT_TYPES)[number];
 
 export const JOB_LIMITS = {
@@ -39,5 +53,15 @@ export const JOB_LIMITS = {
 export const RECRUITMENT_STATUSES = ['open', 'closed'] as const;
 export type RecruitmentStatus = (typeof RECRUITMENT_STATUSES)[number];
 
-export const JOB_AUDIT_ACTIONS = ['create', 'update', 'delete'] as const;
+export const JOB_AUDIT_ACTIONS = [
+  'create',
+  'update',
+  'delete',
+  'publish',
+  'draft',
+  'close',
+  'reopen',
+  'archive',
+  'restore',
+] as const;
 export type JobAuditAction = (typeof JOB_AUDIT_ACTIONS)[number];

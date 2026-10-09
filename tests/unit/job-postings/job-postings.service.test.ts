@@ -12,27 +12,69 @@ const recruiterA2 = '507f1f77bcf86cd799439022';
 const admin = '507f1f77bcf86cd799439099';
 const jobId = '507f1f77bcf86cd799439031';
 
-function jobPosting(enterpriseId: string, overrides: Record<string, unknown> = {}): JobPostingDoc {
+function jobPosting(
+  enterpriseId: string,
+  overrides: Record<string, unknown> = {},
+): JobPostingDoc {
   const base = {
     _id: jobId,
     enterprise_id: enterpriseId,
     posted_by_user_id: recruiterA1,
-    title: 'Backend Engineer', slug: 'backend-engineer', currency: 'VND', status: 'published',
-    description: 'Build reliable services for enterprise customers.', requirements: 'Node.js and TypeScript experience', benefits: 'Flexible working hours and health cover',
-    location: 'Ho Chi Minh City', employment_type: 'Full-time', expires_at: new Date('2099-01-01T16:59:59.999Z'),
+    title: 'Backend Engineer',
+    slug: 'backend-engineer',
+    currency: 'VND',
+    status: 'published',
+    description: 'Build reliable services for enterprise customers.',
+    requirements: 'Node.js and TypeScript experience',
+    benefits: 'Flexible working hours and health cover',
+    location: 'Ho Chi Minh City',
+    employment_type: 'Full-time',
+    expires_at: new Date('2099-01-01T16:59:59.999Z'),
     ...overrides,
   };
-  return { ...base, toObject: () => ({ ...base, createdAt: new Date('2026-01-01T00:00:00.000Z'), updatedAt: new Date('2026-01-01T00:00:00.000Z') }) } as unknown as JobPostingDoc;
+  return {
+    ...base,
+    toObject: () => ({
+      ...base,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }),
+  } as unknown as JobPostingDoc;
 }
 
-type MockRepository = Record<'create' | 'findById' | 'findBySlug' | 'update' | 'delete' | 'list' | 'isEnterpriseActive' | 'recordAudit' | 'restore' | 'markDeleting' | 'clearDeleting' | 'hasApplications' | 'findActiveEnterpriseIds', ReturnType<typeof vi.fn>>;
+type MockRepository = Record<
+  | 'create'
+  | 'findById'
+  | 'findBySlug'
+  | 'update'
+  | 'transition'
+  | 'delete'
+  | 'list'
+  | 'listAudit'
+  | 'isEnterpriseActive'
+  | 'recordAudit'
+  | 'restore'
+  | 'markDeleting'
+  | 'clearDeleting'
+  | 'hasApplications'
+  | 'findActiveEnterpriseIds',
+  ReturnType<typeof vi.fn>
+>;
 
-function createService(recruiterEnterpriseId: string | null): { service: JobPostingsService; repository: MockRepository } {
+function createService(recruiterEnterpriseId: string | null): {
+  service: JobPostingsService;
+  repository: MockRepository;
+} {
   const repository = {
     create: vi.fn(),
     findById: vi.fn(),
     findBySlug: vi.fn().mockResolvedValue(null),
-    findEnterpriseSummaries: vi.fn().mockResolvedValue(new Map([[enterpriseA, { id: enterpriseA, name: 'Enterprise A', logoUrl: null }], [enterpriseB, { id: enterpriseB, name: 'Enterprise B', logoUrl: null }]])),
+    findEnterpriseSummaries: vi.fn().mockResolvedValue(
+      new Map([
+        [enterpriseA, { id: enterpriseA, name: 'Enterprise A', logoUrl: null }],
+        [enterpriseB, { id: enterpriseB, name: 'Enterprise B', logoUrl: null }],
+      ]),
+    ),
     countApplicationsByJobIds: vi.fn().mockResolvedValue(new Map()),
     isEnterpriseActive: vi.fn().mockResolvedValue(true),
     findActiveEnterpriseIds: vi.fn().mockResolvedValue([enterpriseA]),
@@ -42,11 +84,21 @@ function createService(recruiterEnterpriseId: string | null): { service: JobPost
     clearDeleting: vi.fn().mockResolvedValue(undefined),
     hasApplications: vi.fn().mockResolvedValue(false),
     update: vi.fn(),
+    transition: vi.fn(),
     delete: vi.fn().mockResolvedValue(true),
     list: vi.fn(),
+    listAudit: vi.fn(),
   };
-  const userService = { getEnterpriseId: vi.fn().mockResolvedValue(recruiterEnterpriseId) };
-  return { service: new JobPostingsService(repository as unknown as JobPostingsRepository, userService as unknown as UsersService), repository };
+  const userService = {
+    getEnterpriseId: vi.fn().mockResolvedValue(recruiterEnterpriseId),
+  };
+  return {
+    service: new JobPostingsService(
+      repository as unknown as JobPostingsRepository,
+      userService as unknown as UsersService,
+    ),
+    repository,
+  };
 }
 
 const createInput = {
@@ -58,34 +110,54 @@ const createInput = {
   benefits: 'Flexible working hours and health cover',
   expires_at: '2099-01-01',
 };
-const listQuery = { sort_by: 'created_at' as const, sort_order: 'desc' as const, page: 1, limit: 20 };
+const listQuery = {
+  sort_by: 'created_at' as const,
+  sort_order: 'desc' as const,
+  page: 1,
+  limit: 20,
+};
 
 describe('JobPostingsService enterprise ownership', () => {
   it('assigns the authenticated recruiter enterprise on create and publishes with an end-of-day deadline', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.create.mockResolvedValue(jobPosting(enterpriseA));
     await service.create(recruiterA1, createInput);
-    expect(repository.create).toHaveBeenCalledWith(recruiterA1, enterpriseA, createInput, 'backend-engineer', new Date('2099-01-01T16:59:59.999Z'));
-    expect(repository.recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'create', result: 'success' }));
+    expect(repository.create).toHaveBeenCalledWith(
+      recruiterA1,
+      enterpriseA,
+      createInput,
+      'backend-engineer',
+      new Date('2099-01-01T16:59:59.999Z'),
+    );
+    expect(repository.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'create', result: 'success' }),
+    );
   });
 
   it('filters recruiter management list by enterprise on the repository query', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.list.mockResolvedValue({ items: [], total: 0 });
     await service.listRecruiter(recruiterA1, listQuery);
-    expect(repository.list).toHaveBeenCalledWith(listQuery, { publicOnly: false, enterpriseId: enterpriseA });
+    expect(repository.list).toHaveBeenCalledWith(listQuery, {
+      publicOnly: false,
+      enterpriseId: enterpriseA,
+    });
   });
 
   it('forbids a recruiter from viewing a job posting of another enterprise', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.findById.mockResolvedValue(jobPosting(enterpriseB));
-    await expect(service.getByIdForManagement(jobId, recruiterA1, 'recruiter')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.getByIdForManagement(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it('forbids a recruiter from updating a job posting of another enterprise', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.findById.mockResolvedValue(jobPosting(enterpriseB));
-    await expect(service.update(jobId, recruiterA1, 'recruiter', { title: 'New title' })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.update(jobId, recruiterA1, 'recruiter', { title: 'New title' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
     expect(repository.update).not.toHaveBeenCalled();
   });
 
@@ -93,31 +165,65 @@ describe('JobPostingsService enterprise ownership', () => {
     const { service, repository } = createService(enterpriseA);
     const existing = jobPosting(enterpriseA);
     repository.findById.mockResolvedValue(existing);
-    repository.update.mockResolvedValue(jobPosting(enterpriseA, { title: 'Platform Engineer' }));
-    await service.update(jobId, recruiterA2, 'recruiter', { title: 'Platform Engineer' });
+    repository.update.mockResolvedValue(
+      jobPosting(enterpriseA, { title: 'Platform Engineer' }),
+    );
+    await service.update(jobId, recruiterA2, 'recruiter', {
+      title: 'Platform Engineer',
+    });
     expect(repository.update).toHaveBeenCalled();
-    expect(repository.recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'update', changed_fields: ['title'] }));
+    expect(repository.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'update', changed_fields: ['title'] }),
+    );
   });
 
   it('rejects a recruiter without an enterprise on create and list', async () => {
     const { service, repository } = createService(null);
-    await expect(service.create(recruiterA1, createInput)).rejects.toMatchObject({ statusCode: 403 });
-    await expect(service.listRecruiter(recruiterA1, listQuery)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.create(recruiterA1, createInput),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.listRecruiter(recruiterA1, listQuery),
+    ).rejects.toMatchObject({ statusCode: 403 });
     expect(repository.create).not.toHaveBeenCalled();
   });
 });
 
 describe('JobPostingsService business rules', () => {
+  it('creates an explicit draft without requiring an active enterprise or a deadline', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.isEnterpriseActive.mockResolvedValue(false);
+    repository.create.mockResolvedValue(
+      jobPosting(enterpriseA, { status: 'draft', expires_at: undefined }),
+    );
+    await service.create(recruiterA1, {
+      title: 'Backend Draft',
+      publication_status: 'draft',
+    });
+    expect(repository.isEnterpriseActive).not.toHaveBeenCalled();
+    expect(repository.create).toHaveBeenCalledWith(
+      recruiterA1,
+      enterpriseA,
+      { title: 'Backend Draft', publication_status: 'draft' },
+      'backend-draft',
+      undefined,
+    );
+  });
+
   it('rejects publishing when the enterprise is not Active (UC-JOB-01.EX.1)', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.isEnterpriseActive.mockResolvedValue(false);
-    await expect(service.create(recruiterA1, createInput)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.create(recruiterA1, createInput),
+    ).rejects.toMatchObject({ statusCode: 403 });
     expect(repository.create).not.toHaveBeenCalled();
   });
 
   it('rejects a deadline before today (AC-JOB-01-04)', async () => {
     const { service, repository } = createService(enterpriseA);
-    await expect(service.create(recruiterA1, { ...createInput, expires_at: '2020-01-01' })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      service.create(recruiterA1, { ...createInput, expires_at: '2020-01-01' }),
+    ).rejects.toMatchObject({ statusCode: 400 });
     expect(repository.create).not.toHaveBeenCalled();
   });
 
@@ -125,32 +231,116 @@ describe('JobPostingsService business rules', () => {
     const { service, repository } = createService(enterpriseA);
     repository.create.mockResolvedValue(jobPosting(enterpriseA));
     repository.recordAudit.mockRejectedValue(new Error('audit down'));
-    await expect(service.create(recruiterA1, createInput)).rejects.toMatchObject({ statusCode: 503 });
+    await expect(
+      service.create(recruiterA1, createInput),
+    ).rejects.toMatchObject({ statusCode: 503 });
     expect(repository.delete).toHaveBeenCalledWith(jobId);
   });
 
   it('does not let the admin change or delete company jobs', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.findById.mockResolvedValue(jobPosting(enterpriseA));
-    await expect(service.update(jobId, admin, 'admin', { title: 'Admin edit' })).rejects.toMatchObject({ statusCode: 403 });
-    await expect(service.remove(jobId, admin, 'admin')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.update(jobId, admin, 'admin', { title: 'Admin edit' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.remove(jobId, admin, 'admin')).rejects.toMatchObject({
+      statusCode: 403,
+    });
     expect(repository.update).not.toHaveBeenCalled();
     expect(repository.markDeleting).not.toHaveBeenCalled();
   });
 
   it('keeps a legacy archived posting read-only', async () => {
     const { service, repository } = createService(enterpriseA);
-    repository.findById.mockResolvedValue(jobPosting(enterpriseA, { status: 'archived' }));
-    await expect(service.update(jobId, recruiterA1, 'recruiter', { title: 'Late edit' })).rejects.toMatchObject({ statusCode: 409 });
+    repository.findById.mockResolvedValue(
+      jobPosting(enterpriseA, { status: 'archived' }),
+    );
+    await expect(
+      service.update(jobId, recruiterA1, 'recruiter', { title: 'Late edit' }),
+    ).rejects.toMatchObject({ statusCode: 409 });
   });
 
   it('only accepts a changed deadline that is today or later, but leaves an unchanged expired one alone', async () => {
     const { service, repository } = createService(enterpriseA);
-    const existing = jobPosting(enterpriseA, { expires_at: new Date('2020-01-01T16:59:59.999Z') });
+    const existing = jobPosting(enterpriseA, {
+      expires_at: new Date('2020-01-01T16:59:59.999Z'),
+    });
     repository.findById.mockResolvedValue(existing);
     repository.update.mockResolvedValue(existing);
-    await expect(service.update(jobId, recruiterA1, 'recruiter', { expires_at: '2020-06-01' })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(service.update(jobId, recruiterA1, 'recruiter', { expires_at: '2020-01-01' })).resolves.toBeDefined();
+    await expect(
+      service.update(jobId, recruiterA1, 'recruiter', {
+        expires_at: '2020-06-01',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      service.update(jobId, recruiterA1, 'recruiter', {
+        expires_at: '2020-01-01',
+      }),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe('JobPostingsService lifecycle and history', () => {
+  it('closes an owned open posting and records a close audit event', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(jobPosting(enterpriseA));
+    repository.transition.mockResolvedValue(
+      jobPosting(enterpriseA, { status: 'closed', closed_at: new Date() }),
+    );
+    const result = await service.close(jobId, recruiterA1, 'recruiter');
+    expect(result.status).toBe('closed');
+    expect(repository.transition).toHaveBeenCalledWith(
+      jobId,
+      'published',
+      'closed',
+      expect.any(Date),
+    );
+    expect(repository.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'close' }),
+    );
+  });
+
+  it('rejects closing a draft and does not mutate it', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(
+      jobPosting(enterpriseA, { status: 'draft' }),
+    );
+    await expect(
+      service.close(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.transition).not.toHaveBeenCalled();
+  });
+
+  it('prevents a recruiter from transitioning another enterprise job', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(jobPosting(enterpriseB));
+    await expect(
+      service.close(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('returns paginated audit history after ownership validation', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(jobPosting(enterpriseA));
+    repository.listAudit.mockResolvedValue({
+      items: [
+        {
+          _id: '507f1f77bcf86cd799439041',
+          action: 'close',
+          actor_user_id: recruiterA1,
+          createdAt: new Date('2026-01-02T00:00:00.000Z'),
+        },
+      ],
+      total: 1,
+    });
+    const history = await service.getHistory(jobId, recruiterA1, 'recruiter', {
+      page: 1,
+      limit: 20,
+    });
+    expect(history.items[0]).toMatchObject({
+      action: 'close',
+      actorUserId: recruiterA1,
+    });
   });
 });
 
@@ -163,7 +353,12 @@ describe('JobPostingsService delete (UC-JOB-03)', () => {
     await service.remove(jobId, recruiterA1, 'recruiter');
     expect(repository.markDeleting).toHaveBeenCalledWith(jobId);
     expect(repository.delete).toHaveBeenCalledWith(jobId);
-    expect(repository.recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'delete', job_title: 'Backend Engineer' }));
+    expect(repository.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'delete',
+        job_title: 'Backend Engineer',
+      }),
+    );
   });
 
   it('keeps the job, clears the flag and records no success audit when an application exists', async () => {
@@ -172,7 +367,9 @@ describe('JobPostingsService delete (UC-JOB-03)', () => {
     repository.findById.mockResolvedValue(job);
     repository.markDeleting.mockResolvedValue(job);
     repository.hasApplications.mockResolvedValue(true);
-    await expect(service.remove(jobId, recruiterA1, 'recruiter')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      service.remove(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 409 });
     expect(repository.delete).not.toHaveBeenCalled();
     expect(repository.clearDeleting).toHaveBeenCalledWith(jobId);
     expect(repository.recordAudit).not.toHaveBeenCalled();
@@ -184,7 +381,9 @@ describe('JobPostingsService delete (UC-JOB-03)', () => {
     repository.findById.mockResolvedValue(job);
     repository.markDeleting.mockResolvedValue(job);
     repository.recordAudit.mockRejectedValue(new Error('audit down'));
-    await expect(service.remove(jobId, recruiterA1, 'recruiter')).rejects.toMatchObject({ statusCode: 503 });
+    await expect(
+      service.remove(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 503 });
     expect(repository.restore).toHaveBeenCalled();
   });
 
@@ -192,6 +391,8 @@ describe('JobPostingsService delete (UC-JOB-03)', () => {
     const { service, repository } = createService(enterpriseA);
     repository.findById.mockResolvedValue(jobPosting(enterpriseA));
     repository.markDeleting.mockResolvedValue(null);
-    await expect(service.remove(jobId, recruiterA1, 'recruiter')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      service.remove(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 409 });
   });
 });
