@@ -35,7 +35,7 @@ function user(id: string, overrides: Partial<Record<keyof InterviewUserRow, unkn
     email: `${id}@example.com`,
     username: id,
     full_name: `User ${id.slice(-1)}`,
-    role: 'interviewer',
+    role: 'recruiter',
     status: 'active',
     enterprise_id: ENTERPRISE,
     ...overrides,
@@ -221,9 +221,10 @@ describe('InterviewsService', () => {
     });
 
     it.each([
-      ['an interviewer of another enterprise', { enterprise_id: OTHER_ENTERPRISE }],
-      ['a user who is not an interviewer or recruiter', { role: 'user' }],
-      ['a suspended interviewer', { status: 'suspended' }],
+      ['a recruiter of another enterprise', { enterprise_id: OTHER_ENTERPRISE }],
+      ['a user who is not a recruiter', { role: 'user' }],
+      ['an admin', { role: 'admin' }],
+      ['a suspended recruiter', { status: 'suspended' }],
     ])('rejects %s', async (_label, overrides) => {
       repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A), user(INTERVIEWER_B, overrides)]);
       await expect(service.create(recruiter, createBody)).rejects.toMatchObject({
@@ -235,11 +236,6 @@ describe('InterviewsService', () => {
     it('rejects an interviewer that does not exist', async () => {
       repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A)]);
       await expect(service.create(recruiter, createBody)).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
-    });
-
-    it('lets a recruiter of the enterprise act as an interviewer', async () => {
-      repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A), user(INTERVIEWER_B, { role: 'recruiter' })]);
-      await expect(service.create(recruiter, createBody)).resolves.toBeDefined();
     });
 
     it('rejects an applicant whose account is not active', async () => {

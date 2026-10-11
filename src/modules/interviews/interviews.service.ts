@@ -13,10 +13,9 @@ import {
   INTERVIEW_EMAIL_FAILED_LOG,
   INTERVIEW_EMAIL_FALLBACKS,
   INTERVIEW_ERROR_CODES,
-  INTERVIEW_INTERVIEWER_ROLE,
+  INTERVIEW_MANAGER_ROLE,
   INTERVIEW_MESSAGES,
   ACTIVE_USER_STATUS,
-  INTERVIEWER_ELIGIBLE_ROLES,
   SCHEDULABLE_APPLICATION_STATUSES,
 } from './interviews.constants.js';
 import {
@@ -38,8 +37,6 @@ export interface InterviewActor {
 
 interface InterviewScope {
   enterpriseId: string;
-  // Set for an interviewer, who only sees the interviews they are assigned to.
-  interviewerId?: string;
 }
 
 interface InterviewLookups {
@@ -121,10 +118,10 @@ export class InterviewsService {
     if (!enterpriseId) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.NO_ENTERPRISE);
     }
-    return actor.role === INTERVIEW_INTERVIEWER_ROLE ? { enterpriseId, interviewerId: actor.id } : { enterpriseId };
+    return { enterpriseId };
   }
 
-  // Another company's interview (or one an interviewer is not part of) is indistinguishable from a missing one.
+  // Another company's interview is indistinguishable from a missing one.
   private endOf(startsAt: Date, durationMinutes: number): Date {
     return new Date(startsAt.getTime() + durationMinutes * INTERVIEW_CONFIG.MS_PER_MINUTE);
   }
@@ -150,8 +147,7 @@ export class InterviewsService {
     const valid = rows.filter(
       (row) =>
         row.status === ACTIVE_USER_STATUS &&
-        row.role !== undefined &&
-        INTERVIEWER_ELIGIBLE_ROLES.includes(row.role) &&
+        row.role === INTERVIEW_MANAGER_ROLE &&
         String(row.enterprise_id ?? '') === enterpriseId,
     );
     if (valid.length !== unique(interviewerIds).length) {

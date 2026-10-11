@@ -2,11 +2,9 @@ import type { ApplicationStatus } from '../../models/application.model.js';
 import type { InterviewStatus } from '../../models/interview.model.js';
 import type { UserRole } from '../../models/user.model.js';
 
-// Only a recruiter creates, changes and deletes interviews; an interviewer can read the ones they are assigned to.
+// Only a recruiter (HR) schedules, reads, changes and deletes the interviews of their enterprise. An interviewer is
+// also a recruiter, of the same enterprise.
 export const INTERVIEW_MANAGER_ROLE: UserRole = 'recruiter';
-export const INTERVIEW_INTERVIEWER_ROLE: UserRole = 'interviewer';
-// Users who may be picked as an interviewer (they must also belong to the same enterprise).
-export const INTERVIEWER_ELIGIBLE_ROLES: readonly UserRole[] = ['interviewer', 'recruiter'];
 // Interviewers and applicants must have an active account.
 export const ACTIVE_USER_STATUS = 'active';
 
@@ -64,7 +62,7 @@ export const INTERVIEW_MESSAGES = {
   APPLICATION_NOT_FOUND: 'Application not found',
   APPLICATION_NOT_SCHEDULABLE: 'Interviews can only be scheduled for submitted, under review or interviewing applications',
   APPLICANT_UNAVAILABLE: 'The applicant account is not available',
-  INVALID_INTERVIEWERS: 'Every interviewer must be an active interviewer or recruiter of your enterprise',
+  INVALID_INTERVIEWERS: 'Every interviewer must be an active recruiter of your enterprise',
   TIME_IN_PAST: 'The interview time must be in the future',
   ONLINE_LINK_REQUIRED: 'An online interview needs a meeting link',
   ONSITE_LOCATION_REQUIRED: 'An onsite interview needs a location',
