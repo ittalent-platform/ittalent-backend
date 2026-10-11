@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { createHttpError } from '../../shared/errors/http-error.js';
 import { ENTERPRISE_MESSAGES } from './enterprises.constants.js';
 import { enterprisesService, type EnterprisesService } from './enterprises.service.js';
 import type {
@@ -96,6 +97,21 @@ export class EnterprisesController {
       const userId = req.user?.id;
 
       const result = await this.service.getEnterpriseById(params.enterpriseId, role, userId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** UC 17: View my enterprise profile */
+  getMyEnterpriseProfile: RequestHandler = async (req, res, next) => {
+    try {
+      if (!req.user || !req.user.id || !req.user.role) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      }
+      const userId = req.user.id;
+      const role = req.user.role;
+      const result = await this.service.getMyEnterpriseProfile(userId, role);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
