@@ -55,10 +55,14 @@ describe('userListQuerySchema (UC-USER-01)', () => {
 
 describe('updateUserBodySchema', () => {
   it('accepts the editable fields and normalizes the phone number', () => {
-    expect(updateUserBodySchema.parse({ fullName: '  Mai Dương ', phone: '0901 234 567', role: 'admin' })).toEqual({ fullName: 'Mai Dương', phone: '0901234567', role: 'admin' });
+    expect(updateUserBodySchema.parse({ fullName: '  Mai Dương ', phone: '0901 234 567', expectedVersion: 2 })).toEqual({ fullName: 'Mai Dương', phone: '0901234567', expectedVersion: 2 });
   });
 
   it('allows null to clear a phone number', () => {
-    expect(updateUserBodySchema.parse({ phone: null })).toEqual({ phone: null });
+    expect(updateUserBodySchema.parse({ phone: null, expectedVersion: 0 })).toEqual({ phone: null, expectedVersion: 0 });
+  });
+
+  it('rejects role changes through the profile patch', () => {
+    expect(updateUserBodySchema.safeParse({ role: 'admin', expectedVersion: 0 }).success).toBe(false);
   });
 });

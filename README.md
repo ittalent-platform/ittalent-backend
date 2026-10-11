@@ -88,6 +88,14 @@ npm run dev
 
 Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
 
+### Managed account changes
+
+- Account responses also include `fullName`, `phone`, and `version`. `PATCH /api/v1/users/:id` accepts `fullName` and/or `phone` with the loaded `expectedVersion`; role changes are rejected. A stale version returns `409` without overwriting data.
+- `POST /api/v1/users` creates an invited account; invitation acceptance supplies credentials. Membership invitations and email-change requests replace previous pending requests under a per-user transactional write, including simultaneous first requests. This internal request counter does not change the displayed account version or revoke sessions.
+- Suspension invalidates sessions and cannot target the acting administrator, including alternative hexadecimal ID casing. Optional-auth company reads validate current account state before granting privileged access; revoked sessions fall back to public visibility.
+- Email-change confirmation requires the owner and current password. Failed attempts are limited independently by account and IP using the existing login attempt/window settings (`429`); successful confirmations do not consume failed-attempt capacity.
+- Password reset verifies an eligible inactive account even when `email_verified=false`; an invitation account is not activated by password recovery. The account-history endpoints retain committed changes and do not expose credential/token material.
+
 ### My Applications API
 
 The authenticated candidate endpoints are:

@@ -39,6 +39,7 @@ interface TokenPayload {
   sub: string;
   email: string;
   role: string;
+  av: number;
 }
 
 type ValidExpiresIn = NonNullable<jwt.SignOptions['expiresIn']>;
@@ -62,6 +63,7 @@ export class AuthService {
       sub: String(user._id),
       email: user.email,
       role: user.role,
+      av: 'auth_version' in user && typeof user.auth_version === 'number' ? user.auth_version : 0,
     };
 
     const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -243,7 +245,7 @@ export class AuthService {
       const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as unknown as TokenPayload;
 
       const user = await this.userService.findById(decoded.sub);
-      if (!user || !this.isUserAllowedToLogin(user)) {
+      if (!user || !this.isUserAllowedToLogin(user) || (user.auth_version ?? 0) !== (decoded.av ?? 0)) {
         throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_REFRESH_TOKEN);
       }
 
@@ -334,7 +336,7 @@ export class AuthService {
     await this.repository.updateLocalAccountPassword(tokenDoc.user_id, passwordHash);
 
     const user = await this.userService.findById(tokenDoc.user_id);
-    if (user && user.status === 'inactive') {
+    if (user?.status === 'inactive') {
       await this.userService.markEmailVerified(String(tokenDoc.user_id));
     }
 
@@ -389,4 +391,3 @@ export const authService = new AuthService();
 export function startAuthVerificationJob(): () => void {
   return authService.startAuthVerificationJob();
 }
-

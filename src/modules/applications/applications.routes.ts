@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser, authorize } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { APPLICANT_ROLE } from './applications.constants.js';
 import { applicationsController } from './applications.controller.js';
@@ -18,6 +18,7 @@ export const applicationsRouter = Router();
 applicationsRouter.post(
   '/',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateBody(createApplicationBodySchema),
   applicationsController.createApplication,
@@ -27,6 +28,7 @@ applicationsRouter.post(
 applicationsRouter.get(
   '/',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateQuery(applicationListQueryValidator),
   applicationsController.listMine,
@@ -36,6 +38,7 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   applicationsController.getDetail,
@@ -45,6 +48,7 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id/history',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   validateQuery(applicationHistoryQuerySchema),
@@ -55,6 +59,7 @@ applicationsRouter.get(
 applicationsRouter.patch(
   '/:id/withdraw',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   validateBody(withdrawApplicationBodySchema),

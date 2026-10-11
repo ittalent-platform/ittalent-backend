@@ -3,7 +3,12 @@ import mongoose from 'mongoose';
 import { ZodError } from 'zod';
 import { HTTP_STATUS } from '../shared/constants/http-status.js';
 
+const MONGO_DUPLICATE_KEY_ERROR_CODE = 11_000;
+
 function getStatusCode(error: unknown): number {
+  if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === MONGO_DUPLICATE_KEY_ERROR_CODE) {
+    return HTTP_STATUS.HTTP_409_CONFLICT;
+  }
   if (error instanceof ZodError) {
     return HTTP_STATUS.HTTP_400_BAD_REQUEST;
   }

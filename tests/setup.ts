@@ -9,7 +9,7 @@ function databaseForWorker(uri: string, workerId: string | undefined): string {
 }
 
 process.env.MONGODB_URI = databaseForWorker(
-  process.env.MONGODB_URI ?? 'mongodb://localhost:27017/ittalent_test',
+  process.env.MONGODB_URI ?? 'mongodb://localhost:27018/ittalent_test?replicaSet=rs0&directConnection=true',
   process.env.VITEST_POOL_ID,
 );
 process.env.JWT_ACCESS_SECRET ??= 'test-jwt-access-secret-at-least-32-chars-long';

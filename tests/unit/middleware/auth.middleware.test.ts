@@ -39,7 +39,16 @@ describe('auth middleware', () => {
         id: 'user-123',
         email: 'test@example.com',
         role: 'user',
+        authVersion: 0,
       });
+    });
+
+    it('retains the current session epoch from the signed token', () => {
+      const token = jwt.sign({ sub: 'user-123', email: 'test@example.com', role: 'user', av: 3 }, env.JWT_ACCESS_SECRET);
+      const req = { headers: { authorization: `Bearer ${token}` } } as never;
+      const next = vi.fn();
+      authenticate(req, {} as never, next);
+      expect((req as { user?: { authVersion?: number } }).user?.authVersion).toBe(3);
     });
   });
 

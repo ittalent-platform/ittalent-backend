@@ -11,7 +11,7 @@ import { Account } from '../../src/models/account.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'fullName', 'id', 'phone', 'role', 'status', 'updatedAt', 'username'];
+const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'fullName', 'id', 'phone', 'role', 'status', 'updatedAt', 'username', 'version'];
 const PASSWORD_HASH = 'bcrypt-hash-must-never-leave-the-server';
 
 let server: Server;
@@ -36,6 +36,7 @@ interface UserBody {
   createdAt: string;
   status: string;
   emailVerified: boolean;
+  version?: number;
 }
 interface Body extends Partial<UserBody> {
   items: UserBody[];
@@ -78,11 +79,14 @@ async function seed(name: string, extra: Record<string, unknown> = {}): Promise<
 
 describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration)', () => {
   let oldest: Types.ObjectId;
+  let adminId: Types.ObjectId;
 
   beforeAll(async () => {
     await connectDatabase();
     ownId = new Types.ObjectId();
-    adminToken = sign('admin', String(new Types.ObjectId()));
+    adminId = new Types.ObjectId();
+    await User.create({ _id: adminId, email: `${adminId}@example.test`, username: `admin_${adminId}`, role: 'admin', status: 'active', email_verified: true });
+    adminToken = sign('admin', String(adminId));
     userToken = sign('user', String(ownId));
 
     oldest = await seed(`${marker}-a`, { createdAt: new Date('2026-01-01T00:00:00.000Z'), email_verified: true });
@@ -108,6 +112,7 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
   afterAll(async () => {
     await Account.deleteMany({ user_id: { $in: seeded } });
     await User.deleteMany({ _id: { $in: seeded } });
+    await User.deleteOne({ _id: adminId });
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
@@ -312,10 +317,10 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
 
   describe('edit', () => {
     it('updates fullName and phone through the administrator PATCH endpoint', async () => {
-      const result = await patch(String(oldest), { fullName: 'Mai Dương', phone: '0901 234 567' }, adminToken);
-
+      const current = await User.findById(oldest).lean();
+      const result = await patch(String(oldest), { fullName: 'Mai Dương', phone: '0901 234 567', expectedVersion: current?.version ?? 0 }, adminToken);
       expect(result.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      expect(result.body).toMatchObject({ id: String(oldest), fullName: 'Mai Dương', phone: '0901234567' });
+      expect(result.body).toMatchObject({ id: String(oldest), fullName: 'Mai Dương', phone: '0901234567', version: 1 });
     });
   });
 

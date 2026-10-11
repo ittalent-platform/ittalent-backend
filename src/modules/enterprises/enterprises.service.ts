@@ -28,6 +28,11 @@ export class EnterprisesService {
     private readonly userService: UsersService = usersService,
   ) {}
 
+  async isActiveEnterprise(id: string): Promise<boolean> {
+    const enterprise = await this.repository.findById(id);
+    return Boolean(enterprise && enterprise.status === 'active');
+  }
+
   private mapSummary(enterprise: EnterpriseDoc, openRoleCount = 0): EnterpriseSummaryDTO {
     return {
       id: String(enterprise._id),

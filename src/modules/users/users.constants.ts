@@ -17,7 +17,7 @@ export const USER_SORT_COLUMNS: Record<UserSortField, string> = {
 export const USER_FULL_NAME_LENGTH = { min: 2, max: 100 } as const;
 export const USER_PHONE_PATTERN = /^\+?\d{9,15}$/;
 export const USER_PHONE_NOISE = /[\s().-]/g;
-export const USER_EDITABLE_ROLES = ['admin', 'user'] as const;
+export const USER_EDITABLE_ROLES = ['user', 'recruiter'] as const;
 
 export const USER_MESSAGES = {
   NO_CHANGES: 'Provide at least one field to update',
@@ -26,6 +26,11 @@ export const USER_MESSAGES = {
   NOT_FOUND: 'User not found',
   STORE_UNAVAILABLE: 'Unable to load user accounts right now. Please try again later.',
   PROJECTION_FAILED: 'Unable to prepare user account data.',
+  INVALID_TRANSITION: 'Unsupported account status transition',
+  SELF_SUSPENSION: 'An administrator cannot suspend their own account',
+  LAST_ADMIN: 'The final active System Administrator cannot be suspended',
+  REASON_REQUIRED: 'A reason is required to suspend or reopen an account',
+  VERSION_CONFLICT: 'The account changed. Reload and try again.',
 } as const;
 
 export const USER_LOG_TAGS = {

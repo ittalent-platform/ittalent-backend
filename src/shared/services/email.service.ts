@@ -34,14 +34,14 @@ export function escapeHtml(value: string): string {
   });
 }
 
-export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<void> {
+export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<boolean> {
   const normalizedTo = to.toLowerCase();
 
   if (!env.BREVO_API_KEY) {
     console.info('[email:dev]', { to: normalizedTo, subject });
     deliveryStatus.set(normalizedTo, true);
-    return;
-  }
+    return true;
+}
 
   try {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -65,13 +65,15 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
       const errorBody = (await response.json().catch(() => undefined)) as Record<string, unknown> | undefined;
       console.error('[email:brevo:error]', { status: response.status, error: errorBody });
       deliveryStatus.set(normalizedTo, false);
-      return;
+      return false;
     }
 
     deliveryStatus.set(normalizedTo, true);
+    return true;
   } catch (error) {
     console.error('[email:brevo:exception]', error);
     deliveryStatus.set(normalizedTo, false);
+    return false;
   }
 }
 
@@ -86,6 +88,24 @@ export async function sendVerificationEmail(to: string, url: string): Promise<vo
       <p><a href="${safeUrl}">Verify email</a></p>
       <p>This link expires in 24 hours.</p>
     `,
+  });
+}
+
+export async function sendUserInvitationEmail(to: string, url: string, accountRole: string): Promise<boolean> {
+  const safeUrl = escapeHtml(url);
+  const roleLabel = accountRole === 'recruiter' ? 'HR account' : 'user account';
+  return sendEmail({
+    to,
+    subject: 'Your ITTalent account invitation',
+    html: `<p>Hello,</p><p>You have been invited to create or activate an ITTalent ${escapeHtml(roleLabel)}.</p><p><a href="${safeUrl}">Accept invitation</a></p><p>This link expires in 24 hours and can only be used once.</p>`,
+  });
+  }
+
+export async function sendUserEmailChangeEmail(to: string, url: string): Promise<boolean> {
+  return sendEmail({
+    to,
+    subject: 'Confirm your ITTalent account email change',
+    html: `<p>Hello,</p><p>A System Administrator requested this email address for an ITTalent account. Sign in to the existing account and confirm the request with your current password.</p><p><a href="${escapeHtml(url)}">Review email change</a></p><p>This request expires in 24 hours. If you did not expect it, ignore this message.</p>`,
   });
 }
 
