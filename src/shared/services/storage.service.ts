@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { getCloudinary, isCloudinaryConfigured } from '../../config/cloudinary.js';
-import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../constants/http-status.js';
 import { createHttpError } from '../errors/http-error.js';
 
@@ -70,16 +69,7 @@ export class StorageService {
     const mimeType = input.mimeType ?? 'application/octet-stream';
 
     if (!this.isConfigured()) {
-      const storageKey = `${folder}/${publicId}`;
-      const fileUrl = `${env.APP_BASE_URL}/mock-storage/${storageKey}`;
-      console.info('[storage:dev]', { folder, fileName: input.fileName, size: input.buffer.length });
-      return {
-        fileUrl,
-        storageKey,
-        fileName: input.fileName,
-        mimeType,
-        size: input.buffer.length,
-      };
+      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Document storage is not configured');
     }
 
     const cloudinary = getCloudinary();
@@ -114,8 +104,7 @@ export class StorageService {
 
   async deleteFile(storageKey: string, resourceType: 'raw' | 'image' | 'auto' = 'raw'): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.info('[storage:dev:delete]', { storageKey });
-      return true;
+      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Document storage is not configured');
     }
 
     try {

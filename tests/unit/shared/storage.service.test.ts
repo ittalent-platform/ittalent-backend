@@ -68,34 +68,20 @@ describe('StorageService', () => {
     });
   });
 
-  describe('uploadFile in dev mode (unconfigured)', () => {
-    it('returns a mock URL and logs [storage:dev] when Cloudinary is not configured', async () => {
+  describe('uploadFile when unconfigured', () => {
+    it('throws 503 Service Unavailable when Cloudinary is not configured', async () => {
       vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(false);
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
-      const dummyBuffer = Buffer.from('sample pdf content');
-      const result = await storageService.uploadFile({
-        buffer: dummyBuffer,
-        fileName: 'resume.pdf',
-        folder: 'italent/documents',
-        prefix: 'candidate-cv',
-        mimeType: 'application/pdf',
-      });
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        '[storage:dev]',
-        expect.objectContaining({
-          folder: 'italent/documents',
+      await expect(
+        storageService.uploadFile({
+          buffer: Buffer.from('sample pdf content'),
           fileName: 'resume.pdf',
-          size: dummyBuffer.length,
+          folder: 'italent/documents',
         }),
-      );
-
-      expect(result.fileName).toBe('resume.pdf');
-      expect(result.mimeType).toBe('application/pdf');
-      expect(result.size).toBe(dummyBuffer.length);
-      expect(result.storageKey).toMatch(/^italent\/documents\/candidate-cv-[0-9a-f-]+\.pdf$/);
-      expect(result.fileUrl).toContain('/mock-storage/italent/documents/candidate-cv-');
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        message: 'Document storage is not configured',
+      });
     });
   });
 
@@ -192,15 +178,14 @@ describe('StorageService', () => {
   });
 
   describe('deleteFile', () => {
-    it('logs [storage:dev:delete] and returns true in dev mode', async () => {
+    it('throws 503 Service Unavailable when Cloudinary is not configured', async () => {
       vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(false);
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
-      const result = await storageService.deleteFile('italent/documents/test-123.pdf');
-
-      expect(result).toBe(true);
-      expect(consoleSpy).toHaveBeenCalledWith('[storage:dev:delete]', {
-        storageKey: 'italent/documents/test-123.pdf',
+      await expect(
+        storageService.deleteFile('italent/documents/test-123.pdf'),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        message: 'Document storage is not configured',
       });
     });
 
