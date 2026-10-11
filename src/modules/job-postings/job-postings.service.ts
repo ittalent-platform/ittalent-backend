@@ -7,8 +7,7 @@ import {
   jobPostingsRepository,
   type JobPostingsRepository,
 } from './job-postings.repository.js';
-import { JOB_POSTING_MESSAGES, type JobAuditAction, type RecruitmentStatus } from './job-postings.constants.js';
-import { deadlineFromInput, isDeadlineOnOrAfterToday } from './job-postings.deadline.js';
+import { JOB_DEADLINE, JOB_POSTING_MESSAGES, type JobAuditAction, type RecruitmentStatus } from './job-postings.constants.js';
 import type {
   CreateJobPosting,
   JobPostingListQuery,
@@ -172,8 +171,16 @@ export class JobPostingsService {
       throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, JOB_POSTING_MESSAGES.AUDIT_FAILED);
     }
   }
+  /** The selected day ends at 23:59:59.999 in Asia/Ho_Chi_Minh (TBD-JOB-01). */
+  private deadlineFromInput(value: string): Date {
+    // ISO datetimes use their Vietnam calendar day, which can differ from their UTC day.
+    const day = JOB_DEADLINE.DATE_ONLY_PATTERN.test(value)
+      ? value
+      : new Date(Date.parse(value) + JOB_DEADLINE.ICT_OFFSET_MS).toISOString().slice(0, JOB_DEADLINE.DATE_LENGTH);
+    return new Date(`${day}${JOB_DEADLINE.ICT_END_OF_DAY}`);
+  }
   private assertDeadlineNotPast(deadline: Date): void {
-    if (!isDeadlineOnOrAfterToday(deadline))
+    if (!(deadline.getTime() >= Date.now()))
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, JOB_POSTING_MESSAGES.DEADLINE_IN_PAST);
   }
   // Recruiter-only mutations (the admin has no default company-job mutation permission).
@@ -188,7 +195,7 @@ export class JobPostingsService {
     const enterpriseId = await this.getRecruiterEnterpriseId(recruiterId);
     if (!(await this.repository.isEnterpriseActive(enterpriseId)))
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, JOB_POSTING_MESSAGES.ENTERPRISE_NOT_ACTIVE);
-    const deadline = deadlineFromInput(input.expires_at);
+    const deadline = this.deadlineFromInput(input.expires_at);
     this.assertDeadlineNotPast(deadline);
     const created = await this.repository.create(
       recruiterId,
@@ -225,7 +232,7 @@ export class JobPostingsService {
     if (existing.status === 'archived')
       throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, JOB_POSTING_MESSAGES.ARCHIVED_NOT_EDITABLE);
     // A changed deadline must be today or later; an unchanged (possibly already passed) one is left alone.
-    const deadline = input.expires_at !== undefined ? deadlineFromInput(input.expires_at) : undefined;
+    const deadline = input.expires_at !== undefined ? this.deadlineFromInput(input.expires_at) : undefined;
     const deadlineChanged = deadline !== undefined && deadline.getTime() !== existing.expires_at?.getTime();
     if (deadline && deadlineChanged) this.assertDeadlineNotPast(deadline);
     const candidate = { ...existing.toObject(), ...input, expires_at: deadline ?? existing.expires_at };

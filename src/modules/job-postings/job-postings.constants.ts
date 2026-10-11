@@ -10,6 +10,16 @@ export const JOB_POSTING_MESSAGES = {
   NOT_FOUND: 'Job posting not found',
 } as const;
 
+/** Deadlines use the selected calendar day in Asia/Ho_Chi_Minh (UTC+7, no daylight saving). */
+export const JOB_DEADLINE = {
+  DATE_ONLY_PATTERN: /^\d{4}-\d{2}-\d{2}$/,
+  DATETIME_PREFIX_PATTERN: /^\d{4}-\d{2}-\d{2}T/,
+  UTC_START_OF_DAY: 'T00:00:00.000Z',
+  ICT_END_OF_DAY: 'T23:59:59.999+07:00',
+  ICT_OFFSET_MS: 25_200_000,
+  DATE_LENGTH: 'YYYY-MM-DD'.length,
+} as const;
+
 /** Job types HR/Recruiter can choose (AC-JOB-01-04). */
 export const JOB_EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Internship', 'Contract', 'Remote'] as const;
 export type JobEmploymentType = (typeof JOB_EMPLOYMENT_TYPES)[number];
