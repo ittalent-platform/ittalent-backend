@@ -1286,7 +1286,6 @@ describe('Job posting enterprise ownership integration', () => {
       recruiterList,
       adminList,
       documentList,
-      adminDocumentList,
     ]) {
       expect(
         operation?.parameters?.some(
