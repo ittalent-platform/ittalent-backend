@@ -1,7 +1,14 @@
 import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
-export const userRoles = ['user', 'admin', 'recruiter', 'applicant', 'interviewer'] as const;
+export const userRoles = [
+  'user',
+  'admin',
+  'recruiter',
+  'enterprise_admin',
+  'applicant',
+  'interviewer',
+] as const;
 export type UserRole = (typeof userRoles)[number];
 
 export const userStatuses = ['active', 'inactive', 'suspended', 'blocked'] as const;

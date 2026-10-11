@@ -120,6 +120,17 @@ All document operations require the `user` role and are scoped to the authentica
 | `PATCH` | `/api/v1/documents/:id/default` | Make an owned active document the sole default for its type. |
 
 Run `npm run migrate:document-indexes` once after deployment to create the partial unique default-document index.
+### Job Posting Lifecycle and History
+
+Recruiters can create a draft by sending `publication_status: "draft"`; omitting it preserves the existing create-and-publish behavior. `PATCH /api/v1/job-postings/:id` accepts `publication_status: "draft" | "published"`. Published jobs must contain all public fields and a non-expired deadline.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `PATCH` | `/api/v1/job-postings/:id/close` | Close an owned Published/Open posting. |
+| `PATCH` | `/api/v1/job-postings/:id/reopen` | Reopen an owned Closed posting whose deadline and enterprise are still valid. |
+| `PATCH` | `/api/v1/job-postings/:id/archive` | Archive an owned Closed posting; repeated archive requests are idempotent. |
+| `PATCH` | `/api/v1/job-postings/:id/restore` | Restore an owned Archived posting to Closed. |
+| `GET` | `/api/v1/job-postings/:id/history` | Read paginated create/edit/delete/lifecycle audit history as recruiter owner or administrator. |
 
 ---
 
