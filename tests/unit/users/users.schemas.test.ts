@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
+import { updateUserBodySchema, updateUserStatusBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
 
 describe('userListQuerySchema (UC-USER-01)', () => {
   it('applies the shared pagination defaults', () => {
@@ -66,5 +66,37 @@ describe('updateUserBodySchema', () => {
 
   it('allows null to clear a phone number', () => {
     expect(updateUserBodySchema.parse({ phone: null })).toEqual({ phone: null });
+  });
+
+  it('strictly rejects status and statusReason to prevent status mutation bypass (UC-11 vs UC-12)', () => {
+    expect(updateUserBodySchema.safeParse({ status: 'suspended' }).success).toBe(false);
+    expect(updateUserBodySchema.safeParse({ statusReason: 'policy violation' }).success).toBe(false);
+    expect(updateUserBodySchema.safeParse({ fullName: 'Valid Name', status: 'active' }).success).toBe(false);
+  });
+});
+
+describe('updateUserStatusBodySchema (UC-12)', () => {
+  it('requires a non-empty reason when suspending an account (BR-EMP-13)', () => {
+    const missingReason = updateUserStatusBodySchema.safeParse({ status: 'suspended' });
+    expect(missingReason.success).toBe(false);
+    if (!missingReason.success) {
+      expect(missingReason.error.issues[0]?.message).toBe(
+        'A justification reason is required when suspending an account',
+      );
+    }
+
+    const emptyReason = updateUserStatusBodySchema.safeParse({ status: 'suspended', reason: '   ' });
+    expect(emptyReason.success).toBe(false);
+
+    const validSuspension = updateUserStatusBodySchema.safeParse({
+      status: 'suspended',
+      reason: 'Contract terminated by HR',
+    });
+    expect(validSuspension.success).toBe(true);
+  });
+
+  it('allows reason to be omitted when activating or setting inactive', () => {
+    expect(updateUserStatusBodySchema.safeParse({ status: 'active' }).success).toBe(true);
+    expect(updateUserStatusBodySchema.safeParse({ status: 'inactive' }).success).toBe(true);
   });
 });

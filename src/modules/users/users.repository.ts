@@ -1,18 +1,29 @@
-import type { QueryFilter, Types } from 'mongoose';
+import { Types, type QueryFilter } from 'mongoose';
 
-import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import {
+  User,
+  type UserData,
+  type UserDoc,
+  type UserRole,
+  type UserStatus,
+  type UserStatusHistoryEntry,
+} from '../../models/user.model.js';
 import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { UpdateUserBody, UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
   email: string;
   username: string;
-  status?: UserStatus;
-  enterprise_id?: Types.ObjectId | string | null | undefined;
+  full_name?: string | undefined;
+  phone?: string | undefined;
+  role?: UserRole | undefined;
+  status?: UserStatus | undefined;
+  enterprise_id?: Types.ObjectId | null | undefined;
 }
 
 // Allow-list of fields an administrator may read; credentials and tokens live in other collections.
-const ADMIN_USER_FIELDS = 'email username full_name phone role status email_verified enterprise_id createdAt updatedAt';
+const ADMIN_USER_FIELDS =
+  'email username full_name phone role status email_verified enterprise_id status_reason status_updated_at status_updated_by status_history createdAt updatedAt';
 const ADMIN_USER_PROJECTION = Object.fromEntries(ADMIN_USER_FIELDS.split(' ').map((field) => [field, 1]));
 
 function escapeRegex(value: string): string {
@@ -32,6 +43,9 @@ export class UsersRepository {
     if (query.emailVerified !== undefined) {
       // Accounts created before the field existed have no value and count as not verified.
       filter.email_verified = query.emailVerified ? true : { $ne: true };
+    }
+    if (query.enterpriseId) {
+      filter.enterprise_id = new Types.ObjectId(query.enterpriseId);
     }
     if (query.search) {
       const pattern = new RegExp(escapeRegex(query.search), 'i');
@@ -79,7 +93,11 @@ export class UsersRepository {
     if (patch.role !== undefined) $set.role = patch.role;
     if (patch.phone === null) $unset.phone = '';
     else if (patch.phone !== undefined) $set.phone = patch.phone;
-    return User.findByIdAndUpdate(id, { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) }, { returnDocument: 'after' }).exec();
+    return User.findByIdAndUpdate(
+      id,
+      { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) },
+      { returnDocument: 'after' },
+    ).exec();
   }
 
   async findById(id: string): Promise<UserDoc | null> {
@@ -114,6 +132,9 @@ export class UsersRepository {
     const user = new User({
       email: data.email,
       username: data.username,
+      ...(data.full_name ? { full_name: data.full_name } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.role ? { role: data.role } : {}),
       ...(data.status ? { status: data.status } : {}),
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
@@ -129,8 +150,36 @@ export class UsersRepository {
     ).exec();
   }
 
-  async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {
-    return User.findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' }).exec();
+  async updateStatus(
+    id: Types.ObjectId | string,
+    status: UserStatus,
+    adminId?: string,
+    reason?: string,
+  ): Promise<UserDoc | null> {
+    const now = new Date();
+    const adminObjectId = adminId ? new Types.ObjectId(adminId) : null;
+    const historyEntry: UserStatusHistoryEntry | null = adminObjectId
+      ? {
+          status,
+          changed_at: now,
+          changed_by: adminObjectId,
+          reason: reason ?? null,
+        }
+      : null;
+
+    const $set: Record<string, unknown> = {
+      status,
+      status_updated_at: now,
+      ...(adminObjectId ? { status_updated_by: adminObjectId } : {}),
+      ...(reason !== undefined ? { status_reason: reason } : {}),
+    };
+
+    const updateQuery: Record<string, unknown> = { $set };
+    if (historyEntry) {
+      updateQuery.$push = { status_history: historyEntry };
+    }
+
+    return User.findByIdAndUpdate(id, updateQuery, { returnDocument: 'after' }).exec();
   }
 
   async updateEnterpriseId(

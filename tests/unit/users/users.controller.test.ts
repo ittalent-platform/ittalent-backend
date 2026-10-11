@@ -25,11 +25,19 @@ describe('UsersController', () => {
       const status = vi.fn().mockReturnValue({ json });
       const response = { status, locals: { validated: { params: { id: 'target' }, body: { fullName: 'Mai Dương' } } } } as never;
 
-      await controller.updateUser({ user: { id: 'admin-user' } } as never, response, vi.fn());
+      await controller.updateUser({ user: { id: 'admin-user', role: 'admin' } } as never, response, vi.fn());
 
-      expect(mockService.updateUser).toHaveBeenCalledWith('admin-user', 'target', { fullName: 'Mai Dương' });
+      expect(mockService.updateUser).toHaveBeenCalledWith({ id: 'admin-user', role: 'admin' }, 'target', { fullName: 'Mai Dương' });
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
       expect(json).toHaveBeenCalledWith(result);
+    });
+
+    it('fails closed with 401 Unauthorized when caller authentication is missing', async () => {
+      const next = vi.fn();
+      await controller.updateUser({} as never, {} as never, next);
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ statusCode: HTTP_STATUS.HTTP_401_UNAUTHORIZED }),
+      );
     });
   });
 
@@ -97,7 +105,7 @@ describe('UsersController', () => {
 
       await controller.listUsers({} as never, res, next);
 
-      expect(mockService.listUsers).toHaveBeenCalledWith(query);
+      expect(mockService.listUsers).toHaveBeenCalledWith(query, undefined);
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
       expect(json).toHaveBeenCalledWith(page);
     });
