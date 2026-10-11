@@ -10,3 +10,4 @@ export * from './document.model.js';
 export * from './enterprise.model.js';
 export * from './enterprise-registration.model.js';
 export * from './job-posting-audit.model.js';
+export * from './interview.model.js';

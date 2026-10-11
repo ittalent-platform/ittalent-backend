@@ -118,3 +118,78 @@ export async function sendApplicationConfirmationEmail(
     `,
   });
 }
+
+export type InterviewEmailKind = 'scheduled' | 'updated' | 'cancelled';
+
+export interface InterviewEmailInput {
+  kind: InterviewEmailKind;
+  to: string;
+  recipientName?: string | undefined;
+  jobTitle: string;
+  companyName: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+  mode: 'online' | 'onsite';
+  meetingLink?: string | undefined;
+  location?: string | undefined;
+  notes?: string | undefined;
+}
+
+// Interview times are shown in Vietnam time, the same zone the job deadlines use.
+const INTERVIEW_EMAIL_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+const INTERVIEW_EMAIL_LOCALE = 'en-GB';
+
+const INTERVIEW_EMAIL_SUBJECTS: Record<InterviewEmailKind, string> = {
+  scheduled: 'Interview scheduled',
+  updated: 'Interview updated',
+  cancelled: 'Interview cancelled',
+};
+
+const INTERVIEW_EMAIL_INTROS: Record<InterviewEmailKind, string> = {
+  scheduled: 'An interview has been scheduled.',
+  updated: 'The details of your interview have changed. Please use the new details below.',
+  cancelled: 'The interview below has been cancelled.',
+};
+
+const INTERVIEW_TIME_FORMAT = new Intl.DateTimeFormat(INTERVIEW_EMAIL_LOCALE, {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: INTERVIEW_EMAIL_TIME_ZONE,
+  timeZoneName: 'short',
+});
+
+export function buildInterviewEmailHtml(input: InterviewEmailInput): string {
+  const greeting = input.recipientName ? `Hello ${escapeHtml(input.recipientName)},` : 'Hello,';
+  const where =
+    input.mode === 'online'
+      ? input.meetingLink
+        ? `<p>Meeting link: <a href="${escapeHtml(input.meetingLink)}">${escapeHtml(input.meetingLink)}</a></p>`
+        : ''
+      : input.location
+        ? `<p>Location: ${escapeHtml(input.location)}</p>`
+        : '';
+  const notes = input.notes ? `<p>Notes: ${escapeHtml(input.notes)}</p>` : '';
+  return `
+      <p>${greeting}</p>
+      <p>${INTERVIEW_EMAIL_INTROS[input.kind]}</p>
+      <p>Position: <strong>${escapeHtml(input.jobTitle)}</strong> at ${escapeHtml(input.companyName)}</p>
+      <p>Time: ${escapeHtml(INTERVIEW_TIME_FORMAT.format(input.scheduledAt))} (${input.durationMinutes} minutes)</p>
+      <p>Format: ${input.mode === 'online' ? 'Online' : 'Onsite'}</p>
+      ${where}
+      ${notes}
+    `;
+}
+
+// One mail per participant so each one is addressed by name. Callers decide what a delivery failure means.
+export async function sendInterviewEmail(input: InterviewEmailInput): Promise<void> {
+  await sendEmail({
+    to: input.to,
+    subject: `${INTERVIEW_EMAIL_SUBJECTS[input.kind]}: ${input.jobTitle} at ${input.companyName}`,
+    html: buildInterviewEmailHtml(input),
+  });
+}
