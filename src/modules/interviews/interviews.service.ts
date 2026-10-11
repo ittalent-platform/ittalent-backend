@@ -56,7 +56,7 @@ export class InterviewsService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  // ---- create / update / status / delete ----
+  // ---- writes ----
 
   async create(actor: InterviewActor, body: CreateInterviewBody): Promise<InterviewDetailDTO> {
     const scope = await this.resolveScope(actor);
@@ -113,7 +113,11 @@ export class InterviewsService {
     return detail;
   }
 
+  // The routes already restrict these endpoints to recruiters; the service enforces it too so it is safe to call from anywhere.
   private async resolveScope(actor: InterviewActor): Promise<InterviewScope> {
+    if (actor.role !== INTERVIEW_MANAGER_ROLE) {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.RECRUITER_ONLY);
+    }
     const enterpriseId = await this.users.getEnterpriseId(actor.id);
     if (!enterpriseId) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.NO_ENTERPRISE);
@@ -121,7 +125,6 @@ export class InterviewsService {
     return { enterpriseId };
   }
 
-  // Another company's interview is indistinguishable from a missing one.
   private endOf(startsAt: Date, durationMinutes: number): Date {
     return new Date(startsAt.getTime() + durationMinutes * INTERVIEW_CONFIG.MS_PER_MINUTE);
   }
@@ -141,8 +144,9 @@ export class InterviewsService {
     }
   }
 
-  // `undefined` keeps the stored value, `null` clears it, a value replaces it.
+  // Every interviewer must be an active recruiter of the same enterprise.
   private async assertInterviewers(enterpriseId: string, interviewerIds: string[]): Promise<void> {
+    this.assertDistinctInterviewers(interviewerIds);
     const rows = await this.repository.findUsersByIds(interviewerIds);
     const valid = rows.filter(
       (row) =>
@@ -150,10 +154,21 @@ export class InterviewsService {
         row.role === INTERVIEW_MANAGER_ROLE &&
         String(row.enterprise_id ?? '') === enterpriseId,
     );
-    if (valid.length !== unique(interviewerIds).length) {
+    if (valid.length !== interviewerIds.length) {
       throw createHttpError(
         HTTP_STATUS.HTTP_400_BAD_REQUEST,
         INTERVIEW_MESSAGES.INVALID_INTERVIEWERS,
+        INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS,
+      );
+    }
+  }
+
+  // The request schema rejects repeated interviewers, but the service must never store the same one twice.
+  private assertDistinctInterviewers(interviewerIds: string[]): void {
+    if (unique(interviewerIds).length !== interviewerIds.length) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        INTERVIEW_MESSAGES.DUPLICATE_INTERVIEWERS,
         INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS,
       );
     }
@@ -285,7 +300,6 @@ export class InterviewsService {
     });
   }
 
-  // Interviewers taken off an interview are told it no longer involves them, using the time they had been given.
-  }
+}
 
 export const interviewsService = new InterviewsService();

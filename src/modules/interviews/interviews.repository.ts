@@ -97,8 +97,6 @@ export class InterviewsRepository {
     return enterprise?.name ?? null;
   }
 
-  // Resolves a search keyword to the users (applicant or interviewer) and the enterprise's jobs it matches.
-  // Each side is capped, so a very short keyword on a large user base can miss some matches.
   // ---- interviews ----
 
   // An active interview that overlaps the window and involves one of the interviewers or the applicant.
@@ -137,6 +135,6 @@ export class InterviewsRepository {
     return created.toObject() as unknown as InterviewDoc;
   }
 
-  }
+}
 
 export const interviewsRepository = new InterviewsRepository();

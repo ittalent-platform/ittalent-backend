@@ -57,6 +57,7 @@ export const INTERVIEW_CONFIG = {
 
 export const INTERVIEW_MESSAGES = {
   AUTH_REQUIRED: 'Authentication required',
+  RECRUITER_ONLY: 'Only recruiters can schedule and manage interviews',
   NO_ENTERPRISE: 'Your account is not assigned to an enterprise',
   NOT_FOUND: 'Interview not found',
   APPLICATION_NOT_FOUND: 'Application not found',

@@ -117,6 +117,12 @@ describe('InterviewsService', () => {
   });
 
   describe('create', () => {
+    it.each(['user', 'applicant', 'admin'])('refuses a %s before looking anything up', async (role) => {
+      await expect(service.create({ id: RECRUITER, role }, createBody)).rejects.toMatchObject({ statusCode: 403 });
+      expect(users.getEnterpriseId).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
     it('schedules the interview, works out the end time and emails the applicant and every interviewer', async () => {
       const result = await service.create(recruiter, createBody);
 
@@ -236,6 +242,14 @@ describe('InterviewsService', () => {
     it('rejects an interviewer that does not exist', async () => {
       repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A)]);
       await expect(service.create(recruiter, createBody)).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+    });
+
+    it('never stores the same interviewer twice', async () => {
+      repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A)]);
+      await expect(
+        service.create(recruiter, { ...createBody, interviewerIds: [INTERVIEWER_A, INTERVIEWER_A] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('rejects an applicant whose account is not active', async () => {
