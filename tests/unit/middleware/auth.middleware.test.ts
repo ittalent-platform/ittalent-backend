@@ -63,6 +63,22 @@ describe('auth middleware', () => {
       expect(next).toHaveBeenCalledWith();
     });
 
+    it('allows enterprise administrators through a shared job-manager guard', () => {
+      const req = {
+        user: {
+          id: 'user-1',
+          email: 'enterprise-admin@example.com',
+          role: 'enterprise_admin',
+        },
+      } as never;
+      const res = {} as never;
+      const next = vi.fn();
+
+      authorize('recruiter', 'enterprise_admin')(req, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
     it('returns 403 when user role does not match', () => {
       const req = { user: { id: 'user-1', email: 'user@example.com', role: 'user' } } as never;
       const res = {} as never;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { userRoles, userStatuses } from '../../models/user.model.js';
+import { userInvitationRoles } from '../../models/user-invitation.model.js';
 import { paginatedResponseSchema, paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
 import { USER_DEFAULT_SORT, USER_FULL_NAME_LENGTH, USER_LIST_SEARCH_MAX_LENGTH, USER_MESSAGES, USER_PHONE_NOISE, USER_PHONE_PATTERN, USER_SORT_FIELDS, USER_SORT_ORDERS } from './users.constants.js';
 
@@ -75,10 +76,10 @@ export const createAdminUserBodySchema = z.strictObject({
   username: z.string().trim().toLowerCase().min(ADMIN_USERNAME_LENGTH.min).max(ADMIN_USERNAME_LENGTH.max).regex(/^[a-z0-9_]+$/),
   fullName: z.string().trim().min(USER_FULL_NAME_LENGTH.min).max(USER_FULL_NAME_LENGTH.max),
   phone: z.string().trim().optional(),
-  role: z.enum(['user', 'recruiter']),
+  role: z.enum(userInvitationRoles),
   enterpriseId: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
 }).superRefine((body, ctx) => {
-  if (body.role === 'recruiter' && !body.enterpriseId) ctx.addIssue({ code: 'custom', path: ['enterpriseId'], message: 'An active enterprise is required for an HR account' });
+  if (body.role !== 'user' && !body.enterpriseId) ctx.addIssue({ code: 'custom', path: ['enterpriseId'], message: 'An active enterprise is required for an HR or Enterprise Administrator account' });
   if (body.role === 'user' && body.enterpriseId) ctx.addIssue({ code: 'custom', path: ['enterpriseId'], message: 'Candidate accounts cannot be assigned to an enterprise by this operation' });
 });
 export type CreateAdminUserBody = z.infer<typeof createAdminUserBodySchema>;

@@ -16,7 +16,7 @@ export function registerUserInvitationsOpenApi(registry: OpenAPIRegistry): void 
   const inviteExisting = registry.register('InviteExistingUserRequest', existingRecruiterInvitationSchema);
 
   registry.registerPath({
-    method: 'post', path: '/api/v1/users', tags: ['Users'], summary: 'Create a user or HR account and send an invitation',
+    method: 'post', path: '/api/v1/users', tags: ['Users'], summary: 'Create a Candidate, HR or Enterprise Administrator account and send an invitation',
     security: [{ bearerAuth: [] }],
     request: { body: { required: true, content: { 'application/json': { schema: createBody } } } },
     responses: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
+import { createAdminUserBodySchema, updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
 
 describe('userListQuerySchema (UC-USER-01)', () => {
   it('applies the shared pagination defaults', () => {
@@ -50,6 +50,24 @@ describe('userListQuerySchema (UC-USER-01)', () => {
 
   it('accepts a search of exactly 100 characters', () => {
     expect(userListQuerySchema.safeParse({ search: 'a'.repeat(100) }).success).toBe(true);
+  });
+
+  it('accepts enterprise_admin as a persisted and filterable role', () => {
+    expect(userListQuerySchema.parse({ role: 'enterprise_admin' }).role).toBe(
+      'enterprise_admin',
+    );
+  });
+});
+
+describe('createAdminUserBodySchema', () => {
+  const body = { email: 'ent@example.test', username: 'enterprise_admin', fullName: 'Enterprise Administrator', role: 'enterprise_admin' };
+  it('requires enterprise scope for an Enterprise Administrator', () => {
+    expect(createAdminUserBodySchema.safeParse(body).success).toBe(false);
+    expect(createAdminUserBodySchema.parse({ ...body, enterpriseId: '507f1f77bcf86cd799439011' })).toMatchObject({ role: 'enterprise_admin', enterpriseId: '507f1f77bcf86cd799439011' });
+  });
+  it('keeps Candidate unassigned and prevents System Administrator creation through this endpoint', () => {
+    expect(createAdminUserBodySchema.safeParse({ ...body, role: 'user', enterpriseId: '507f1f77bcf86cd799439011' }).success).toBe(false);
+    expect(createAdminUserBodySchema.safeParse({ ...body, role: 'admin' }).success).toBe(false);
   });
 });
 

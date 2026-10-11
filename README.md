@@ -90,6 +90,8 @@ Both are read-only and administrator-only (`401` without a valid session, `403` 
 
 ### Managed account changes
 
+System Administrator `POST /api/v1/users` accepts `user`, `recruiter`, or `enterprise_admin`. HR and Enterprise Administrator require an existing Active, non-deleted `enterpriseId`; Candidate must not have one. Accounts remain `invited` until the owner accepts the single-use email invitation and sets a password. Creation, resend and acceptance recheck enterprise eligibility; they do not create or approve an enterprise registration. A suspended company blocks acceptance without consuming the invitation. The existing-user membership invitation remains HR-only and does not silently promote existing Candidates to Enterprise Administrator. The same-company administrator cardinality policy is unchanged: this endpoint adds no unrequested one-admin restriction.
+
 - Account responses also include `fullName`, `phone`, and `version`. `PATCH /api/v1/users/:id` accepts `fullName` and/or `phone` with the loaded `expectedVersion`; role changes are rejected. A stale version returns `409` without overwriting data.
 - `POST /api/v1/users` creates an invited account; invitation acceptance supplies credentials. Membership invitations and email-change requests replace previous pending requests under a per-user transactional write, including simultaneous first requests. This internal request counter does not change the displayed account version or revoke sessions.
 - Suspension invalidates sessions and cannot target the acting administrator, including alternative hexadecimal ID casing. Optional-auth company reads validate current account state before granting privileged access; revoked sessions fall back to public visibility.
@@ -116,6 +118,17 @@ The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo c
 
 ---
 
+### Job Posting Lifecycle and History
+
+Recruiters can create a draft by sending `publication_status: "draft"`; omitting it preserves the existing create-and-publish behavior. `PATCH /api/v1/job-postings/:id` accepts `publication_status: "draft" | "published"`. Published jobs must contain all public fields and a non-expired deadline.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `PATCH` | `/api/v1/job-postings/:id/close` | Close an owned Published/Open posting. |
+| `PATCH` | `/api/v1/job-postings/:id/reopen` | Reopen an owned Closed posting whose deadline and enterprise are still valid. |
+| `PATCH` | `/api/v1/job-postings/:id/archive` | Archive an owned Closed posting; repeated archive requests are idempotent. |
+| `PATCH` | `/api/v1/job-postings/:id/restore` | Restore an owned Archived posting to Closed. |
+| `GET` | `/api/v1/job-postings/:id/history` | Read paginated create/edit/delete/lifecycle audit history as recruiter owner or administrator. |
 
 ---
 

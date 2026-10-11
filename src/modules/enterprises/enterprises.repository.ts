@@ -1,4 +1,4 @@
-import mongoose, { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
+import mongoose, { type ClientSession, type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
 import {
   Enterprise,
@@ -38,8 +38,10 @@ export class EnterprisesRepository {
     return enterprise.save();
   }
 
-  async findById(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
-    return Enterprise.findOne({ _id: id, is_deleted: false }).exec();
+  async findById(id: string | Types.ObjectId, session?: ClientSession): Promise<EnterpriseDoc | null> {
+    const query = Enterprise.findOne({ _id: id, is_deleted: false });
+    if (session) query.session(session);
+    return query.exec();
   }
 
   async findByIdIncludeDeleted(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {

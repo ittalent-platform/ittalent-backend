@@ -1,5 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
+import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError, isHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
@@ -32,7 +33,7 @@ export class UsersService {
 
   async updateNewAccountFromInvitation(
     id: Types.ObjectId,
-    role: 'user' | 'recruiter',
+    role: UserInvitationRole,
     enterpriseId: Types.ObjectId | null,
     expectedVersion: number,
     session: mongoose.ClientSession,

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import mongoose, { Types } from 'mongoose';
+import { userInvitationRoles, type UserInvitationRole } from '../../models/user-invitation.model.js';
 
 import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -35,7 +36,10 @@ export class UserInvitationsService {
   }
 
   async createAccount(actorId: string, input: AdminCreateUserInput): Promise<CreatedManagedUser> {
-    const enterpriseId = input.role === 'recruiter' ? new Types.ObjectId(input.enterpriseId) : null;
+    if (input.role !== 'user' && !input.enterpriseId) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+    }
+    const enterpriseId = input.role !== 'user' ? new Types.ObjectId(input.enterpriseId) : null;
     if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId)))) {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
     }
@@ -52,6 +56,7 @@ export class UserInvitationsService {
       await session.withTransaction(async () => {
         const currentActor = await this.users.findByIdWithSession(new Types.ObjectId(actorId), session);
         if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+        if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
         if (await this.users.existsByEmailOrUsername(input.email, input.username, session)) {
           throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT);
         }
@@ -125,11 +130,17 @@ export class UserInvitationsService {
     let accepted: Awaited<ReturnType<UsersService['findById']>> = null;
     try {
       await session.withTransaction(async () => {
+        if (!userInvitationRoles.includes(invitation.role as UserInvitationRole)
+          || (invitation.role !== 'user' && !invitation.enterprise_id)
+          || (invitation.role === 'user' && invitation.enterprise_id)) {
+          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
+        }
+        if (invitation.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
         const consumed = await this.invitations.accept(invitation._id as Types.ObjectId, userId, session);
         if (!consumed) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
         const target = await this.users.findByIdWithSession(userId, session);
         if (!target) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        accepted = await this.users.updateNewAccountFromInvitation(userId, invitation.role as 'user' | 'recruiter', (invitation.enterprise_id as Types.ObjectId | null) ?? null, target.version ?? 0, session);
+        accepted = await this.users.updateNewAccountFromInvitation(userId, invitation.role as UserInvitationRole, (invitation.enterprise_id as Types.ObjectId | null) ?? null, target.version ?? 0, session);
         if (!accepted) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
         await this.auth.updateLocalAccountPassword(userId, passwordHash, session);
         await this.audits.record({ targetUserId: userId, actorId: invitation.invited_by as Types.ObjectId, action: 'invitation_accepted', version: accepted.version ?? 0 }, session);
@@ -180,8 +191,9 @@ export class UserInvitationsService {
         const currentTarget = await this.users.findByIdWithSession(target._id, session);
         if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
         if (!currentTarget || currentTarget.status !== 'invited' || currentTarget.version !== target.version) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
+        if (prior.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(prior.enterprise_id), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
         await this.users.serializeIdentityRequests(target._id, session);
-        await this.invitations.create({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), kind: prior.kind as 'new_account' | 'enterprise_membership', role: prior.role as 'user' | 'recruiter', enterpriseId: (prior.enterprise_id as Types.ObjectId | null) ?? null, tokenHash, expiresAt }, session);
+        await this.invitations.create({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), kind: prior.kind as 'new_account' | 'enterprise_membership', role: prior.role as UserInvitationRole, enterpriseId: (prior.enterprise_id as Types.ObjectId | null) ?? null, tokenHash, expiresAt }, session);
         await this.audits.record({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), action: 'account_invited', version: target.version ?? 0, changes: { invitationResent: 'true' } }, session);
       });
     } finally { await session.endSession(); }

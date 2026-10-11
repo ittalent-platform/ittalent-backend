@@ -1,7 +1,7 @@
 import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
-export const userInvitationRoles = ['user', 'recruiter'] as const;
+export const userInvitationRoles = ['user', 'recruiter', 'enterprise_admin'] as const;
 export type UserInvitationRole = (typeof userInvitationRoles)[number];
 export const userInvitationStatuses = ['pending', 'accepted', 'revoked', 'expired'] as const;
 export type UserInvitationStatus = (typeof userInvitationStatuses)[number];

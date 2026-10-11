@@ -159,6 +159,100 @@ describe('System administrator account management full flows', () => {
     expect(await UserInvitation.findOne({ target_user_id: userId })).toMatchObject({ status: 'accepted' });
   });
 
+  it('creates, resends and accepts an Enterprise Administrator invitation with own-company scope', async () => {
+    const username = `ent_${new Types.ObjectId()}`;
+    const created = await adminRequest('POST', '/users', {
+      email: `${username}@example.test`, username, fullName: 'Enterprise Admin',
+      role: 'enterprise_admin', enterpriseId: String(enterpriseId),
+    });
+    expect(created.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+    const id = new Types.ObjectId(String((created.body.user as { id: string }).id));
+    createdUserIds.push(id);
+    expect(created.body.user).toMatchObject({ role: 'enterprise_admin', status: 'invited', enterpriseId: String(enterpriseId), emailVerified: false });
+    const firstToken = new URL(invitationUrl).searchParams.get('token');
+    expect((await adminRequest('POST', `/users/${id}/invitation-deliveries`)).status).toBe(HTTP_STATUS.HTTP_202_ACCEPTED);
+    const freshToken = new URL(invitationUrl).searchParams.get('token');
+    expect(freshToken).not.toBe(firstToken);
+    const accept = (tokenValue: string | null) => request('/user-invitations/accept', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: tokenValue, password: 'EntAdminPassword123!' }),
+    });
+    expect((await accept(firstToken)).status).toBe(HTTP_STATUS.HTTP_410_GONE);
+    expect((await accept(freshToken)).body).toMatchObject({ id: String(id), role: 'enterprise_admin', status: 'active' });
+    expect((await accept(freshToken)).status).toBe(HTTP_STATUS.HTTP_410_GONE);
+    expect(await User.findById(id)).toMatchObject({ role: 'enterprise_admin', enterprise_id: enterpriseId, email_verified: true });
+    const login = await request('/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ identifier: username, password: 'EntAdminPassword123!' }),
+    });
+    expect(login.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const access = (login.body.tokens as { accessToken: string }).accessToken;
+    const ownJobs = await request('/recruiter/job-postings', { headers: { authorization: `Bearer ${access}` } });
+    expect(ownJobs.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await request('/users', { headers: { authorization: `Bearer ${access}` } })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    const foreign = new Types.ObjectId();
+    const tampered = await request(`/recruiter/job-postings?enterprise_id=${foreign}`, { headers: { authorization: `Bearer ${access}` } });
+    expect(tampered.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(tampered.body.items).toEqual(ownJobs.body.items);
+    await User.updateOne({ _id: id }, { $set: { status: 'suspended' }, $inc: { auth_version: 1 } });
+    for (const path of [`/job-postings/${foreign}/history`, `/job-postings/${foreign}/close`]) {
+      expect((await request(path, { method: path.endsWith('/close') ? 'PATCH' : 'GET', headers: { authorization: `Bearer ${access}` } })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    }
+  });
+
+  it('requires an active non-deleted enterprise and System Administrator to create an Ent Admin', async () => {
+    const body = { email: `${new Types.ObjectId()}@example.test`, username: `bad_${new Types.ObjectId()}`, fullName: 'Ent Admin', role: 'enterprise_admin' };
+    expect((await adminRequest('POST', '/users', body)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(new Types.ObjectId()) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'suspended' } });
+    try {
+      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+      await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active', is_deleted: true } });
+      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    } finally {
+      await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active', is_deleted: false } });
+    }
+    expect(await User.exists({ email: body.email })).toBeNull();
+    const candidate = await User.create({ email: `${new Types.ObjectId()}@example.test`, username: `not_admin_${new Types.ObjectId()}`, role: 'user', status: 'active', email_verified: true });
+    createdUserIds.push(candidate._id);
+    expect((await request('/users', {
+      method: 'POST', headers: { authorization: `Bearer ${token(candidate._id, 'user')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, enterpriseId: String(enterpriseId) }),
+    })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('keeps Ent Admin invited when its enterprise becomes suspended before acceptance', async () => {
+    const username = `sus_${new Types.ObjectId()}`;
+    const created = await adminRequest('POST', '/users', { email: `${username}@example.test`, username, fullName: 'Ent Admin', role: 'enterprise_admin', enterpriseId: String(enterpriseId) });
+    expect(created.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+    const id = new Types.ObjectId(String((created.body.user as { id: string }).id));
+    createdUserIds.push(id);
+    const raw = new URL(invitationUrl).searchParams.get('token');
+    await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'suspended' } });
+    try {
+      const result = await request('/user-invitations/accept', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: raw, password: 'EntAdminPassword123!' }) });
+      expect(result.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+      expect((await adminRequest('POST', `/users/${id}/invitation-deliveries`)).status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+      expect(await User.findById(id)).toMatchObject({ status: 'invited', email_verified: false });
+      expect(await UserInvitation.findOne({ target_user_id: id })).toMatchObject({ status: 'pending' });
+      expect((await Account.findOne({ user_id: id }).select('+password_hash'))?.password_hash).toBeUndefined();
+    } finally {
+      await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active' } });
+    }
+  });
+
+  it('rejects an expired Ent Admin invitation without activating the account', async () => {
+    const username = `exp_${new Types.ObjectId()}`;
+    const created = await adminRequest('POST', '/users', { email: `${username}@example.test`, username, fullName: 'Expired Ent Admin', role: 'enterprise_admin', enterpriseId: String(enterpriseId) });
+    expect(created.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+    const id = new Types.ObjectId(String((created.body.user as { id: string }).id));
+    createdUserIds.push(id);
+    const raw = new URL(invitationUrl).searchParams.get('token');
+    await UserInvitation.updateOne({ target_user_id: id }, { $set: { expires_at: new Date(Date.now() - 1) } });
+    expect((await request('/user-invitations/accept', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: raw, password: 'EntAdminPassword123!' }) })).status).toBe(HTTP_STATUS.HTTP_410_GONE);
+    expect(await User.findById(id)).toMatchObject({ status: 'invited', email_verified: false });
+  });
+
   it('audits a versioned suspension, rejects stale updates, and returns its history', async () => {
     const userId = new Types.ObjectId();
     createdUserIds.push(userId);

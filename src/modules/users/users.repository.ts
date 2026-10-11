@@ -1,6 +1,7 @@
 import { Types, type ClientSession, type QueryFilter } from 'mongoose';
 
 import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { CreateAdminUserBody } from './users.schemas.js';
 import type { UpdateUserBody, UserListQuery } from './users.schemas.js';
@@ -113,7 +114,7 @@ export class UsersRepository {
     return User.findById(id).session(session).exec();
   }
 
-  async updateNewAccountFromInvitation(id: Types.ObjectId, role: 'user' | 'recruiter', enterpriseId: Types.ObjectId | null, expectedVersion: number, session: ClientSession): Promise<UserDoc | null> {
+  async updateNewAccountFromInvitation(id: Types.ObjectId, role: UserInvitationRole, enterpriseId: Types.ObjectId | null, expectedVersion: number, session: ClientSession): Promise<UserDoc | null> {
     const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
     return User.findOneAndUpdate({ _id: id, status: 'invited', email_verified: false, ...versionFilter }, {
       $set: { role, enterprise_id: enterpriseId, status: 'active', email_verified: true }, $inc: { auth_version: 1, version: 1 },

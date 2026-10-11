@@ -28,8 +28,8 @@ export class EnterprisesService {
     private readonly userService: UsersService = usersService,
   ) {}
 
-  async isActiveEnterprise(id: string): Promise<boolean> {
-    const enterprise = await this.repository.findById(id);
+  async isActiveEnterprise(id: string, session?: mongoose.ClientSession): Promise<boolean> {
+    const enterprise = await this.repository.findById(id, session);
     return Boolean(enterprise && enterprise.status === 'active');
   }
 
