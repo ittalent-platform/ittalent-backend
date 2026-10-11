@@ -51,6 +51,12 @@ describe('userListQuerySchema (UC-USER-01)', () => {
   it('accepts a search of exactly 100 characters', () => {
     expect(userListQuerySchema.safeParse({ search: 'a'.repeat(100) }).success).toBe(true);
   });
+
+  it('accepts enterprise_admin as a persisted and filterable role', () => {
+    expect(userListQuerySchema.parse({ role: 'enterprise_admin' }).role).toBe(
+      'enterprise_admin',
+    );
+  });
 });
 
 describe('updateUserBodySchema', () => {
