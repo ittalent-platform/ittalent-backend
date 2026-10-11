@@ -38,6 +38,8 @@ export const legalDocumentInputSchema = z.object({
 export type LegalDocumentInputDTO = z.infer<typeof legalDocumentInputSchema>;
 
 export const startRegistrationBodySchema = z.object({
+  // [BR-27 / EX1]: Corporate email domain requirement.
+  // Rejects public/personal webmail providers (e.g., gmail, yahoo, hotmail).
   corporate_email: z
     .string()
     .trim()
@@ -70,6 +72,7 @@ export const startRegistrationBodySchema = z.object({
 
 export type StartRegistrationDTO = z.infer<typeof startRegistrationBodySchema>;
 
+// [BR-28 / EX5]: Email verification magic link query contract.
 export const verifyEmailQuerySchema = z.object({
   token: z.string().trim().min(REGISTRATION_CONFIG.TOKEN_MIN_LENGTH, `Verification token must be at least ${REGISTRATION_CONFIG.TOKEN_MIN_LENGTH} characters`),
 });

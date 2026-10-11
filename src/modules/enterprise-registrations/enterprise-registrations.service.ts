@@ -62,6 +62,8 @@ export class EnterpriseRegistrationsService {
     const corporateEmail = input.corporate_email.trim().toLowerCase();
     const domain = corporateEmail.split('@')[1];
 
+    // [BR-27 / EX1]: Corporate email domain check.
+    // Personal or consumer webmail providers (e.g., gmail, yahoo, hotmail) are prohibited.
     if (domain && (BLOCKED_EMAIL_DOMAINS as readonly string[]).includes(domain)) {
       throw createHttpError(
         HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -71,12 +73,16 @@ export class EnterpriseRegistrationsService {
 
     const existingUser = await this.userRepo.findByEmail(corporateEmail);
     if (existingUser) {
+      // [PRE-2 / BR-40 / EX1]: Candidate role conflict.
+      // Users with active candidate/applicant accounts cannot request an enterprise.
       if (existingUser.role === 'applicant' || existingUser.role === 'user') {
         throw createHttpError(
           HTTP_STATUS.HTTP_409_CONFLICT,
           REGISTRATION_MESSAGES.CANDIDATE_CANNOT_REGISTER,
         );
       }
+      // [PRE-2 / EX2]: Existing enterprise association conflict.
+      // An account already tied to a registered company cannot initiate a new enterprise intake.
       if (existingUser.enterprise_id) {
         throw createHttpError(
           HTTP_STATUS.HTTP_409_CONFLICT,
@@ -85,6 +91,8 @@ export class EnterpriseRegistrationsService {
       }
     }
 
+    // [PRE-2 / EX2]: Active organization conflict.
+    // Email already belongs to an existing, verified enterprise entity.
     const existingEnterprise = await this.enterpriseRepo.findByEmail(corporateEmail);
     if (existingEnterprise) {
       throw createHttpError(
@@ -93,6 +101,8 @@ export class EnterpriseRegistrationsService {
       );
     }
 
+    // [BR-42 / EX3]: Exclusive claim lock check.
+    // Prohibit intake if an active registration is currently in pending_review or under_review.
     const hasPending = await this.repository.hasPendingRegistrationByEmail(corporateEmail);
     if (hasPending) {
       throw createHttpError(
@@ -101,12 +111,15 @@ export class EnterpriseRegistrationsService {
       );
     }
 
+    // [BR-28]: Generate single-use verification token with 24-hour expiration window.
     const rawToken = randomBytes(REGISTRATION_CONFIG.TOKEN_BYTES).toString('hex');
     const tokenHash = this.hashToken(rawToken);
     const expiresAt = new Date(
       Date.now() + REGISTRATION_CONFIG.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * TIME_MS.ONE_HOUR,
     );
 
+    // [AC.1]: Save and Resume Draft support.
+    // If an unverified draft exists, update representative info and regenerate verification token.
     const existingDraft = await this.repository.findDraftByEmail(corporateEmail);
     if (existingDraft) {
       existingDraft.representative = {
@@ -119,6 +132,7 @@ export class EnterpriseRegistrationsService {
       };
       await existingDraft.save();
     } else {
+      // [POST-1]: Initialize a persistent draft case (REG-YYYYMMDD-XXXX, version v1).
       const registrationCode = this.generateRegistrationCode();
       await this.repository.create({
         registration_code: registrationCode,
@@ -136,6 +150,7 @@ export class EnterpriseRegistrationsService {
       });
     }
 
+    // Dispatch magic link email to representative's corporate inbox.
     const baseUrl = env.APP_BASE_URL.replace(/\/$/, '');
     const verificationUrl = `${baseUrl}/enterprise-registration/verify?token=${rawToken}`;
     await sendEnterpriseRegistrationMagicLink(
@@ -154,6 +169,8 @@ export class EnterpriseRegistrationsService {
     const tokenHash = this.hashToken(token);
     const registration = await this.repository.findByTokenHash(tokenHash);
 
+    // [EX5]: Token validity check.
+    // Reject if verification token hash cannot be matched against any registration draft.
     if (!registration) {
       throw createHttpError(
         HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -161,6 +178,8 @@ export class EnterpriseRegistrationsService {
       );
     }
 
+    // [BR-28 / EX5]: Expiration enforcement.
+    // Reject if verification link is older than 24 hours.
     const expiresAt = registration.verification_token?.expires_at;
     if (!expiresAt || expiresAt.getTime() < Date.now()) {
       throw createHttpError(
@@ -169,6 +188,7 @@ export class EnterpriseRegistrationsService {
       );
     }
 
+    // [POST-1]: Transition case to verified draft, activating multi-step wizard session.
     registration.verification_token = {
       ...(registration.verification_token ?? {}),
       token_hash: registration.verification_token?.token_hash,
