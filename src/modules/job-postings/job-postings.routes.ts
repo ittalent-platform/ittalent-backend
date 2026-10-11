@@ -13,6 +13,7 @@ import {
   jobPostingListQuerySchema,
   updateJobPostingSchema,
 } from './job-postings.schemas.js';
+import { JOB_POSTING_MANAGER_ROLES } from './job-postings.constants.js';
 
 export const jobPostingsRouter = Router();
 jobPostingsRouter.get(
@@ -35,28 +36,28 @@ jobPostingsRouter.get(
 jobPostingsRouter.get(
   '/recruiter/job-postings',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateQuery(jobPostingListQuerySchema),
   jobPostingsController.listRecruiter,
 );
 jobPostingsRouter.post(
   '/job-postings',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateBody(createJobPostingSchema),
   jobPostingsController.create,
 );
 jobPostingsRouter.get(
   '/job-postings/:id',
   authenticate,
-  authorize('admin', 'recruiter'),
+  authorize('admin', ...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.getById,
 );
 jobPostingsRouter.patch(
   '/job-postings/:id',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   validateBody(updateJobPostingSchema),
   jobPostingsController.update,
@@ -64,35 +65,35 @@ jobPostingsRouter.patch(
 jobPostingsRouter.patch(
   '/job-postings/:id/close',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.close,
 );
 jobPostingsRouter.patch(
   '/job-postings/:id/reopen',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.reopen,
 );
 jobPostingsRouter.patch(
   '/job-postings/:id/archive',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.archive,
 );
 jobPostingsRouter.patch(
   '/job-postings/:id/restore',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.restore,
 );
 jobPostingsRouter.get(
   '/job-postings/:id/history',
   authenticate,
-  authorize('admin', 'recruiter'),
+  authorize('admin', ...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   validateQuery(jobPostingHistoryQuerySchema),
   jobPostingsController.history,
@@ -100,7 +101,7 @@ jobPostingsRouter.get(
 jobPostingsRouter.delete(
   '/job-postings/:id',
   authenticate,
-  authorize('recruiter'),
+  authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.remove,
 );

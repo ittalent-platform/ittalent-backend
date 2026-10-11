@@ -88,12 +88,13 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     method: 'get',
     path: '/api/v1/recruiter/job-postings',
     tags: ['Job Postings'],
-    summary: "List the recruiter's enterprise job postings",
+    summary: 'List job postings for the assigned enterprise',
     security: [{ bearerAuth: [] }],
     request: { query: listQuery },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Paginated job postings for the recruiter enterprise',
+        description:
+          'Paginated job postings for the enterprise assigned to the recruiter or enterprise administrator',
         content: { 'application/json': { schema: paginated } },
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
@@ -129,9 +130,9 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     method: 'post',
     path: '/api/v1/job-postings',
     tags: ['Job Postings'],
-    summary: 'Create a job posting for the authenticated recruiter enterprise',
+    summary: 'Create a job posting for the assigned enterprise',
     description:
-      'Defaults to Published for backward compatibility. Send publication_status=draft to save an incomplete internal draft. Published postings require all public fields and an Active enterprise.',
+      'Recruiters and enterprise administrators use their server-side User.enterprise_id assignment. Defaults to Published for backward compatibility. Send publication_status=draft to save an incomplete internal draft. Published postings require all public fields and an Active enterprise.',
     security: [{ bearerAuth: [] }],
     request: {
       body: {
@@ -155,7 +156,7 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     path: '/api/v1/job-postings/{id}',
     tags: ['Job Postings'],
     summary:
-      'Get a job posting for management (recruiter of the owning enterprise, or admin read-only)',
+      'Get a job posting for management (recruiter or enterprise administrator of the owning enterprise, or platform admin read-only)',
     security: [{ bearerAuth: [] }],
     request: { params: jobPostingIdParamSchema },
     responses: {
@@ -178,7 +179,7 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Job Postings'],
     summary: 'Update, publish, or move a job posting to draft',
     description:
-      'Recruiters of the owning enterprise only. publication_status accepts draft or published. Publishing validates all required public fields; archived postings must be restored first.',
+      'Recruiters and enterprise administrators of the owning enterprise only. publication_status accepts draft or published. Publishing validates all required public fields; archived postings must be restored first.',
     security: [{ bearerAuth: [] }],
     request: {
       params: jobPostingIdParamSchema,
@@ -318,7 +319,7 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Job Postings'],
     summary: 'Delete a job posting for management',
     description:
-      'Recruiters of the owning enterprise only. Hard-removes the posting in any state, and only while no application has ever been recorded for it.',
+      'Recruiters and enterprise administrators of the owning enterprise only. Hard-removes the posting in any state, and only while no application has ever been recorded for it.',
     security: [{ bearerAuth: [] }],
     request: { params: jobPostingIdParamSchema },
     responses: {

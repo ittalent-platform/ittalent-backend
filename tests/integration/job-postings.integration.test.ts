@@ -90,6 +90,10 @@ let recruiterA1: UserDoc;
 let recruiterA2: UserDoc;
 let recruiterB: UserDoc;
 let recruiterWithoutEnterprise: UserDoc;
+let enterpriseAdminA: UserDoc;
+let enterpriseAdminB: UserDoc;
+let enterpriseAdminWithoutEnterprise: UserDoc;
+let applicant: UserDoc;
 let admin: UserDoc;
 let enterpriseAId: string;
 let enterpriseBId: string;
@@ -99,7 +103,7 @@ let jobBId: string;
 async function createUser(
   email: string,
   username: string,
-  role: 'admin' | 'recruiter',
+  role: 'admin' | 'enterprise_admin' | 'recruiter' | 'user',
 ): Promise<UserDoc> {
   const user = await User.create({ email, username, role, status: 'active' });
   await Account.create({
@@ -189,6 +193,26 @@ describe('Job posting enterprise ownership integration', () => {
       'recruiter_none',
       'recruiter',
     );
+    enterpriseAdminA = await createUser(
+      'enterprise-admin-a@integration.test',
+      'enterprise_admin_a',
+      'enterprise_admin',
+    );
+    enterpriseAdminB = await createUser(
+      'enterprise-admin-b@integration.test',
+      'enterprise_admin_b',
+      'enterprise_admin',
+    );
+    enterpriseAdminWithoutEnterprise = await createUser(
+      'enterprise-admin-none@integration.test',
+      'enterprise_admin_none',
+      'enterprise_admin',
+    );
+    applicant = await createUser(
+      'applicant@integration.test',
+      'integration_applicant',
+      'user',
+    );
     admin = await createUser(
       'admin@integration.test',
       'integration_admin',
@@ -227,11 +251,15 @@ describe('Job posting enterprise ownership integration', () => {
     enterpriseAId = String(enterpriseA._id);
     enterpriseBId = String(enterpriseB._id);
     await User.updateMany(
-      { _id: { $in: [recruiterA1._id, recruiterA2._id] } },
+      {
+        _id: {
+          $in: [recruiterA1._id, recruiterA2._id, enterpriseAdminA._id],
+        },
+      },
       { $set: { enterprise_id: enterpriseA._id } },
     );
-    await User.updateOne(
-      { _id: recruiterB._id },
+    await User.updateMany(
+      { _id: { $in: [recruiterB._id, enterpriseAdminB._id] } },
       { $set: { enterprise_id: enterpriseB._id } },
     );
     const jobA = await JobPosting.create({
@@ -278,6 +306,16 @@ describe('Job posting enterprise ownership integration', () => {
   async function remove(token: string, id: string): Promise<Response> {
     return fetch(`${baseUrl}/api/v1/job-postings/${id}`, {
       method: 'DELETE',
+      headers: auth(token),
+    });
+  }
+  async function transition(
+    token: string,
+    id: string,
+    action: 'close' | 'reopen' | 'archive' | 'restore',
+  ): Promise<Response> {
+    return fetch(`${baseUrl}/api/v1/job-postings/${id}/${action}`, {
+      method: 'PATCH',
       headers: auth(token),
     });
   }
@@ -349,6 +387,187 @@ describe('Job posting enterprise ownership integration', () => {
         })
       ).status,
     ).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+  });
+
+  it('lets an enterprise admin list, search, filter, view, and inspect history only inside their enterprise', async () => {
+    const secondJob = await JobPosting.create({
+      enterprise_id: enterpriseAId,
+      posted_by_user_id: recruiterA2._id,
+      title: 'Enterprise A Secondary Engineer',
+      slug: 'enterprise-a-secondary-engineer',
+      status: 'published',
+      ...validFields,
+    });
+    await JobPostingAuditEvent.create({
+      job_posting_id: secondJob._id,
+      enterprise_id: enterpriseAId,
+      actor_user_id: recruiterA2._id,
+      action: 'create',
+      result: 'success',
+      job_title: secondJob.title,
+    });
+    const enterpriseAdminLogin = await login(enterpriseAdminA.email);
+    const token = enterpriseAdminLogin.tokens.accessToken;
+    const scopedResponse = await fetch(
+      `${baseUrl}/api/v1/recruiter/job-postings?search=Enterprise&publication_status=published&employment_type=Full-time&enterprise_id=${enterpriseBId}`,
+      { headers: auth(token) },
+    );
+    expect(scopedResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const scoped = (await scopedResponse.json()) as { items: JobResponse[] };
+    expect(scoped.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([jobAId, String(secondJob._id)]),
+    );
+    expect(
+      scoped.items.every((item) => item.enterpriseId === enterpriseAId),
+    ).toBe(true);
+    expect(scoped.items.map((item) => item.id)).not.toContain(jobBId);
+
+    for (const id of [jobAId, String(secondJob._id)]) {
+      expect(
+        (
+          await fetch(`${baseUrl}/api/v1/job-postings/${id}`, {
+            headers: auth(token),
+          })
+        ).status,
+      ).toBe(HTTP_STATUS.HTTP_200_OK);
+    }
+    expect(
+      (
+        await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}`, {
+          headers: auth(token),
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+
+    const ownHistory = await fetch(
+      `${baseUrl}/api/v1/job-postings/${String(secondJob._id)}/history`,
+      { headers: auth(token) },
+    );
+    expect(ownHistory.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(
+      ((await ownHistory.json()) as { items: Array<{ action: string }> }).items,
+    ).toEqual([expect.objectContaining({ action: 'create' })]);
+    expect(
+      (
+        await fetch(`${baseUrl}/api/v1/job-postings/${jobBId}/history`, {
+          headers: auth(token),
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+
+    const unassignedLogin = await login(enterpriseAdminWithoutEnterprise.email);
+    expect(
+      (
+        await fetch(`${baseUrl}/api/v1/recruiter/job-postings`, {
+          headers: auth(unassignedLogin.tokens.accessToken),
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+  });
+
+  it('lets an enterprise admin create, edit, and transition recruiter-owned jobs while auditing the real actor', async () => {
+    const enterpriseAdminLogin = await login(enterpriseAdminA.email);
+    const token = enterpriseAdminLogin.tokens.accessToken;
+    const draftResponse = await post(token, {
+      title: 'Enterprise Admin Lifecycle Job',
+      publication_status: 'draft',
+    });
+    expect(draftResponse.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+    const draft = (await draftResponse.json()) as JobResponse;
+    expect(draft.enterpriseId).toBe(enterpriseAId);
+    expect(draft.postedByUserId).toBe(String(enterpriseAdminA._id));
+
+    expect(
+      (
+        await patch(token, jobAId, {
+          title: 'Recruiter Job Managed By Enterprise Admin',
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await transition(token, draft.id, 'close')).status).toBe(
+      HTTP_STATUS.HTTP_409_CONFLICT,
+    );
+    expect(
+      (
+        await patch(token, draft.id, {
+          ...validPayload,
+          title: 'Enterprise Admin Lifecycle Job',
+          publication_status: 'published',
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await transition(token, draft.id, 'archive')).status).toBe(
+      HTTP_STATUS.HTTP_409_CONFLICT,
+    );
+    expect((await transition(token, draft.id, 'close')).status).toBe(
+      HTTP_STATUS.HTTP_200_OK,
+    );
+    expect((await transition(token, draft.id, 'reopen')).status).toBe(
+      HTTP_STATUS.HTTP_200_OK,
+    );
+    expect((await transition(token, draft.id, 'close')).status).toBe(
+      HTTP_STATUS.HTTP_200_OK,
+    );
+    expect((await transition(token, draft.id, 'archive')).status).toBe(
+      HTTP_STATUS.HTTP_200_OK,
+    );
+
+    const historyResponse = await fetch(
+      `${baseUrl}/api/v1/job-postings/${draft.id}/history`,
+      { headers: auth(token) },
+    );
+    expect(historyResponse.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const history = (await historyResponse.json()) as {
+      items: Array<{ action: string; actorUserId: string }>;
+    };
+    expect(history.items.map((item) => item.action)).toEqual(
+      expect.arrayContaining([
+        'create',
+        'publish',
+        'close',
+        'reopen',
+        'archive',
+      ]),
+    );
+    expect(
+      history.items.every(
+        (item) => item.actorUserId === String(enterpriseAdminA._id),
+      ),
+    ).toBe(true);
+
+    expect(
+      (
+        await patch(token, jobBId, {
+          title: 'Cross Enterprise Update Is Forbidden',
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect((await transition(token, jobBId, 'close')).status).toBe(
+      HTTP_STATUS.HTTP_403_FORBIDDEN,
+    );
+  });
+
+  it('rejects guest, applicant, and unassigned enterprise-admin management requests', async () => {
+    const applicantLogin = await login(applicant.email);
+    const unassignedLogin = await login(enterpriseAdminWithoutEnterprise.email);
+    expect((await post(applicantLogin.tokens.accessToken, validPayload)).status).toBe(
+      HTTP_STATUS.HTTP_403_FORBIDDEN,
+    );
+    expect((await transition(applicantLogin.tokens.accessToken, jobAId, 'close')).status).toBe(
+      HTTP_STATUS.HTTP_403_FORBIDDEN,
+    );
+    expect(
+      (
+        await fetch(`${baseUrl}/api/v1/job-postings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(validPayload),
+        })
+      ).status,
+    ).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    expect((await post(unassignedLogin.tokens.accessToken, validPayload)).status).toBe(
+      HTTP_STATUS.HTTP_403_FORBIDDEN,
+    );
   });
 
   it('counts applications in the company list and detail but never in the public list', async () => {

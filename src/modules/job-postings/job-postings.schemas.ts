@@ -40,9 +40,8 @@ const deadline = z
   .trim()
   .refine(isValidDeadlineInput, JOB_POSTING_MESSAGES.DEADLINE_INVALID);
 
-// Fields HR/Recruiter may set. Publication status, enterprise ownership and application data are deliberately
-// absent: both schemas are strict, so sending them is rejected (UC-JOB-01, UC-JOB-02.EX.2). Sprint 1 has no Draft or
-// status change: saving always publishes, and the stored status is read-only.
+// Fields recruiters may set. Enterprise ownership and application data are deliberately absent:
+// both schemas are strict, so sending them is rejected (UC-JOB-01, UC-JOB-02.EX.2).
 const editable = {
   title: z.string().trim().min(JOB_LIMITS.TITLE_MIN).max(JOB_LIMITS.TITLE_MAX),
   location: z
@@ -78,7 +77,7 @@ function validSalary(input: {
   );
 }
 
-// Saving always publishes, so every Published-field is required on create (BR-JOB-003).
+// Draft creation requires only a title; publishing requires every public field (BR-JOB-003).
 export const createJobPostingSchema = z
   .object({
     title: editable.title,

@@ -29,6 +29,7 @@ export class JobPostingsController {
         .json(
           await this.service.create(
             req.user.id,
+            req.user.role,
             res.locals.validated?.body as CreateJobPosting,
           ),
         );
@@ -197,6 +198,7 @@ export class JobPostingsController {
       res.json(
         await this.service.listRecruiter(
           req.user.id,
+          req.user.role,
           res.locals.validated?.query as JobPostingListQuery,
         ),
       );

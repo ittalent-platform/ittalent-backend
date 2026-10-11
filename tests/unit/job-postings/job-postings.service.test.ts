@@ -9,6 +9,7 @@ const enterpriseA = '507f1f77bcf86cd799439011';
 const enterpriseB = '507f1f77bcf86cd799439012';
 const recruiterA1 = '507f1f77bcf86cd799439021';
 const recruiterA2 = '507f1f77bcf86cd799439022';
+const enterpriseAdminA = '507f1f77bcf86cd799439023';
 const admin = '507f1f77bcf86cd799439099';
 const jobId = '507f1f77bcf86cd799439031';
 
@@ -121,7 +122,7 @@ describe('JobPostingsService enterprise ownership', () => {
   it('assigns the authenticated recruiter enterprise on create and publishes with an end-of-day deadline', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.create.mockResolvedValue(jobPosting(enterpriseA));
-    await service.create(recruiterA1, createInput);
+    await service.create(recruiterA1, 'recruiter', createInput);
     expect(repository.create).toHaveBeenCalledWith(
       recruiterA1,
       enterpriseA,
@@ -137,7 +138,7 @@ describe('JobPostingsService enterprise ownership', () => {
   it('filters recruiter management list by enterprise on the repository query', async () => {
     const { service, repository } = createService(enterpriseA);
     repository.list.mockResolvedValue({ items: [], total: 0 });
-    await service.listRecruiter(recruiterA1, listQuery);
+    await service.listRecruiter(recruiterA1, 'recruiter', listQuery);
     expect(repository.list).toHaveBeenCalledWith(listQuery, {
       publicOnly: false,
       enterpriseId: enterpriseA,
@@ -180,12 +181,108 @@ describe('JobPostingsService enterprise ownership', () => {
   it('rejects a recruiter without an enterprise on create and list', async () => {
     const { service, repository } = createService(null);
     await expect(
-      service.create(recruiterA1, createInput),
+      service.create(recruiterA1, 'recruiter', createInput),
     ).rejects.toMatchObject({ statusCode: 403 });
     await expect(
-      service.listRecruiter(recruiterA1, listQuery),
+      service.listRecruiter(recruiterA1, 'recruiter', listQuery),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it('lets an enterprise administrator create and list every posting in the assigned enterprise', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.create.mockResolvedValue(
+      jobPosting(enterpriseA, { posted_by_user_id: enterpriseAdminA }),
+    );
+    repository.list.mockResolvedValue({
+      items: [
+        jobPosting(enterpriseA, { posted_by_user_id: recruiterA1 }),
+        jobPosting(enterpriseA, { posted_by_user_id: recruiterA2 }),
+      ],
+      total: 2,
+    });
+
+    await service.create(enterpriseAdminA, 'enterprise_admin', createInput);
+    const result = await service.listRecruiter(
+      enterpriseAdminA,
+      'enterprise_admin',
+      listQuery,
+    );
+
+    expect(repository.create).toHaveBeenCalledWith(
+      enterpriseAdminA,
+      enterpriseA,
+      createInput,
+      'backend-engineer',
+      new Date('2099-01-01T16:59:59.999Z'),
+    );
+    expect(repository.list).toHaveBeenCalledWith(listQuery, {
+      publicOnly: false,
+      enterpriseId: enterpriseA,
+    });
+    expect(result.items).toHaveLength(2);
+  });
+
+  it('lets an enterprise administrator update a recruiter-created posting and preserves the real audit actor', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(
+      jobPosting(enterpriseA, { posted_by_user_id: recruiterA2 }),
+    );
+    repository.update.mockResolvedValue(
+      jobPosting(enterpriseA, {
+        posted_by_user_id: recruiterA2,
+        title: 'Enterprise Platform Engineer',
+      }),
+    );
+
+    await service.update(jobId, enterpriseAdminA, 'enterprise_admin', {
+      title: 'Enterprise Platform Engineer',
+    });
+
+    expect(repository.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor_user_id: expect.objectContaining({}),
+        action: 'update',
+      }),
+    );
+    const audit = repository.recordAudit.mock.calls[0]?.[0] as {
+      actor_user_id: { toString(): string };
+    };
+    expect(audit.actor_user_id.toString()).toBe(enterpriseAdminA);
+  });
+
+  it('denies an enterprise administrator access to another enterprise or without an assignment', async () => {
+    const assigned = createService(enterpriseA);
+    assigned.repository.findById.mockResolvedValue(jobPosting(enterpriseB));
+    await expect(
+      assigned.service.getByIdForManagement(
+        jobId,
+        enterpriseAdminA,
+        'enterprise_admin',
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const unassigned = createService(null);
+    unassigned.repository.list.mockResolvedValue({ items: [], total: 0 });
+    await expect(
+      unassigned.service.listRecruiter(
+        enterpriseAdminA,
+        'enterprise_admin',
+        listQuery,
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('rejects non-manager roles before resolving enterprise scope', async () => {
+    const { service, repository } = createService(enterpriseA);
+    await expect(
+      service.create(recruiterA1, 'user', createInput),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      service.listRecruiter(recruiterA1, 'user', listQuery),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.list).not.toHaveBeenCalled();
   });
 });
 
@@ -196,7 +293,7 @@ describe('JobPostingsService business rules', () => {
     repository.create.mockResolvedValue(
       jobPosting(enterpriseA, { status: 'draft', expires_at: undefined }),
     );
-    await service.create(recruiterA1, {
+    await service.create(recruiterA1, 'recruiter', {
       title: 'Backend Draft',
       publication_status: 'draft',
     });
@@ -214,7 +311,7 @@ describe('JobPostingsService business rules', () => {
     const { service, repository } = createService(enterpriseA);
     repository.isEnterpriseActive.mockResolvedValue(false);
     await expect(
-      service.create(recruiterA1, createInput),
+      service.create(recruiterA1, 'recruiter', createInput),
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(repository.create).not.toHaveBeenCalled();
   });
@@ -222,7 +319,10 @@ describe('JobPostingsService business rules', () => {
   it('rejects a deadline before today (AC-JOB-01-04)', async () => {
     const { service, repository } = createService(enterpriseA);
     await expect(
-      service.create(recruiterA1, { ...createInput, expires_at: '2020-01-01' }),
+      service.create(recruiterA1, 'recruiter', {
+        ...createInput,
+        expires_at: '2020-01-01',
+      }),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(repository.create).not.toHaveBeenCalled();
   });
@@ -232,7 +332,7 @@ describe('JobPostingsService business rules', () => {
     repository.create.mockResolvedValue(jobPosting(enterpriseA));
     repository.recordAudit.mockRejectedValue(new Error('audit down'));
     await expect(
-      service.create(recruiterA1, createInput),
+      service.create(recruiterA1, 'recruiter', createInput),
     ).rejects.toMatchObject({ statusCode: 503 });
     expect(repository.delete).toHaveBeenCalledWith(jobId);
   });
@@ -307,6 +407,17 @@ describe('JobPostingsService lifecycle and history', () => {
     );
     await expect(
       service.close(jobId, recruiterA1, 'recruiter'),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.transition).not.toHaveBeenCalled();
+  });
+
+  it('applies the same lifecycle transition rules to enterprise administrators', async () => {
+    const { service, repository } = createService(enterpriseA);
+    repository.findById.mockResolvedValue(
+      jobPosting(enterpriseA, { status: 'draft' }),
+    );
+    await expect(
+      service.close(jobId, enterpriseAdminA, 'enterprise_admin'),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(repository.transition).not.toHaveBeenCalled();
   });

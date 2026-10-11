@@ -16,7 +16,21 @@ export const JOB_POSTING_MESSAGES = {
     'Published job posting requires description, requirements, benefits, location, employment type, and deadline',
   AUDIT_FAILED: 'The request could not be completed. Please try again.',
   NOT_FOUND: 'Job posting not found',
+  MANAGER_ROLE_REQUIRED:
+    'Only recruiters and enterprise administrators can change job postings',
+  RECRUITER_ENTERPRISE_REQUIRED: 'Recruiter is not assigned to an enterprise',
+  MANAGER_ENTERPRISE_REQUIRED:
+    'Job posting manager is not assigned to an enterprise',
+  OTHER_ENTERPRISE: 'Job posting belongs to another enterprise',
 } as const;
+
+/** Roles that manage postings inside the enterprise assigned on their User record. */
+export const JOB_POSTING_MANAGER_ROLES = [
+  'recruiter',
+  'enterprise_admin',
+] as const;
+export type JobPostingManagerRole =
+  (typeof JOB_POSTING_MANAGER_ROLES)[number];
 
 /** Deadlines use the selected calendar day in Asia/Ho_Chi_Minh (UTC+7, no daylight saving). */
 export const JOB_DEADLINE = {

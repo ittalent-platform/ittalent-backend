@@ -12,6 +12,7 @@ import {
 } from './job-postings.repository.js';
 import {
   JOB_DEADLINE,
+  JOB_POSTING_MANAGER_ROLES,
   JOB_POSTING_MESSAGES,
   type JobAuditAction,
   type RecruitmentStatus,
@@ -144,26 +145,40 @@ export class JobPostingsService {
     }
     return slug;
   }
-  private async getRecruiterEnterpriseId(recruiterId: string): Promise<string> {
-    const enterpriseId = await this.userService.getEnterpriseId(recruiterId);
+  private assertEnterpriseManager(actorRole: string): void {
+    if (!JOB_POSTING_MANAGER_ROLES.some((role) => role === actorRole))
+      throw createHttpError(
+        HTTP_STATUS.HTTP_403_FORBIDDEN,
+        JOB_POSTING_MESSAGES.MANAGER_ROLE_REQUIRED,
+      );
+  }
+  private async getManagerEnterpriseId(
+    actorId: string,
+    actorRole: string,
+  ): Promise<string> {
+    const enterpriseId = await this.userService.getEnterpriseId(actorId);
     if (!enterpriseId)
       throw createHttpError(
         HTTP_STATUS.HTTP_403_FORBIDDEN,
-        'Recruiter is not assigned to an enterprise',
+        actorRole === 'recruiter'
+          ? JOB_POSTING_MESSAGES.RECRUITER_ENTERPRISE_REQUIRED
+          : JOB_POSTING_MESSAGES.MANAGER_ENTERPRISE_REQUIRED,
       );
     return enterpriseId;
   }
-  private async assertRecruiterCanManage(
+  private async assertEnterpriseManagerCanManage(
     jobPosting: JobPostingDoc,
-    recruiterId: string,
+    actorId: string,
+    actorRole: string,
   ): Promise<void> {
+    this.assertEnterpriseManager(actorRole);
     if (
       String(jobPosting.enterprise_id) !==
-      (await this.getRecruiterEnterpriseId(recruiterId))
+      (await this.getManagerEnterpriseId(actorId, actorRole))
     )
       throw createHttpError(
         HTTP_STATUS.HTTP_403_FORBIDDEN,
-        'Job posting belongs to another enterprise',
+        JOB_POSTING_MESSAGES.OTHER_ENTERPRISE,
       );
   }
   private async getExisting(id: string): Promise<JobPostingDoc> {
@@ -219,19 +234,13 @@ export class JobPostingsService {
         JOB_POSTING_MESSAGES.DEADLINE_IN_PAST,
       );
   }
-  // Recruiter-only mutations (the admin has no default company-job mutation permission).
-  private assertRecruiter(actorRole: string): void {
-    if (actorRole !== 'recruiter')
-      throw createHttpError(
-        HTTP_STATUS.HTTP_403_FORBIDDEN,
-        'Only recruiters can change job postings',
-      );
-  }
   async create(
-    recruiterId: string,
+    actorId: string,
+    actorRole: string,
     input: CreateJobPosting,
   ): Promise<JobPostingResponse> {
-    const enterpriseId = await this.getRecruiterEnterpriseId(recruiterId);
+    this.assertEnterpriseManager(actorRole);
+    const enterpriseId = await this.getManagerEnterpriseId(actorId, actorRole);
     const publicationStatus = input.publication_status ?? 'published';
     if (
       publicationStatus === 'published' &&
@@ -246,13 +255,13 @@ export class JobPostingsService {
       : undefined;
     if (deadline) this.assertDeadlineNotPast(deadline);
     const created = await this.repository.create(
-      recruiterId,
+      actorId,
       enterpriseId,
       input,
       await this.uniqueSlug(input.title),
       deadline,
     );
-    await this.audit('create', created, recruiterId, async () => {
+    await this.audit('create', created, actorId, async () => {
       await this.repository.delete(String(created._id));
     });
     return this.mapOne(created, true);
@@ -263,8 +272,12 @@ export class JobPostingsService {
     actorRole: string,
   ): Promise<JobPostingResponse> {
     const jobPosting = await this.getExisting(id);
-    if (actorRole === 'recruiter')
-      await this.assertRecruiterCanManage(jobPosting, actorId);
+    if (actorRole !== 'admin')
+      await this.assertEnterpriseManagerCanManage(
+        jobPosting,
+        actorId,
+        actorRole,
+      );
     return this.mapOne(jobPosting, true);
   }
   async update(
@@ -273,9 +286,8 @@ export class JobPostingsService {
     actorRole: string,
     input: UpdateJobPosting,
   ): Promise<JobPostingResponse> {
-    this.assertRecruiter(actorRole);
     const existing = await this.getExisting(id);
-    await this.assertRecruiterCanManage(existing, actorId);
+    await this.assertEnterpriseManagerCanManage(existing, actorId, actorRole);
     if (existing.status === 'archived')
       throw createHttpError(
         HTTP_STATUS.HTTP_409_CONFLICT,
@@ -364,9 +376,8 @@ export class JobPostingsService {
     nextStatus: JobPostingStatus,
     action: JobAuditAction,
   ): Promise<JobPostingResponse> {
-    this.assertRecruiter(actorRole);
     const existing = await this.getExisting(id);
-    await this.assertRecruiterCanManage(existing, actorId);
+    await this.assertEnterpriseManagerCanManage(existing, actorId, actorRole);
     if (existing.status !== currentStatus) {
       const message =
         action === 'close'
@@ -454,8 +465,11 @@ export class JobPostingsService {
   ): Promise<JobPostingResponse> {
     const existing = await this.getExisting(id);
     if (existing.status === 'archived') {
-      this.assertRecruiter(actorRole);
-      await this.assertRecruiterCanManage(existing, actorId);
+      await this.assertEnterpriseManagerCanManage(
+        existing,
+        actorId,
+        actorRole,
+      );
       return this.mapOne(existing, true);
     }
     return this.transition(
@@ -488,8 +502,8 @@ export class JobPostingsService {
     query: JobPostingHistoryQuery,
   ): Promise<JobPostingHistoryResponse> {
     const job = await this.getExisting(id);
-    if (actorRole === 'recruiter')
-      await this.assertRecruiterCanManage(job, actorId);
+    if (actorRole !== 'admin')
+      await this.assertEnterpriseManagerCanManage(job, actorId, actorRole);
     const result = await this.repository.listAudit(id, query.page, query.limit);
     return {
       items: result.items.map((item) => ({
@@ -506,9 +520,12 @@ export class JobPostingsService {
     };
   }
   async remove(id: string, actorId: string, actorRole: string): Promise<void> {
-    this.assertRecruiter(actorRole);
     const jobPosting = await this.getExisting(id);
-    await this.assertRecruiterCanManage(jobPosting, actorId);
+    await this.assertEnterpriseManagerCanManage(
+      jobPosting,
+      actorId,
+      actorRole,
+    );
     // Flag first so an application cannot slip in between the count and the delete; the apply path
     // refuses flagged jobs and re-checks the job after saving (see ApplicationsService.submit).
     const flagged = await this.repository.markDeleting(id);
@@ -594,12 +611,14 @@ export class JobPostingsService {
     return this.list(query, { publicOnly: false });
   }
   async listRecruiter(
-    recruiterId: string,
+    actorId: string,
+    actorRole: string,
     query: JobPostingListQuery,
   ): Promise<PaginatedJobPostings> {
+    this.assertEnterpriseManager(actorRole);
     return this.list(query, {
       publicOnly: false,
-      enterpriseId: await this.getRecruiterEnterpriseId(recruiterId),
+      enterpriseId: await this.getManagerEnterpriseId(actorId, actorRole),
     });
   }
   private async list(
