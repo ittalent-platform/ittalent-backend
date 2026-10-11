@@ -4,6 +4,7 @@ import {
   consumeEmailDeliveryStatus,
   escapeHtml,
   sendEmail,
+  sendEnterpriseRegistrationMagicLink,
   sendResetPasswordEmail,
   sendVerificationEmail,
 } from '../../../src/shared/services/email.service.js';
@@ -81,6 +82,27 @@ describe('EmailService', () => {
         }),
       );
       expect(consumeEmailDeliveryStatus('user@example.com')).toBe(true);
+    });
+  });
+
+  describe('sendEnterpriseRegistrationMagicLink', () => {
+    it('sends registration magic link with escaped name and url', async () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      await sendEnterpriseRegistrationMagicLink(
+        'rep@company.com',
+        'John <Doe>',
+        'http://localhost:5173/enterprise-registration/verify?token=secure123',
+      );
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[email:dev]',
+        expect.objectContaining({
+          to: 'rep@company.com',
+          subject: 'Complete your ITTalent enterprise registration',
+        }),
+      );
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
     });
   });
 });
