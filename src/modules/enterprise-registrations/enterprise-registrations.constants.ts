@@ -93,6 +93,9 @@ export const REGISTRATION_CONFIG = {
 
   FILE_NAME_MAX_LENGTH: 255,
   TOKEN_MIN_LENGTH: 16,
+  TOKEN_BYTES: 32,
+  CODE_RANDOM_BYTES: 3,
+  DATE_PAD_LENGTH: 2,
   SEARCH_MIN_LENGTH: 1,
   SEARCH_MAX_LENGTH: 100,
 
@@ -122,6 +125,9 @@ export const REGISTRATION_MESSAGES = {
   NOT_FOUND: 'Enterprise registration case not found',
   PERSONAL_EMAIL_REJECTED: 'Personal or generic email domains are not permitted. Please use your corporate organization email address',
   EMAIL_ALREADY_EXISTS: 'This email is already associated with an active enterprise or pending registration',
+  CANDIDATE_CANNOT_REGISTER: 'Candidate accounts cannot register an enterprise',
+  MAGIC_LINK_SENT: 'Verification magic link dispatched to corporate email address',
+  EMAIL_VERIFIED: 'Corporate email verified successfully',
   TAX_CODE_ALREADY_CLAIMED: 'This tax identification code is already registered or currently locked in a pending registration review',
   MISSING_LEGAL_DOCUMENTS: 'At least one valid business registration license document is mandatory for review submission',
   INVALID_VERSION: 'Registration version mismatch. A newer version of this case has already been submitted',
