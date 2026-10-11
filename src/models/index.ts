@@ -8,3 +8,4 @@ export * from './user.model.js';
 export * from './application.model.js';
 export * from './document.model.js';
 export * from './enterprise.model.js';export * from './job-posting-audit.model.js';
+export * from './interview.model.js';
