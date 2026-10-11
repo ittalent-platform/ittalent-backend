@@ -119,6 +119,27 @@ export async function sendApplicationConfirmationEmail(
   });
 }
 
+export async function sendEnterpriseRegistrationMagicLink(
+  to: string,
+  representativeName: string,
+  url: string,
+): Promise<void> {
+  const safeUrl = escapeHtml(url);
+  const safeName = escapeHtml(representativeName);
+  await sendEmail({
+    to,
+    subject: 'Complete your ITTalent enterprise registration',
+    html: `
+      <p>Hello ${safeName},</p>
+      <p>Thank you for initiating registration for your organization on ITTalent.</p>
+      <p>Please click the link below to verify your corporate email and continue your company registration:</p>
+      <p><a href="${safeUrl}">Verify corporate email and continue registration</a></p>
+      <p>This verification link is valid for 24 hours.</p>
+      <p>If you did not request this registration, please disregard this email.</p>
+    `,
+  });
+}
+
 export type InterviewEmailKind = 'scheduled' | 'updated' | 'cancelled';
 
 export interface InterviewEmailInput {
