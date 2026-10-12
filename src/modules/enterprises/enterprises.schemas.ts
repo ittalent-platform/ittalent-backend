@@ -79,8 +79,40 @@ export const createEnterpriseBodySchema = z.object({
     .optional(),
   address: enterpriseAddressSchema,
   branches: z.array(enterpriseAddressSchema).optional(),
-  logo_url: z.string().url('Invalid logo URL').optional().or(z.literal('')),
-  cover_url: z.string().url('Invalid cover URL').optional().or(z.literal('')),
+  logo_url: z
+    .string()
+    .refine(
+      (val) => {
+        if (val === '') return true;
+        if (val.startsWith('data:image/')) return true;
+        try {
+          const parsed = new URL(val);
+          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Invalid logo URL or image data format' },
+    )
+    .optional()
+    .nullable(),
+  cover_url: z
+    .string()
+    .refine(
+      (val) => {
+        if (val === '') return true;
+        if (val.startsWith('data:image/')) return true;
+        try {
+          const parsed = new URL(val);
+          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Invalid cover URL or image data format' },
+    )
+    .optional()
+    .nullable(),
   short_description: z.string().trim().max(ENTERPRISE_CONFIG.SHORT_DESC_MAX_LENGTH).optional(),
   description: z.string().trim().optional(),
   culture_summary: z.string().trim().optional(),
@@ -101,6 +133,40 @@ export const updateEnterpriseBodySchema = createEnterpriseBodySchema
       .trim()
       .regex(ENTERPRISE_CONFIG.TAX_CODE_REGEX, 'Tax code must be 10 to 13 numeric digits')
       .optional(),
+    logo_url: z
+      .string()
+      .refine(
+        (val) => {
+          if (val === '') return true;
+          if (val.startsWith('data:image/')) return true;
+          try {
+            const parsed = new URL(val);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        { message: 'Invalid logo URL or image data format' },
+      )
+      .optional()
+      .nullable(),
+    cover_url: z
+      .string()
+      .refine(
+        (val) => {
+          if (val === '') return true;
+          if (val.startsWith('data:image/')) return true;
+          try {
+            const parsed = new URL(val);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        { message: 'Invalid cover URL or image data format' },
+      )
+      .optional()
+      .nullable(),
   });
 
 export type UpdateEnterpriseDTO = z.infer<typeof updateEnterpriseBodySchema>;

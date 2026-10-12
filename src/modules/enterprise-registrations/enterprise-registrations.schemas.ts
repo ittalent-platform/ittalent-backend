@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { companySizes, companyTypes } from '../../models/enterprise.model.js';
 import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
+import { AUTH_CONFIG, USERNAME_REGEX } from '../auth/auth.constants.js';
+import { type AuthTokens, passwordSchema, type UserDTO, userDtoSchema } from '../auth/auth.schemas.js';
 import {
   adminDecisionTypes,
   BLOCKED_EMAIL_DOMAINS,
@@ -36,6 +38,12 @@ export const legalDocumentInputSchema = z.object({
 });
 
 export type LegalDocumentInputDTO = z.infer<typeof legalDocumentInputSchema>;
+
+export const uploadLegalDocumentBodySchema = z.object({
+  document_type: z.enum(legalDocumentTypes),
+});
+
+export type UploadLegalDocumentBodyDTO = z.infer<typeof uploadLegalDocumentBodySchema>;
 
 export const startRegistrationBodySchema = z.object({
   // [BR-27 / EX1]: Corporate email domain requirement.
@@ -178,6 +186,20 @@ export const registrationListQuerySchema = z.object({
 
 export type RegistrationListQuery = z.infer<typeof registrationListQuerySchema>;
 
+export interface EnterpriseRegistrationSummaryDTO {
+  id: string;
+  registration_code: string;
+  corporate_email: string;
+  company_name: string | null;
+  tax_code: string | null;
+  representative_name: string;
+  representative_phone: string;
+  status: string;
+  version: number;
+  created_at: string | null;
+  submitted_at: string | null;
+}
+
 export const registrationChecklistSchema = z.object({
   tax_code_verified: z.boolean(),
   legal_representative_verified: z.boolean(),
@@ -231,3 +253,162 @@ export const adminDecisionBodySchema = z
   });
 
 export type AdminDecisionDTO = z.infer<typeof adminDecisionBodySchema>;
+
+export const acceptInvitationBodySchema = z.object({
+  token: z.string().trim().min(1, 'Invitation token is required'),
+  password: passwordSchema,
+  username: z
+    .string()
+    .min(
+      AUTH_CONFIG.USERNAME_MIN_LENGTH,
+      `Username must be at least ${AUTH_CONFIG.USERNAME_MIN_LENGTH} characters`,
+    )
+    .max(
+      AUTH_CONFIG.USERNAME_MAX_LENGTH,
+      `Username cannot exceed ${AUTH_CONFIG.USERNAME_MAX_LENGTH} characters`,
+    )
+    .regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores')
+    .trim()
+    .toLowerCase()
+    .optional(),
+});
+
+export type AcceptInvitationDTO = z.infer<typeof acceptInvitationBodySchema>;
+
+export interface AcceptInvitationResult {
+  message: string;
+  user: UserDTO;
+  tokens: AuthTokens;
+}
+
+export const startRegistrationResponseSchema = z.object({
+  message: z.string(),
+  email: z.string().email(),
+});
+export type StartRegistrationResponseDTO = z.infer<typeof startRegistrationResponseSchema>;
+
+export const verifyEmailResponseSchema = z.object({
+  message: z.string(),
+  registration_id: z.string(),
+  registration_code: z.string(),
+  status: z.string(),
+  version: z.number(),
+  corporate_email: z.string().email(),
+  representative: z.object({
+    full_name: z.string(),
+    phone: z.string(),
+    position: z.string().optional(),
+  }),
+});
+export type VerifyEmailResponseDTO = z.infer<typeof verifyEmailResponseSchema>;
+
+export const legalDocumentResponseSchema = z.object({
+  document_type: z.enum(legalDocumentTypes),
+  file_name: z.string(),
+  file_url: z.string(),
+  file_size: z.number().optional(),
+  uploaded_at: z.string().or(z.date()).optional(),
+});
+export type LegalDocumentResponseDTO = z.infer<typeof legalDocumentResponseSchema>;
+
+export const uploadLegalDocumentFormSchema = z.object({
+  document_type: z.enum(legalDocumentTypes),
+  file: z.string().openapi({
+    type: 'string',
+    format: 'binary',
+    description: 'Legal registration PDF document (business license, tax registration, power of attorney)',
+  }),
+});
+export type UploadLegalDocumentFormDTO = z.infer<typeof uploadLegalDocumentFormSchema>;
+
+export const submissionReceiptResponseSchema = z.object({
+  registration_code: z.string(),
+  status: z.string(),
+  version: z.number(),
+  submitted_at: z.string(),
+  estimated_sla_days: z.number(),
+});
+export type SubmissionReceiptResponseDTO = z.infer<typeof submissionReceiptResponseSchema>;
+
+export const enterpriseRegistrationSummarySchema = z.object({
+  id: z.string(),
+  registration_code: z.string(),
+  corporate_email: z.string().email(),
+  company_name: z.string().nullable(),
+  tax_code: z.string().nullable(),
+  representative_name: z.string(),
+  representative_phone: z.string(),
+  status: z.string(),
+  version: z.number(),
+  created_at: z.string().nullable(),
+  submitted_at: z.string().nullable(),
+});
+
+export const paginatedRegistrationSummarySchema = z.object({
+  items: z.array(enterpriseRegistrationSummarySchema),
+  page: z.number(),
+  limit: z.number(),
+  total: z.number(),
+  totalPages: z.number(),
+});
+export type PaginatedRegistrationSummaryDTO = z.infer<typeof paginatedRegistrationSummarySchema>;
+
+export const registrationDetailSchema = z.object({
+  _id: z.string().optional(),
+  registration_code: z.string(),
+  version: z.number(),
+  corporate_email: z.string(),
+  representative: z.object({
+    full_name: z.string(),
+    phone: z.string(),
+    position: z.string().optional(),
+  }),
+  company_data: z.record(z.string(), z.unknown()).optional(),
+  legal_documents: z.array(legalDocumentResponseSchema).optional(),
+  status: z.enum(registrationStatuses),
+  claim_locks: z
+    .object({
+      tax_code: z.string().optional(),
+      corporate_email: z.string().optional(),
+      locked_at: z.string().or(z.date()).optional(),
+    })
+    .optional(),
+  review: z
+    .object({
+      reviewed_by: z.string().optional(),
+      reviewed_at: z.string().or(z.date()).optional(),
+      decision: z.enum(adminDecisionTypes).optional(),
+      rejection_reason: z.string().optional(),
+      checklist: z
+        .object({
+          tax_code_verified: z.boolean().optional(),
+          legal_representative_verified: z.boolean().optional(),
+          documents_verified: z.boolean().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  created_enterprise_id: z.string().optional(),
+  createdAt: z.string().or(z.date()).optional(),
+  updatedAt: z.string().or(z.date()).optional(),
+});
+export type RegistrationDetailDTO = z.infer<typeof registrationDetailSchema>;
+
+export const adminDecisionResponseSchema = z.object({
+  message: z.string(),
+  registration_code: z.string(),
+  status: z.string(),
+  version: z.number(),
+  enterprise_id: z.string().optional(),
+});
+export type AdminDecisionResponseDTO = z.infer<typeof adminDecisionResponseSchema>;
+
+export const acceptInvitationResponseSchema = z.object({
+  message: z.string(),
+  user: userDtoSchema,
+  tokens: z.object({
+    accessToken: z.string(),
+    refreshToken: z.string(),
+  }),
+});
+export type AcceptInvitationResponseDTO = z.infer<typeof acceptInvitationResponseSchema>;

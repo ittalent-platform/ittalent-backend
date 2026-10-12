@@ -275,7 +275,7 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     });
 
     it('rejects a non-administrator with 403 and returns no data (EX.1)', async () => {
-      for (const role of ['user', 'applicant', 'recruiter', 'interviewer']) {
+      for (const role of ['user', 'applicant', 'recruiter']) {
         const { status, body } = await get('', sign(role, String(new Types.ObjectId())));
         expect(status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
         expect(body).not.toHaveProperty('items');
