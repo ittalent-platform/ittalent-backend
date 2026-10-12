@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { createAdminUserBodySchema, updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
+import { updateUserBodySchema, userListQuerySchema } from '../../../src/modules/users/users.schemas.js';
+import { createAdminUserBodySchema } from '../../../src/modules/user-invitations/user-invitations.schemas.js';
 
 describe('userListQuerySchema (UC-USER-01)', () => {
   it('applies the shared pagination defaults', () => {

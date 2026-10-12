@@ -59,6 +59,16 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 export class ApplicationsRepository {
+  // Documents call this through ApplicationsService so the document repository never reaches
+  // across the bounded-context boundary to the Application model.
+  async isDocumentReferenced(documentId: string): Promise<boolean> {
+    return (
+      (await Application.exists({
+        $or: [{ cv_id: documentId }, { cover_letter_id: documentId }],
+      }).exec()) !== null
+    );
+  }
+
   // The pair can hold up to two records (BR-APP-010); the latest one decides what the applicant may do next.
   async findLatestByJobAndApplicant(
     jobId: Types.ObjectId | string,

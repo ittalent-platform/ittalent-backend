@@ -4,9 +4,9 @@ import { invitationTokenRateLimit } from '../../middleware/rate-limit.middleware
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { cancelInvitationBodySchema, createAdminUserBodySchema, userIdParamSchema } from '../users/users.schemas.js';
+import { userIdParamSchema } from '../users/users.schemas.js';
 import { userInvitationsController } from './user-invitations.controller.js';
-import { acceptNewAccountInvitationSchema, invitationPreviewQuerySchema } from './user-invitations.schemas.js';
+import { acceptNewAccountInvitationSchema, cancelInvitationBodySchema, createAdminUserBodySchema, invitationPreviewQuerySchema } from './user-invitations.schemas.js';
 import { USER_INVITATION_MESSAGES } from './user-invitations.constants.js';
 
 export const userInvitationsRouter = Router();

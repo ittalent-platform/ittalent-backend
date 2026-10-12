@@ -33,6 +33,15 @@ function equalsRegex(value: string): RegExp {
 }
 
 export class EnterprisesRepository {
+  async incrementAdminMutationVersion(enterpriseId: Types.ObjectId, session: ClientSession): Promise<boolean> {
+    const result = await Enterprise.updateOne(
+      { _id: enterpriseId, is_deleted: false, status: 'active' },
+      { $inc: { admin_mutation_version: 1 } },
+      { session, timestamps: false },
+    ).exec();
+    return result.matchedCount === 1;
+  }
+
   async create(data: Partial<EnterpriseData>): Promise<EnterpriseDoc> {
     const enterprise = new Enterprise(data);
     return enterprise.save();

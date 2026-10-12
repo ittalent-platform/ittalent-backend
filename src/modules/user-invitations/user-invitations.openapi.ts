@@ -2,8 +2,8 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
-import { cancelInvitationBodySchema, createAdminUserBodySchema, userDtoSchema, userIdParamSchema } from '../users/users.schemas.js';
-import { acceptNewAccountInvitationSchema, invitationPreviewQuerySchema } from './user-invitations.schemas.js';
+import { userDtoSchema, userIdParamSchema } from '../users/users.schemas.js';
+import { acceptNewAccountInvitationSchema, cancelInvitationBodySchema, createAdminUserBodySchema, invitationPreviewQuerySchema } from './user-invitations.schemas.js';
 
 export function registerUserInvitationsOpenApi(registry: OpenAPIRegistry): void {
   const invitationStatus = registry.register('UserInvitationStatusResponse', z.object({

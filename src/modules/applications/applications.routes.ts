@@ -28,7 +28,6 @@ applicationsRouter.post(
 applicationsRouter.get(
   '/',
   authenticate,
-  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateQuery(applicationListQueryValidator),
   applicationsController.listMine,
@@ -38,7 +37,6 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id',
   authenticate,
-  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   applicationsController.getDetail,
@@ -48,7 +46,6 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id/history',
   authenticate,
-  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   validateQuery(applicationHistoryQuerySchema),
