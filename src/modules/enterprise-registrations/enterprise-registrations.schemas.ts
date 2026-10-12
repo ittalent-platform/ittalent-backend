@@ -37,6 +37,12 @@ export const legalDocumentInputSchema = z.object({
 
 export type LegalDocumentInputDTO = z.infer<typeof legalDocumentInputSchema>;
 
+export const uploadLegalDocumentBodySchema = z.object({
+  document_type: z.enum(legalDocumentTypes),
+});
+
+export type UploadLegalDocumentBodyDTO = z.infer<typeof uploadLegalDocumentBodySchema>;
+
 export const startRegistrationBodySchema = z.object({
   // [BR-27 / EX1]: Corporate email domain requirement.
   // Rejects public/personal webmail providers (e.g., gmail, yahoo, hotmail).

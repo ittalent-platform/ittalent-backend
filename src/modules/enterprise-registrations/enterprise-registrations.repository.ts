@@ -24,6 +24,17 @@ export class EnterpriseRegistrationsRepository {
       .exec();
   }
 
+  async findByIdOrCode(identifier: string): Promise<EnterpriseRegistrationDoc | null> {
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(identifier);
+    if (isObjectId) {
+      const doc = await this.findById(identifier);
+      if (doc) {
+        return doc;
+      }
+    }
+    return this.findByCode(identifier);
+  }
+
   async findByEmail(email: string): Promise<EnterpriseRegistrationDoc | null> {
     return EnterpriseRegistration.findOne({ corporate_email: email.toLowerCase() })
       .select('+verification_token.token_hash')
@@ -67,7 +78,11 @@ export class EnterpriseRegistrationsRepository {
     return count > 0;
   }
 
-  async hasActiveClaim(email: string, taxCode?: string): Promise<boolean> {
+  async hasActiveClaim(
+    email: string,
+    taxCode?: string,
+    excludeId?: string | Types.ObjectId,
+  ): Promise<boolean> {
     const queryConditions: Array<Record<string, unknown>> = [
       { 'claim_locks.corporate_email': email.toLowerCase() },
     ];
@@ -76,10 +91,16 @@ export class EnterpriseRegistrationsRepository {
       queryConditions.push({ 'claim_locks.tax_code': taxCode });
     }
 
-    const count = await EnterpriseRegistration.countDocuments({
+    const filter: Record<string, unknown> = {
       status: { $in: ['pending_review', 'under_review'] },
       $or: queryConditions,
-    }).exec();
+    };
+
+    if (excludeId) {
+      filter._id = { $ne: excludeId };
+    }
+
+    const count = await EnterpriseRegistration.countDocuments(filter).exec();
 
     return count > 0;
   }
