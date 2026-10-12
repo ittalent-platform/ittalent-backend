@@ -4,3 +4,8 @@ export * from './applications.openapi.js';
 export * from './applications.service.js';
 export * from './applications.repository.js';
 export * from './applications.schemas.js';
+export * from './recruiter-applications.routes.js';
+export * from './recruiter-applications.controller.js';
+export * from './recruiter-applications.openapi.js';
+export * from './recruiter-applications.service.js';
+export * from './recruiter-applications.schemas.js';
