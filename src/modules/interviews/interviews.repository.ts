@@ -1,4 +1,4 @@
-import type { Types } from 'mongoose';
+import { Types, type QueryFilter } from 'mongoose';
 
 import { Application, type ApplicationDoc } from '../../models/application.model.js';
 import { Enterprise } from '../../models/enterprise.model.js';
@@ -7,9 +7,12 @@ import {
   type InterviewData,
   type InterviewDoc,
   type InterviewMode,
+  type InterviewStatus,
+  type InterviewStatusHistoryEntry,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
 import {
+  INTERVIEW_CONFIG,
   INTERVIEW_EDITABLE_STATUS,
   INTERVIEW_COMPLETED_STATUS,
   INTERVIEW_INITIAL_STATUS,
@@ -56,12 +59,34 @@ export interface UpdateInterviewRecord {
   notes?: string | null | undefined;
 }
 
+export interface InterviewFilter {
+  enterpriseId: string;
+  // Set for an interviewer, who only sees the interviews they are assigned to.
+  interviewerId?: string | undefined;
+  statuses?: InterviewStatus[] | undefined;
+  mode?: InterviewMode | undefined;
+  jobId?: string | undefined;
+  applicationId?: string | undefined;
+  from?: Date | undefined;
+  to?: Date | undefined;
+  // false (list): the start time lies inside [from, to]. true (calendar): the interview overlaps [from, to].
+  overlapRange?: boolean | undefined;
+  // Already resolved from the keyword; an empty pair matches nothing.
+  search?: { userIds: string[]; jobIds: string[] } | undefined;
+}
+
 export interface InterviewConflictParams {
   interviewerIds: string[];
   applicantId: string;
   startsAt: Date;
   endsAt: Date;
   excludeId?: string | undefined;
+}
+
+const ASCENDING = 1;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export class InterviewsRepository {
@@ -89,6 +114,16 @@ export class InterviewsRepository {
   async findEnterpriseName(enterpriseId: string): Promise<string | null> {
     const enterprise = await Enterprise.findById(enterpriseId, { name: 1 }).lean<{ name: string }>().exec();
     return enterprise?.name ?? null;
+  }
+
+  // The enterprise's jobs whose title contains the keyword (plain text, not a pattern). Capped, so a very short
+  // keyword on a large number of jobs can miss some matches.
+  async findJobIdsByTitle(enterpriseId: string, keyword: string): Promise<string[]> {
+    const jobs = await JobPosting.find({ enterprise_id: enterpriseId, title: new RegExp(escapeRegExp(keyword), 'i') }, { _id: 1 })
+      .limit(INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT)
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return jobs.map((job) => String(job._id));
   }
 
   // ---- interviews ----
@@ -162,6 +197,34 @@ export class InterviewsRepository {
       .exec();
   }
 
+  // Atomic scheduled -> status change that also appends the history entry; null means it is no longer scheduled.
+  // `endedBefore` re-checks "the interview has ended" in the same write, so an interview that was just moved to a
+  // later time cannot be completed.
+  async transitionFromScheduled(
+    id: string,
+    status: InterviewStatus,
+    changedBy: string,
+    options: { note?: string | undefined; endedBefore?: Date | undefined } = {},
+  ): Promise<InterviewDoc | null> {
+    const entry: InterviewStatusHistoryEntry = {
+      status,
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(changedBy),
+      ...(options.note ? { note: options.note } : {}),
+    };
+    return Interview.findOneAndUpdate(
+      {
+        _id: id,
+        status: INTERVIEW_EDITABLE_STATUS,
+        ...(options.endedBefore ? { ends_at: { $lte: options.endedBefore } } : {}),
+      },
+      { $set: { status }, $push: { status_history: entry } },
+      { returnDocument: 'after' },
+    )
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
   // Deletes unless the interview was completed meanwhile; returns the deleted record.
   async deleteNotCompleted(id: string): Promise<InterviewDoc | null> {
     return Interview.findOneAndDelete({ _id: id, status: { $ne: INTERVIEW_COMPLETED_STATUS } })
@@ -169,6 +232,59 @@ export class InterviewsRepository {
       .exec();
   }
 
+  // Everything in the window, earliest first, capped at `limit`; `total` is the uncapped match count.
+  async findCalendar(filter: InterviewFilter, limit: number): Promise<{ items: InterviewDoc[]; total: number }> {
+    const query = this.buildQuery(filter);
+    const [items, total] = await Promise.all([
+      Interview.find(query).sort({ scheduled_at: ASCENDING, _id: ASCENDING }).limit(limit).lean<InterviewDoc[]>().exec(),
+      Interview.countDocuments(query).exec(),
+    ]);
+    return { items, total };
+  }
+
+  private buildQuery(filter: InterviewFilter): QueryFilter<InterviewData> {
+    const conditions: QueryFilter<InterviewData>[] = [{ enterprise_id: filter.enterpriseId }];
+
+    if (filter.interviewerId) {
+      conditions.push({ interviewer_ids: filter.interviewerId });
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      conditions.push({ status: { $in: filter.statuses } });
+    }
+    if (filter.mode) {
+      conditions.push({ mode: filter.mode });
+    }
+    if (filter.jobId) {
+      conditions.push({ job_id: filter.jobId });
+    }
+    if (filter.applicationId) {
+      conditions.push({ application_id: filter.applicationId });
+    }
+    if (filter.overlapRange) {
+      if (filter.to) {
+        conditions.push({ scheduled_at: { $lt: filter.to } });
+      }
+      if (filter.from) {
+        conditions.push({ ends_at: { $gt: filter.from } });
+      }
+    } else if (filter.from || filter.to) {
+      conditions.push({
+        scheduled_at: { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lte: filter.to } : {}) },
+      });
+    }
+    if (filter.search) {
+      const { userIds, jobIds } = filter.search;
+      conditions.push({
+        $or: [
+          { applicant_id: { $in: userIds } },
+          { interviewer_ids: { $in: userIds } },
+          { job_id: { $in: jobIds } },
+        ],
+      });
+    }
+
+    return { $and: conditions };
+  }
 }
 
 export const interviewsRepository = new InterviewsRepository();

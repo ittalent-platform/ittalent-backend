@@ -44,6 +44,17 @@ describe('InterviewsController', () => {
     expect(json).toHaveBeenCalledWith({ id: ID });
   });
 
+  it('returns the calendar for the validated window', async () => {
+    const query = { from: new Date(), to: new Date() };
+    service.calendar!.mockResolvedValue({ items: [] });
+    const { res, json } = response({ query });
+
+    await controller.calendar(req, res, vi.fn());
+
+    expect(service.calendar).toHaveBeenCalledWith(actor, query);
+    expect(json).toHaveBeenCalledWith({ items: [] });
+  });
+
   it('returns one interview', async () => {
     service.getDetail!.mockResolvedValue({ id: ID });
     const { res, status, json } = response({ params: { id: ID } });
@@ -65,6 +76,16 @@ describe('InterviewsController', () => {
     expect(json).toHaveBeenCalledWith({ id: ID });
   });
 
+  it('updates the status', async () => {
+    service.updateStatus!.mockResolvedValue({ id: ID, status: 'completed' });
+    const { res, json } = response({ params: { id: ID }, body: { status: 'completed' } });
+
+    await controller.updateStatus(req, res, vi.fn());
+
+    expect(service.updateStatus).toHaveBeenCalledWith(actor, ID, { status: 'completed' });
+    expect(json).toHaveBeenCalledWith({ id: ID, status: 'completed' });
+  });
+
   it('deletes and answers 204 without a body', async () => {
     service.remove!.mockResolvedValue(undefined);
     const { res, status, json, send } = response({ params: { id: ID } });
@@ -79,8 +100,10 @@ describe('InterviewsController', () => {
 
   it.each([
     ['createInterview'],
+    ['calendar'],
     ['getDetail'],
     ['updateInterview'],
+    ['updateStatus'],
     ['deleteInterview'],
   ] as const)('%s answers 401 when there is no authenticated user', async (handler) => {
     const { res } = response({ params: { id: ID } });

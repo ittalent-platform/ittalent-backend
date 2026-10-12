@@ -3,15 +3,20 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
   createInterviewBodySchema,
+  interviewCalendarQuerySchema,
+  interviewCalendarResponseSchema,
   interviewDetailDtoSchema,
   interviewIdParamSchema,
   updateInterviewBodySchema,
+  updateInterviewStatusBodySchema,
 } from './interviews.schemas.js';
 
 export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
   const registeredCreate = registry.register('CreateInterviewRequest', createInterviewBodySchema);
   const registeredUpdate = registry.register('UpdateInterviewRequest', updateInterviewBodySchema);
+  const registeredStatus = registry.register('UpdateInterviewStatusRequest', updateInterviewStatusBodySchema);
   const registeredDetail = registry.register('InterviewDetailDTO', interviewDetailDtoSchema);
+  const registeredCalendar = registry.register('InterviewCalendarResponse', interviewCalendarResponseSchema);
 
   const authErrors = {
     [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
@@ -42,6 +47,24 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
         description: 'APPLICATION_NOT_SCHEDULABLE, APPLICANT_UNAVAILABLE, INTERVIEWER_CONFLICT or APPLICANT_CONFLICT',
       },
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/interviews/calendar',
+    tags: ['Interviews'],
+    summary: 'List interviews for a date window (Calendar view)',
+    description:
+      'Same access and filters as the list, but `from` and `to` are required (at most 62 days apart) and every interview ' +
+      'overlapping that window is returned, earliest first, without paging. `truncated` is true when more interviews ' +
+      'matched than the response holds.',
+    security: [{ bearerAuth: [] }],
+    request: { query: interviewCalendarQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Interviews in the window', content: { 'application/json': { schema: registeredCalendar } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Missing window, from after to, or a window longer than 62 days' },
       ...authErrors,
     },
   });
@@ -82,6 +105,29 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
         description: 'INTERVIEW_NOT_EDITABLE, INTERVIEWER_CONFLICT, APPLICANT_CONFLICT or INTERVIEW_STATE_CHANGED',
       },
+      ...notFound,
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/interviews/{id}/status',
+    tags: ['Interviews'],
+    summary: 'Update the status of a scheduled interview',
+    description:
+      'Recruiter only. A scheduled interview becomes `completed`, `no_show` or `cancelled`; those statuses are final. ' +
+      '`completed` and `no_show` are only accepted once the interview has ended (409 INTERVIEW_NOT_ENDED before). ' +
+      '`cancelled` is accepted at any time and emails the participants.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: interviewIdParamSchema,
+      body: { required: true, content: { 'application/json': { schema: registeredStatus } } },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Status updated', content: { 'application/json': { schema: registeredDetail } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Unsupported status or invalid note' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'INTERVIEW_STATUS_FINAL, INTERVIEW_NOT_ENDED or INTERVIEW_STATE_CHANGED' },
       ...notFound,
       ...authErrors,
     },

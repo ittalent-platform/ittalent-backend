@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createInterviewBodyValidator,
+  interviewCalendarQueryValidator,
   updateInterviewBodyValidator,
+  updateInterviewStatusBodySchema,
 } from '../../../src/modules/interviews/interviews.schemas.js';
 
 const APPLICATION = 'b00000000000000000000001';
@@ -66,3 +68,40 @@ describe('updateInterviewBodyValidator', () => {
   });
 });
 
+describe('updateInterviewStatusBodySchema', () => {
+  it.each(['completed', 'cancelled', 'no_show'])('accepts %s', (status) => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status }).success).toBe(true);
+  });
+
+  it.each(['scheduled', 'done', ''])('rejects %s', (status) => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status }).success).toBe(false);
+  });
+
+  it('limits the note', () => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'x'.repeat(501) }).success).toBe(false);
+    expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'Role closed' }).success).toBe(true);
+  });
+});
+
+describe('interviewCalendarQueryValidator', () => {
+  const window = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T00:00:00.000Z' };
+
+  it('accepts a window with filters', () => {
+    expect(interviewCalendarQueryValidator.safeParse({ ...window, status: 'scheduled', mode: 'onsite' }).success).toBe(true);
+  });
+
+  it('accepts a window of exactly 62 days and rejects a longer one', () => {
+    expect(interviewCalendarQueryValidator.safeParse({ from: '2026-10-01T00:00:00.000Z', to: '2026-12-02T00:00:00.000Z' }).success).toBe(true);
+    expect(interviewCalendarQueryValidator.safeParse({ from: '2026-10-01T00:00:00.000Z', to: '2026-12-02T00:00:00.001Z' }).success).toBe(false);
+  });
+
+  it.each([
+    ['no window', {}],
+    ['no start', { to: window.to }],
+    ['no end', { from: window.from }],
+    ['from after to', { from: window.to, to: window.from }],
+    ['paging, which the calendar does not use', { ...window, page: '1' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewCalendarQueryValidator.safeParse(query).success).toBe(false);
+  });
+});

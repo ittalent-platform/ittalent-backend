@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Interview } from '../../../src/models/interview.model.js';
+import { JobPosting } from '../../../src/models/job-posting.model.js';
 import { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
 
 const ENTERPRISE = 'e00000000000000000000001';
@@ -23,6 +24,33 @@ describe('InterviewsRepository', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('filters', () => {
+    function spyOnFind(): ReturnType<typeof vi.spyOn> {
+      vi.spyOn(Interview, 'countDocuments').mockReturnValue(query(0) as never);
+      return vi.spyOn(Interview, 'find').mockReturnValue(query([]) as never);
+    }
+
+    it('selects every interview overlapping the window for the Calendar view', async () => {
+      const find = spyOnFind();
+      const from = new Date('2026-10-01T00:00:00.000Z');
+      const to = new Date('2026-10-08T00:00:00.000Z');
+      await repository.findCalendar({ enterpriseId: ENTERPRISE, from, to, overlapRange: true }, 500);
+      // An interview that starts before the window but ends inside it still belongs on the calendar.
+      expect(find).toHaveBeenCalledWith({
+        $and: [{ enterprise_id: ENTERPRISE }, { scheduled_at: { $lt: to } }, { ends_at: { $gt: from } }],
+      });
+    });
+
+    it('lists the calendar earliest first and caps the result', async () => {
+      vi.spyOn(Interview, 'countDocuments').mockReturnValue(query(3) as never);
+      const chain = query([]);
+      vi.spyOn(Interview, 'find').mockReturnValue(chain as never);
+      await repository.findCalendar({ enterpriseId: ENTERPRISE }, 500);
+      expect(chain.sort).toHaveBeenCalledWith({ scheduled_at: 1, _id: 1 });
+      expect(chain.limit).toHaveBeenCalledWith(500);
+    });
   });
 
   describe('findConflict', () => {
@@ -93,6 +121,27 @@ describe('InterviewsRepository', () => {
       );
     });
 
+    it('moves a scheduled interview to a new status in one write that also appends the history', async () => {
+      const update = vi.spyOn(Interview, 'findOneAndUpdate').mockReturnValue(query(null) as never);
+      const endedBefore = new Date('2026-10-13T04:30:00.000Z');
+
+      await repository.transitionFromScheduled('i1', 'completed', 'a00000000000000000000001', {
+        note: 'Done',
+        endedBefore,
+      });
+
+      const [filter, change] = update.mock.calls[0] as unknown as [Record<string, unknown>, Record<string, Record<string, unknown>>];
+      expect(filter).toEqual({ _id: 'i1', status: 'scheduled', ends_at: { $lte: endedBefore } });
+      expect(change.$set).toEqual({ status: 'completed' });
+      expect(change.$push).toMatchObject({ status_history: { status: 'completed', note: 'Done' } });
+    });
+
+    it('does not add a time guard to a cancellation', async () => {
+      const update = vi.spyOn(Interview, 'findOneAndUpdate').mockReturnValue(query(null) as never);
+      await repository.transitionFromScheduled('i1', 'cancelled', 'a00000000000000000000001');
+      expect(update.mock.calls[0]?.[0]).toEqual({ _id: 'i1', status: 'scheduled' });
+    });
+
     it('never deletes a completed interview', async () => {
       const remove = vi.spyOn(Interview, 'findOneAndDelete').mockReturnValue(query(null) as never);
       await repository.deleteNotCompleted('i1');
@@ -100,4 +149,17 @@ describe('InterviewsRepository', () => {
     });
   });
 
+  describe('search', () => {
+    it('matches the enterprise jobs by title, treating the keyword as plain text', async () => {
+      const jobs = vi.spyOn(JobPosting, 'find').mockReturnValue(query([{ _id: JOB }]) as never);
+
+      const result = await repository.findJobIdsByTitle(ENTERPRISE, 'a.b(c');
+
+      expect(result).toEqual([JOB]);
+      const filter = jobs.mock.calls[0]?.[0] as unknown as { enterprise_id: string; title: RegExp };
+      expect(filter.enterprise_id).toBe(ENTERPRISE);
+      expect(filter.title.test('xa.b(cx')).toBe(true);
+      expect(filter.title.test('xaxb(cx')).toBe(false);
+    });
+  });
 });

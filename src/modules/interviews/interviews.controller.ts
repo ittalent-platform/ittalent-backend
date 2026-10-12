@@ -5,8 +5,10 @@ import { createHttpError } from '../../shared/errors/http-error.js';
 import { INTERVIEW_MESSAGES } from './interviews.constants.js';
 import type {
   CreateInterviewBody,
+  InterviewCalendarQuery,
   InterviewIdParam,
   UpdateInterviewBody,
+  UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
 import { interviewsService, type InterviewActor, type InterviewsService } from './interviews.service.js';
 
@@ -31,6 +33,16 @@ export class InterviewsController {
     }
   };
 
+  calendar: RequestHandler = async (req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as InterviewCalendarQuery;
+      const result = await this.service.calendar(this.actorOf(req), query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getDetail: RequestHandler = async (req, res, next) => {
     try {
       const params = res.locals.validated?.params as InterviewIdParam;
@@ -46,6 +58,17 @@ export class InterviewsController {
       const params = res.locals.validated?.params as InterviewIdParam;
       const body = res.locals.validated?.body as UpdateInterviewBody;
       const result = await this.service.update(this.actorOf(req), params.id, body);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateStatus: RequestHandler = async (req, res, next) => {
+    try {
+      const params = res.locals.validated?.params as InterviewIdParam;
+      const body = res.locals.validated?.body as UpdateInterviewStatusBody;
+      const result = await this.service.updateStatus(this.actorOf(req), params.id, body);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
