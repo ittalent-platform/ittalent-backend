@@ -80,6 +80,10 @@ export interface SubmissionReceiptResult {
 }
 
 export class EnterpriseRegistrationsService {
+  async hasIncompleteOnboarding(email: string, enterpriseId: mongoose.Types.ObjectId | null, session?: mongoose.ClientSession): Promise<boolean> {
+    return this.repository.hasIncompleteOnboarding(email, enterpriseId, session);
+  }
+
   constructor(
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
     private readonly enterpriseService: EnterprisesService = enterprisesService,
@@ -704,6 +708,9 @@ export class EnterpriseRegistrationsService {
     let user: UserDoc;
 
     if (existingUser) {
+      if (existingUser.status === 'invited') {
+        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ACCOUNT_INVITATION_PENDING, 'ACCOUNT_INVITATION_PENDING');
+      }
       // [AC.4]: Existing user path
       const hasLocal = await this.authService.hasLocalAccount(existingUser._id);
       if (hasLocal) {
@@ -720,7 +727,7 @@ export class EnterpriseRegistrationsService {
 
       // Elevate role to 'enterprise_admin' if user was applicant / regular user
       if (existingUser.role === 'user' || existingUser.role === 'applicant') {
-        await this.userService.updateRole(String(existingUser._id), 'enterprise_admin');
+        await this.userService.assignRole(String(existingUser._id), 'enterprise_admin');
         existingUser.role = 'enterprise_admin';
       }
 

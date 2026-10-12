@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
 
 import { AuthService } from '../../../src/modules/auth/auth.service.js';
 import type { AuthRepository } from '../../../src/modules/auth/auth.repository.js';
@@ -53,6 +54,26 @@ describe('AuthService', () => {
       mockAuthRepo as AuthRepository,
       mockUserService as UsersService,
     );
+  });
+
+  describe('service boundary methods', () => {
+    it('verifies a current password through the auth repository, optionally in a transaction', async () => {
+      const session = {} as never;
+      mockAuthRepo.verifyCurrentPassword = vi.fn().mockResolvedValue(true);
+
+      await expect(authService.verifyCurrentPassword({} as never, 'password', session)).resolves.toBe(true);
+      expect(mockAuthRepo.verifyCurrentPassword).toHaveBeenCalledWith(expect.anything(), 'password', session);
+    });
+
+    it('creates a passwordless local credential in the supplied transaction', async () => {
+      const session = {} as never;
+      mockAuthRepo.createLocalAccount = vi.fn().mockResolvedValue({} as never);
+      const userId = new Types.ObjectId();
+
+      await authService.createPasswordlessLocalAccount(userId, session);
+
+      expect(mockAuthRepo.createLocalAccount).toHaveBeenCalledWith({ userId, provider: 'local' }, session);
+    });
   });
 
   describe('register', () => {
@@ -621,7 +642,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('updates password, activates inactive user, and marks token used', async () => {
+    it('updates password, verifies an explicitly unverified inactive account, and consumes the token', async () => {
       mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
         _id: 'token-1',
         user_id: 'user-1',
@@ -633,6 +654,7 @@ describe('AuthService', () => {
       mockUserService.findById = vi.fn().mockResolvedValue({
         _id: 'user-1',
         status: 'inactive',
+        email_verified: false,
       } as never);
       mockUserService.markEmailVerified = vi.fn().mockResolvedValue({} as never);
 
@@ -642,6 +664,21 @@ describe('AuthService', () => {
       expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
       expect(mockUserService.markEmailVerified).toHaveBeenCalledWith('user-1');
       expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-1');
+    });
+
+    it('does not activate a pending invitation when its owner requests a password reset', async () => {
+      mockAuthRepo.findPasswordResetTokenByHash = vi.fn().mockResolvedValue({
+        _id: 'token-2', user_id: 'invited-user', status: 'pending', expires_at: new Date(Date.now() + 60000),
+      } as never);
+      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+      mockAuthRepo.markTokenUsed = vi.fn().mockResolvedValue(undefined);
+      mockUserService.findById = vi.fn().mockResolvedValue({ _id: 'invited-user', status: 'invited', email_verified: false } as never);
+      mockUserService.markEmailVerified = vi.fn().mockResolvedValue({} as never);
+
+      await authService.resetPassword({ token: 'invited-token', newPassword: 'newpassword123' });
+
+      expect(mockUserService.markEmailVerified).not.toHaveBeenCalled();
+      expect(mockAuthRepo.markTokenUsed).toHaveBeenCalledWith('token-2');
     });
   });
 
@@ -738,5 +775,3 @@ describe('AuthService', () => {
     });
   });
 });
-
-

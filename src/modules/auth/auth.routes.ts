@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authenticate } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser } from '../../middleware/auth.middleware.js';
 import {
   forgotPasswordRateLimit,
   loginRateLimit,
@@ -28,7 +28,7 @@ export const authRouter = Router();
 authRouter.post('/register', registerRateLimit, validateBody(registerRequestSchema), authController.register);
 authRouter.post('/login', loginRateLimit, validateBody(loginRequestSchema), authController.login);
 authRouter.post('/refresh', validateBody(refreshTokenRequestSchema), authController.refreshToken);
-authRouter.get('/me', authenticate, authController.getMe);
+authRouter.get('/me', authenticate, authenticateCurrentUser, authController.getMe);
 authRouter.get('/verify-email', validateQuery(verifyEmailQuerySchema), authController.verifyEmail);
 authRouter.post(
   '/resend-verification-email',
@@ -57,8 +57,8 @@ authRouter.post(
 authRouter.post(
   '/change-password',
   authenticate,
+  authenticateCurrentUser,
   validateBody(changePasswordRequestSchema),
   authController.changePassword,
 );
-
 

@@ -1,4 +1,4 @@
-import type { QueryFilter, Types, UpdateQuery } from 'mongoose';
+import type { ClientSession, QueryFilter, Types, UpdateQuery } from 'mongoose';
 
 import {
   EnterpriseRegistration,
@@ -17,6 +17,22 @@ function containsRegex(value: string): RegExp {
 }
 
 export class EnterpriseRegistrationsRepository {
+  async hasIncompleteOnboarding(email: string, enterpriseId: Types.ObjectId | null, session?: ClientSession): Promise<boolean> {
+    const query = EnterpriseRegistration.exists({
+      $or: [
+        { corporate_email: email.toLowerCase(), status: { $in: ['draft', 'pending_review', 'under_review'] } },
+        {
+          status: 'approved',
+          'invitation_token.expires_at': { $gt: new Date() },
+          'invitation_token.accepted_at': null,
+          $or: [{ corporate_email: email.toLowerCase() }, ...(enterpriseId ? [{ created_enterprise_id: enterpriseId }] : [])],
+        },
+      ],
+    });
+    if (session) query.session(session);
+    return Boolean(await query.exec());
+  }
+
   async create(data: Partial<EnterpriseRegistrationData>): Promise<EnterpriseRegistrationDoc> {
     const registration = new EnterpriseRegistration(data);
     return registration.save();

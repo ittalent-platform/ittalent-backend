@@ -1,10 +1,28 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Types } from 'mongoose';
 
 import jwt from 'jsonwebtoken';
 import { app } from '../../src/app.js';
+import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
+import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
+
+const fixtureUserId = new Types.ObjectId('507f1f77bcf86cd799439011');
+const fixtureAdminId = new Types.ObjectId();
+
+beforeAll(async () => {
+  await connectDatabase();
+  await User.updateOne({ _id: fixtureUserId }, { $set: { email: 'user@example.com', username: 'route-user', role: 'user', status: 'active', email_verified: true } }, { upsert: true });
+  await User.create({ _id: fixtureAdminId, email: `${fixtureAdminId}@example.com`, username: `route_admin_${fixtureAdminId}`, role: 'admin', status: 'active', email_verified: true });
+});
+
+afterAll(async () => {
+  await User.deleteOne({ _id: fixtureUserId });
+  await User.deleteOne({ _id: fixtureAdminId });
+  await disconnectDatabase();
+});
 
 describe('GET /api/v1/me/applications (integration)', () => {
   let server: Server;
@@ -41,7 +59,7 @@ describe('GET /api/v1/me/applications (integration)', () => {
 
   it('requires candidate role (user)', async () => {
     const adminToken = jwt.sign(
-      { sub: 'admin', email: 'admin@example.com', role: 'admin' },
+      { sub: String(fixtureAdminId), email: 'admin@example.com', role: 'admin' },
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
@@ -103,7 +121,7 @@ describe('GET /api/v1/me/applications/:id/history (integration)', () => {
 
   it('requires candidate role', async () => {
     const adminToken = jwt.sign(
-      { sub: 'admin', email: 'admin@example.com', role: 'admin' },
+      { sub: String(fixtureAdminId), email: 'admin@example.com', role: 'admin' },
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
@@ -158,7 +176,7 @@ describe('PATCH /api/v1/me/applications/:id/withdraw (integration)', () => {
 
   it('requires candidate role', async () => {
     const adminToken = jwt.sign(
-      { sub: 'admin', email: 'admin@example.com', role: 'admin' },
+      { sub: String(fixtureAdminId), email: 'admin@example.com', role: 'admin' },
       process.env.JWT_ACCESS_SECRET!,
       { expiresIn: '15m' },
     );
