@@ -671,5 +671,9 @@ export class JobPostingsService {
   ): Promise<string[]> {
     return this.repository.findJobIdsByTitleAndEnterpriseId(enterpriseId, keyword);
   }
+
+  async findJobById(id: string): Promise<JobPostingDoc | null> {
+    return this.repository.findById(id);
+  }
 }
 export const jobPostingsService = new JobPostingsService();
