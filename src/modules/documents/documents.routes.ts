@@ -58,4 +58,3 @@ documentsRouter.delete(
   validateParams(documentIdParamSchema),
   documentsController.removeMine,
 );
-documentsRouter.get('/admin/documents', authenticate, authorize('admin'), validateQuery(documentListQuerySchema), documentsController.listAdmin);
