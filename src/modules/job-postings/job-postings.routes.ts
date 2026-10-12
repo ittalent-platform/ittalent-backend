@@ -29,7 +29,6 @@ jobPostingsRouter.get(
 jobPostingsRouter.get(
   '/admin/job-postings',
   authenticate,
-  authenticateCurrentUser,
   authorize('admin'),
   validateQuery(jobPostingListQuerySchema),
   jobPostingsController.listAdmin,
@@ -37,7 +36,6 @@ jobPostingsRouter.get(
 jobPostingsRouter.get(
   '/recruiter/job-postings',
   authenticate,
-  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateQuery(jobPostingListQuerySchema),
   jobPostingsController.listRecruiter,
@@ -53,7 +51,6 @@ jobPostingsRouter.post(
 jobPostingsRouter.get(
   '/job-postings/:id',
   authenticate,
-  authenticateCurrentUser,
   authorize('admin', ...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.getById,
@@ -102,7 +99,6 @@ jobPostingsRouter.patch(
 jobPostingsRouter.get(
   '/job-postings/:id/history',
   authenticate,
-  authenticateCurrentUser,
   authorize('admin', ...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   validateQuery(jobPostingHistoryQuerySchema),

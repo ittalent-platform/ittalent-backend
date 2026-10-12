@@ -3,7 +3,6 @@ import { Types, type ClientSession, type QueryFilter } from 'mongoose';
 import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
-import type { CreateAdminUserBody } from './users.schemas.js';
 import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
@@ -17,7 +16,12 @@ export interface CreateUserData {
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
-export interface CreateManagedUserInput extends CreateAdminUserBody {
+export interface CreateManagedUserInput {
+  email: string;
+  username: string;
+  fullName: string;
+  phone?: string | null | undefined;
+  role: UserInvitationRole;
   enterprise_id: Types.ObjectId | null;
 }
 
@@ -85,12 +89,15 @@ export class UsersRepository {
   }
 
   async acquireAdminMutationLock(actorId: Types.ObjectId, session: ClientSession): Promise<void> {
-    const result = await User.updateMany(
-      { role: 'admin', status: 'active' },
+    const coordinator = await User.findOne({ role: 'admin', status: 'active' })
+      .sort({ _id: 1 }).select('_id').session(session).lean().exec();
+    if (!coordinator) throw new Error(`Active administrator lock record missing for ${String(actorId)}`);
+    const result = await User.updateOne(
+      { _id: coordinator._id, role: 'admin', status: 'active' },
       { $inc: { admin_lock_version: 1 } },
       { session, timestamps: false },
     ).exec();
-    if (result.matchedCount === 0) throw new Error(`Active administrator lock records missing for ${String(actorId)}`);
+    if (result.matchedCount !== 1) throw new Error(`Active administrator lock record changed for ${String(actorId)}`);
   }
 
   async createManagedUser(data: CreateManagedUserInput, session: ClientSession): Promise<UserDoc> {
@@ -211,6 +218,12 @@ export class UsersRepository {
     return User.find({ _id: { $in: ids } })
       .select(USER_REFERENCE_FIELDS)
       .exec();
+  }
+
+  async findNamesByIds(ids: string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await User.find({ _id: { $in: ids } }).select('full_name username').lean().exec();
+    return new Map(rows.map((row) => [String(row._id), row.full_name || row.username]));
   }
 
   // Ids of the users whose name, email or username contains the keyword (plain text, not a pattern), at most `limit`.

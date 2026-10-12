@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { userRoles, userStatuses } from '../../models/user.model.js';
-import { userInvitationRoles } from '../../models/user-invitation.model.js';
 import { paginatedResponseSchema, paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
 import { USER_DEFAULT_SORT, USER_FULL_NAME_LENGTH, USER_LIST_SEARCH_MAX_LENGTH, USER_MANAGED_ROLES, USER_MESSAGES, USER_PHONE_NOISE, USER_PHONE_PATTERN, USER_SORT_FIELDS, USER_SORT_ORDERS, USER_STATUS_REASON_MAX_LENGTH, USER_STATUS_REASON_MIN_LENGTH, USER_FILTER_MAX_VALUES } from './users.constants.js';
 
@@ -80,20 +79,6 @@ export const updateUserEmailBodySchema = z.strictObject({
 });
 export type UpdateUserEmailBody = z.infer<typeof updateUserEmailBodySchema>;
 
-const ADMIN_USERNAME_LENGTH = { min: 3, max: 30 } as const;
-export const createAdminUserBodySchema = z.strictObject({
-  email: z.string().trim().email().toLowerCase(),
-  username: z.string().trim().toLowerCase().min(ADMIN_USERNAME_LENGTH.min).max(ADMIN_USERNAME_LENGTH.max).regex(/^[a-z0-9_]+$/),
-  fullName: z.string().trim().min(USER_FULL_NAME_LENGTH.min).max(USER_FULL_NAME_LENGTH.max),
-  phone: phoneSchema.optional(),
-  role: z.enum(userInvitationRoles),
-  enterpriseId: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
-}).superRefine((body, ctx) => {
-  if ((body.role === 'recruiter' || body.role === 'enterprise_admin') && !body.enterpriseId) ctx.addIssue({ code: 'custom', path: ['enterpriseId'], message: 'An active enterprise is required for an HR or Enterprise Administrator account' });
-  if (body.role === 'user' && body.enterpriseId) ctx.addIssue({ code: 'custom', path: ['enterpriseId'], message: 'Candidate accounts cannot be assigned to an enterprise' });
-});
-export type CreateAdminUserBody = z.infer<typeof createAdminUserBodySchema>;
-
 export const statusUpdateBodySchema = z.strictObject({
   status: z.enum(['suspended', 'active']),
   reason: z.string().trim().min(USER_STATUS_REASON_MIN_LENGTH).max(USER_STATUS_REASON_MAX_LENGTH),
@@ -113,9 +98,3 @@ export const emergencySuspensionBodySchema = z.strictObject({
   expectedVersion: z.number().int().nonnegative(),
 });
 export type EmergencySuspensionBody = z.infer<typeof emergencySuspensionBodySchema>;
-
-export const cancelInvitationBodySchema = z.strictObject({
-  reason: z.string().trim().min(USER_STATUS_REASON_MIN_LENGTH).max(USER_STATUS_REASON_MAX_LENGTH),
-  expectedVersion: z.number().int().nonnegative(),
-});
-export type CancelInvitationBody = z.infer<typeof cancelInvitationBodySchema>;

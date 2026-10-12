@@ -15,6 +15,7 @@ import { EnterpriseRegistration } from '../../src/models/enterprise-registration
 import { UserAudit } from '../../src/models/user-audit.model.js';
 import { UserInvitation } from '../../src/models/user-invitation.model.js';
 import { UserEmailChange } from '../../src/models/user-email-change.model.js';
+import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 import * as emailService from '../../src/shared/services/email.service.js';
@@ -304,9 +305,15 @@ describe('System administrator account management full flows', () => {
     const tampered = await request(`/recruiter/job-postings?enterprise_id=${foreign}`, { headers: { authorization: `Bearer ${access}` } });
     expect(tampered.status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect(tampered.body.items).toEqual(ownJobs.body.items);
-    await User.updateOne({ _id: id }, { $set: { status: 'suspended' }, $inc: { auth_version: 1 } });
-    for (const path of [`/job-postings/${foreign}/history`, `/job-postings/${foreign}/close`]) {
-      expect((await request(path, { method: path.endsWith('/close') ? 'PATCH' : 'GET', headers: { authorization: `Bearer ${access}` } })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    const job = await JobPosting.create({ enterprise_id: enterpriseId, posted_by_user_id: id, title: 'Auth policy test role', slug: `auth-policy-${id}`, location: 'Hanoi', employment_type: 'Full-time', currency: 'VND', status: 'published', openings: 1, description: 'Role', requirements: 'Requirement', benefits: 'Benefits', published_at: new Date(), expires_at: new Date(Date.now() + 60_000) });
+    try {
+      await User.updateOne({ _id: id }, { $set: { status: 'suspended' }, $inc: { auth_version: 1 } });
+      const ownedJobId = String(job._id);
+      const historyRead = await request(`/job-postings/${ownedJobId}/history`, { headers: { authorization: `Bearer ${access}` } });
+      expect(historyRead.status, JSON.stringify({ ownedJobId, body: historyRead.body })).toBe(HTTP_STATUS.HTTP_200_OK);
+      expect((await request(`/job-postings/${ownedJobId}/close`, { method: 'PATCH', headers: { authorization: `Bearer ${access}` } })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    } finally {
+      await JobPosting.deleteOne({ _id: job._id });
     }
   });
 
@@ -546,23 +553,21 @@ describe('System administrator account management full flows', () => {
     expect(await User.findById(adminId)).toMatchObject({ status: 'active' });
   });
 
-  it('does not grant optional private company reads to a suspended or revoked admin token', async () => {
-    const reader = await User.create({ email: `${new Types.ObjectId()}@example.test`, username: `reader_${new Types.ObjectId()}`, role: 'admin', status: 'active', email_verified: true });
+  it('keeps read-only role access until expiry but rejects refresh after session revocation', async () => {
+    const reader = await User.create({ email: `${new Types.ObjectId()}@example.test`, username: `reader_${new Types.ObjectId()}`, role: 'recruiter', status: 'active', email_verified: true, enterprise_id: enterpriseId });
     createdUserIds.push(reader._id);
-    const stale = token(reader._id, 'admin');
-    await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'pending' } });
-    try {
-      expect((await request(`/enterprises/${enterpriseId}`, { headers: { authorization: `Bearer ${stale}` } })).status).toBe(HTTP_STATUS.HTTP_200_OK);
-      await User.updateOne({ _id: reader._id }, { $inc: { auth_version: 1 } });
-      expect((await request(`/enterprises/${enterpriseId}`, { headers: { authorization: `Bearer ${stale}` } })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
-      await User.updateOne({ _id: reader._id }, { $set: { auth_version: 0, status: 'suspended' } });
-      expect((await request(`/enterprises/${enterpriseId}`, { headers: { authorization: `Bearer ${stale}` } })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
-      const publicList = await request('/enterprises?status=pending', { headers: { authorization: `Bearer ${stale}` } });
-      expect(publicList.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      expect(publicList.body.items).toEqual([]);
-    } finally {
-      await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active' } });
-    }
+    const stale = token(reader._id, 'recruiter');
+    const headers = { authorization: `Bearer ${stale}` };
+    const firstRead = await request('/recruiter/job-postings', { headers });
+    expect(firstRead.status, JSON.stringify(firstRead.body)).toBe(HTTP_STATUS.HTTP_200_OK);
+    const refresh = jwt.sign({ sub: String(reader._id), email: reader.email, role: 'recruiter', av: 0 }, env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+    await User.updateOne({ _id: reader._id }, { $inc: { auth_version: 1 } });
+    const staleRead = await request('/recruiter/job-postings', { headers });
+    expect(staleRead.status, JSON.stringify(staleRead.body)).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await request('/auth/refresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: refresh }) })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    await User.updateOne({ _id: reader._id }, { $set: { auth_version: 0, status: 'suspended' } });
+    const suspendedRead = await request('/recruiter/job-postings', { headers });
+    expect(suspendedRead.status, JSON.stringify(suspendedRead.body)).toBe(HTTP_STATUS.HTTP_200_OK);
   });
 
   it('returns the company users when sorting by name, with matching row count', async () => {

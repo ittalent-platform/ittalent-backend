@@ -23,6 +23,10 @@ import type {
 } from './enterprises.schemas.js';
 
 export class EnterprisesService {
+  async incrementAdminMutationVersion(enterpriseId: mongoose.Types.ObjectId, session: mongoose.ClientSession): Promise<boolean> {
+    return this.repository.incrementAdminMutationVersion(enterpriseId, session);
+  }
+
   constructor(
     private readonly repository: EnterprisesRepository = enterprisesRepository,
     private readonly userService: UsersService = usersService,

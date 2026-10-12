@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
 
 import { AuthService } from '../../../src/modules/auth/auth.service.js';
 import type { AuthRepository } from '../../../src/modules/auth/auth.repository.js';
@@ -53,6 +54,26 @@ describe('AuthService', () => {
       mockAuthRepo as AuthRepository,
       mockUserService as UsersService,
     );
+  });
+
+  describe('service boundary methods', () => {
+    it('verifies a current password through the auth repository, optionally in a transaction', async () => {
+      const session = {} as never;
+      mockAuthRepo.verifyCurrentPassword = vi.fn().mockResolvedValue(true);
+
+      await expect(authService.verifyCurrentPassword({} as never, 'password', session)).resolves.toBe(true);
+      expect(mockAuthRepo.verifyCurrentPassword).toHaveBeenCalledWith(expect.anything(), 'password', session);
+    });
+
+    it('creates a passwordless local credential in the supplied transaction', async () => {
+      const session = {} as never;
+      mockAuthRepo.createLocalAccount = vi.fn().mockResolvedValue({} as never);
+      const userId = new Types.ObjectId();
+
+      await authService.createPasswordlessLocalAccount(userId, session);
+
+      expect(mockAuthRepo.createLocalAccount).toHaveBeenCalledWith({ userId, provider: 'local' }, session);
+    });
   });
 
   describe('register', () => {

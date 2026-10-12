@@ -31,6 +31,7 @@ describe('UsersService', () => {
       updateProfile: vi.fn(),
       updateProfileVersioned: vi.fn(),
       findByIds: vi.fn(),
+      findNamesByIds: vi.fn(),
       findIdsByKeyword: vi.fn(),
     };
     mockAudits = { record: vi.fn() };
@@ -254,6 +255,104 @@ describe('UsersService', () => {
 
       await expect(usersService.findIdsByKeyword('mai', 50)).resolves.toEqual(['u1']);
       expect(mockRepo.findIdsByKeyword).toHaveBeenCalledWith('mai', 50);
+    });
+  });
+
+  describe('findNamesByIds', () => {
+    it('delegates actor-name projection to the users repository', async () => {
+      const names = new Map([['u1', 'User One']]);
+      mockRepo.findNamesByIds = vi.fn().mockResolvedValue(names);
+
+      await expect(usersService.findNamesByIds(['u1'])).resolves.toBe(names);
+      expect(mockRepo.findNamesByIds).toHaveBeenCalledWith(['u1']);
+    });
+  });
+
+  it('delegates enterprise admin mutation locking to the enterprise service boundary', async () => {
+    const lock = vi.fn().mockResolvedValue(true);
+    const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, undefined, lock);
+    const enterpriseId = new Types.ObjectId();
+    const session = {} as never;
+
+    await expect(service.lockEnterpriseAdminChanges(enterpriseId, session)).resolves.toBe(true);
+    expect(lock).toHaveBeenCalledWith(enterpriseId, session);
+  });
+
+  describe('admin metadata orchestration', () => {
+    it('uses service resolvers for one user and a page without controller-owned joins', async () => {
+      const resolver = {
+        resolve: vi.fn().mockResolvedValue({ enterpriseName: 'Acme', invitation: null }),
+        resolveMany: vi.fn().mockResolvedValue(new Map([['u1', { enterpriseName: 'Acme', invitation: null }]])),
+      };
+      const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, resolver);
+      const user = { id: 'u1', enterpriseId: 'e1' } as never;
+      const query = { page: 1, limit: 10, sortBy: 'createdAt', sortOrder: 'desc' } as const;
+      vi.spyOn(service, 'getUserById').mockResolvedValue(user);
+      vi.spyOn(service, 'listUsers').mockResolvedValue({ items: [user], page: 1, limit: 10, total: 1, totalPages: 1 });
+
+      await expect(service.withAdminMetadata(user)).resolves.toMatchObject({ enterpriseName: 'Acme' });
+      await expect(service.listUsersWithAdminMetadata(query)).resolves.toMatchObject({ items: [{ enterpriseName: 'Acme' }] });
+      expect(resolver.resolve).toHaveBeenCalledWith('u1', 'e1');
+      expect(resolver.resolveMany).toHaveBeenCalledWith([{ id: 'u1', enterpriseId: 'e1' }]);
+    });
+  });
+
+  describe('new administrator transitions', () => {
+    it('updates status in the transaction and writes an audit event', async () => {
+      const actorId = new Types.ObjectId();
+      const targetId = new Types.ObjectId();
+      const doc = (id: Types.ObjectId, role: string, status: string, version: number) => ({
+        _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status, version,
+        toObject: () => ({ _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status, version }),
+      });
+      mockRepo.findByIdWithSession = vi.fn().mockResolvedValueOnce(doc(actorId, 'admin', 'active', 0)).mockResolvedValueOnce(doc(targetId, 'user', 'active', 0));
+      mockRepo.transitionStatus = vi.fn().mockResolvedValue(doc(targetId, 'user', 'suspended', 1));
+      mockAudits.record = vi.fn().mockResolvedValue(undefined);
+
+      await expect(usersService.updateStatus(String(actorId), String(targetId), { status: 'suspended', reason: 'Policy violation', expectedVersion: 0 })).resolves.toMatchObject({ status: 'suspended', version: 1 });
+      expect(mockRepo.transitionStatus).toHaveBeenCalledWith(String(targetId), 0, 'suspended', expect.anything());
+      expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({ targetUserId: targetId, actorId, action: 'status_suspended', reason: 'Policy violation', version: 1 }), expect.anything());
+    });
+
+    it('allows emergency suspension of the last Enterprise Administrator and audits the override', async () => {
+      const actorId = new Types.ObjectId();
+      const targetId = new Types.ObjectId();
+      const enterpriseId = new Types.ObjectId();
+      const doc = (id: Types.ObjectId, role: string, status: string, version: number) => {
+        const value = { _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status, email_verified: true, enterprise_id: enterpriseId, version };
+        return { ...value, toObject: () => value };
+      };
+      const lock = vi.fn().mockResolvedValue(true);
+      const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, undefined, lock);
+      mockRepo.findById = vi.fn().mockResolvedValue(doc(targetId, 'enterprise_admin', 'active', 0));
+      mockRepo.findByIdWithSession = vi.fn().mockResolvedValueOnce(doc(actorId, 'admin', 'active', 0)).mockResolvedValueOnce(doc(targetId, 'enterprise_admin', 'active', 0));
+      mockRepo.countActiveEnterpriseAdmins = vi.fn().mockResolvedValue(1);
+      mockRepo.transitionStatus = vi.fn().mockResolvedValue(doc(targetId, 'enterprise_admin', 'suspended', 1));
+      mockAudits.record = vi.fn().mockResolvedValue(undefined);
+
+      await expect(service.emergencySuspend(String(actorId), String(targetId), { reason: 'Suspected account compromise', expectedVersion: 0 })).resolves.toMatchObject({ status: 'suspended' });
+      expect(lock).toHaveBeenCalledWith(enterpriseId, expect.anything());
+      expect(mockRepo.countActiveEnterpriseAdmins).toHaveBeenCalledWith(enterpriseId, expect.anything());
+      expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'status_suspended', changes: { emergency: 'true' } }), expect.anything());
+    });
+
+    it('updates role using an enterprise-scoped lock and audits the transition', async () => {
+      const actorId = new Types.ObjectId();
+      const targetId = new Types.ObjectId();
+      const enterpriseId = new Types.ObjectId();
+      const doc = (id: Types.ObjectId, role: string, version: number) => ({
+        _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status: 'active', enterprise_id: enterpriseId, version,
+        toObject: () => ({ _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status: 'active', enterprise_id: enterpriseId, version }),
+      });
+      const lock = vi.fn().mockResolvedValue(true);
+      const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, undefined, lock);
+      mockRepo.findByIdWithSession = vi.fn().mockResolvedValueOnce(doc(actorId, 'admin', 0)).mockResolvedValueOnce(doc(targetId, 'recruiter', 0));
+      mockRepo.transitionRole = vi.fn().mockResolvedValue(doc(targetId, 'enterprise_admin', 1));
+      mockAudits.record = vi.fn().mockResolvedValue(undefined);
+
+      await expect(service.updateRole(String(actorId), String(targetId), { role: 'enterprise_admin', reason: 'Assigned company admin', expectedVersion: 0 })).resolves.toMatchObject({ role: 'enterprise_admin', version: 1 });
+      expect(lock).toHaveBeenCalledWith(enterpriseId, expect.anything());
+      expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'role_changed', changes: { previousRole: 'recruiter', role: 'enterprise_admin' } }), expect.anything());
     });
   });
 

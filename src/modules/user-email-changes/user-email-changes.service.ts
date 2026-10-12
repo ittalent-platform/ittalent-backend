@@ -6,7 +6,7 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { sendUserEmailChangeEmail } from '../../shared/services/email.service.js';
 import { AUTH_CONFIG } from '../auth/auth.constants.js';
-import { authRepository, type AuthRepository } from '../auth/auth.repository.js';
+import { authService, type AuthService } from '../auth/auth.service.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { USER_EMAIL_CHANGE_MESSAGES, USER_EMAIL_CHANGE_TTL_MS } from './user-email-changes.constants.js';
@@ -17,7 +17,7 @@ export class UserEmailChangesService {
   constructor(
     private readonly users: UsersService = usersService,
     private readonly changes: UserEmailChangesRepository = userEmailChangesRepository,
-    private readonly auth: AuthRepository = authRepository,
+    private readonly auth: AuthService = authService,
     private readonly audits: UserAuditsService = userAuditsService,
   ) {}
 
@@ -71,8 +71,6 @@ export class UserEmailChangesService {
     if (!invitation) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_EMAIL_CHANGE_MESSAGES.INVALID_REQUEST);
     const userId = invitation.target_user_id as Types.ObjectId;
     if (String(userId) !== actorId) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_EMAIL_CHANGE_MESSAGES.CURRENT_PASSWORD);
-    if (!(await this.auth.verifyCurrentPassword(userId, input.currentPassword))) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_EMAIL_CHANGE_MESSAGES.CURRENT_PASSWORD);
-
     const session = await mongoose.startSession();
     let email = '';
     let authVersion = 0;

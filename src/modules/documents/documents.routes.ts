@@ -8,5 +8,5 @@ import { documentListQuerySchema, documentUploadSchema } from './documents.schem
 export const documentsRouter = Router();
 
 documentsRouter.post('/documents', authenticate, authenticateCurrentUser, uploadDocument, validateBody(documentUploadSchema), documentsController.upload);
-documentsRouter.get('/documents', authenticate, authenticateCurrentUser, validateQuery(documentListQuerySchema), documentsController.listMine);
-documentsRouter.get('/admin/documents', authenticate, authenticateCurrentUser, authorize('admin'), validateQuery(documentListQuerySchema), documentsController.listAdmin);
+documentsRouter.get('/documents', authenticate, validateQuery(documentListQuerySchema), documentsController.listMine);
+documentsRouter.get('/admin/documents', authenticate, authorize('admin'), validateQuery(documentListQuerySchema), documentsController.listAdmin);
