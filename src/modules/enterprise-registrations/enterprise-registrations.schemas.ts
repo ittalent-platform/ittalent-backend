@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { companySizes, companyTypes } from '../../models/enterprise.model.js';
 import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
+import { AUTH_CONFIG, USERNAME_REGEX } from '../auth/auth.constants.js';
+import { type AuthTokens, passwordSchema, type UserDTO } from '../auth/auth.schemas.js';
 import {
   adminDecisionTypes,
   BLOCKED_EMAIL_DOMAINS,
@@ -251,3 +253,30 @@ export const adminDecisionBodySchema = z
   });
 
 export type AdminDecisionDTO = z.infer<typeof adminDecisionBodySchema>;
+
+export const acceptInvitationBodySchema = z.object({
+  token: z.string().trim().min(1, 'Invitation token is required'),
+  password: passwordSchema,
+  username: z
+    .string()
+    .min(
+      AUTH_CONFIG.USERNAME_MIN_LENGTH,
+      `Username must be at least ${AUTH_CONFIG.USERNAME_MIN_LENGTH} characters`,
+    )
+    .max(
+      AUTH_CONFIG.USERNAME_MAX_LENGTH,
+      `Username cannot exceed ${AUTH_CONFIG.USERNAME_MAX_LENGTH} characters`,
+    )
+    .regex(USERNAME_REGEX, 'Username may only contain letters, numbers, and underscores')
+    .trim()
+    .toLowerCase()
+    .optional(),
+});
+
+export type AcceptInvitationDTO = z.infer<typeof acceptInvitationBodySchema>;
+
+export interface AcceptInvitationResult {
+  message: string;
+  user: UserDTO;
+  tokens: AuthTokens;
+}
