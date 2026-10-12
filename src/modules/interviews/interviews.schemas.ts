@@ -88,6 +88,13 @@ export const updateInterviewStatusBodySchema = z.strictObject({
 });
 export type UpdateInterviewStatusBody = z.infer<typeof updateInterviewStatusBodySchema>;
 
+// Applicant response supported by the legacy system: propose another interview time with a reason.
+export const requestInterviewRescheduleBodySchema = z.strictObject({
+  proposedDateTime: scheduledAtSchema,
+  reason: z.string().trim().min(1).max(INTERVIEW_CONFIG.RESCHEDULE_REASON_MAX_LENGTH),
+});
+export type RequestInterviewRescheduleBody = z.infer<typeof requestInterviewRescheduleBodySchema>;
+
 // `status` accepts one value or a comma-separated list ("scheduled,completed") for multi-select filters.
 export function parseInterviewStatusFilter(value: string): InterviewStatus[] {
   return value.split(INTERVIEW_CONFIG.STATUS_FILTER_SEPARATOR).map((item) => item.trim()) as InterviewStatus[];
@@ -168,6 +175,13 @@ const participantDtoSchema = z.object({
 });
 export type InterviewParticipantDTO = z.infer<typeof participantDtoSchema>;
 
+const rescheduleRequestDtoSchema = z.object({
+  proposedDateTime: z.string(),
+  reason: z.string(),
+  requestedAt: z.string(),
+});
+export type InterviewRescheduleRequestDTO = z.infer<typeof rescheduleRequestDtoSchema>;
+
 export const interviewDtoSchema = z.object({
   id: z.string(),
   status: z.enum(interviewStatuses),
@@ -178,6 +192,7 @@ export const interviewDtoSchema = z.object({
   meetingLink: z.string().nullable(),
   location: z.string().nullable(),
   notes: z.string().nullable(),
+  rescheduleRequest: rescheduleRequestDtoSchema.nullable(),
   applicationId: z.string(),
   job: z.object({ id: z.string(), title: z.string().nullable() }),
   applicant: participantDtoSchema,

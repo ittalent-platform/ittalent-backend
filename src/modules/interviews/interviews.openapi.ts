@@ -14,12 +14,14 @@ import {
   schedulableApplicationListResponseSchema,
   updateInterviewBodySchema,
   updateInterviewStatusBodySchema,
+  requestInterviewRescheduleBodySchema,
 } from './interviews.schemas.js';
 
 export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
   const registeredCreate = registry.register('CreateInterviewRequest', createInterviewBodySchema);
   const registeredUpdate = registry.register('UpdateInterviewRequest', updateInterviewBodySchema);
   const registeredStatus = registry.register('UpdateInterviewStatusRequest', updateInterviewStatusBodySchema);
+  const registeredRescheduleRequest = registry.register('RequestInterviewRescheduleRequest', requestInterviewRescheduleBodySchema);
   const registeredDetail = registry.register('InterviewDetailDTO', interviewDetailDtoSchema);
   const registeredList = registry.register('InterviewListResponse', interviewListResponseSchema);
   const registeredCalendar = registry.register('InterviewCalendarResponse', interviewCalendarResponseSchema);
@@ -35,6 +37,28 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
       description: 'Interview not found, or it belongs to another enterprise',
     },
   };
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/interviews/{id}/reschedule-request',
+    tags: ['Interviews'],
+    summary: 'Request a different interview time',
+    description:
+      'Applicant only. The caller must own the interview application. A scheduled interview becomes `reschedule_requested` and stores the proposed time and reason. A second request or any other current status returns 409.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: interviewIdParamSchema,
+      body: { required: true, content: { 'application/json': { schema: registeredRescheduleRequest } } },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Reschedule request recorded', content: { 'application/json': { schema: registeredDetail } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid interview ID, proposed date-time or reason' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Only the applicant who owns the interview may respond' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Interview not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'INTERVIEW_RESCHEDULE_REQUESTED or INTERVIEW_STATE_CHANGED' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+    },
+  });
 
   registry.registerPath({
     method: 'post',

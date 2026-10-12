@@ -11,6 +11,7 @@ import type {
   InterviewLookupQuery,
   UpdateInterviewBody,
   UpdateInterviewStatusBody,
+  RequestInterviewRescheduleBody,
 } from './interviews.schemas.js';
 import { interviewsService, type InterviewActor, type InterviewsService } from './interviews.service.js';
 
@@ -101,6 +102,17 @@ export class InterviewsController {
       const params = res.locals.validated?.params as InterviewIdParam;
       const body = res.locals.validated?.body as UpdateInterviewStatusBody;
       const result = await this.service.updateStatus(this.actorOf(req), params.id, body);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  requestReschedule: RequestHandler = async (req, res, next) => {
+    try {
+      const params = res.locals.validated?.params as InterviewIdParam;
+      const body = res.locals.validated?.body as RequestInterviewRescheduleBody;
+      const result = await this.service.requestReschedule(this.actorOf(req), params.id, body);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

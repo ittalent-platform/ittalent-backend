@@ -16,7 +16,7 @@ function response(validated: Record<string, unknown>): { res: never; status: Ret
 
 describe('InterviewsController', () => {
   let service: Record<
-    'create' | 'list' | 'calendar' | 'getDetail' | 'update' | 'updateStatus' | 'remove' | 'listSchedulableApplications' | 'listInterviewers',
+    'create' | 'list' | 'calendar' | 'getDetail' | 'update' | 'updateStatus' | 'requestReschedule' | 'remove' | 'listSchedulableApplications' | 'listInterviewers',
     ReturnType<typeof vi.fn>
   >;
   let controller: InterviewsController;
@@ -30,6 +30,7 @@ describe('InterviewsController', () => {
       getDetail: vi.fn(),
       update: vi.fn(),
       updateStatus: vi.fn(),
+      requestReschedule: vi.fn(),
       remove: vi.fn(),
       listSchedulableApplications: vi.fn(),
       listInterviewers: vi.fn(),
@@ -103,6 +104,17 @@ describe('InterviewsController', () => {
     expect(json).toHaveBeenCalledWith({ id: ID, status: 'completed' });
   });
 
+  it('records an applicant reschedule request', async () => {
+    const body = { proposedDateTime: '2026-10-14T03:00:00.000Z', reason: 'Medical appointment' };
+    service.requestReschedule!.mockResolvedValue({ id: ID, status: 'reschedule_requested' });
+    const { res, json } = response({ params: { id: ID }, body });
+
+    await controller.requestReschedule(req, res, vi.fn());
+
+    expect(service.requestReschedule).toHaveBeenCalledWith(actor, ID, body);
+    expect(json).toHaveBeenCalledWith({ id: ID, status: 'reschedule_requested' });
+  });
+
   it('deletes and answers 204 without a body', async () => {
     service.remove!.mockResolvedValue(undefined);
     const { res, status, json, send } = response({ params: { id: ID } });
@@ -122,6 +134,7 @@ describe('InterviewsController', () => {
     ['getDetail'],
     ['updateInterview'],
     ['updateStatus'],
+    ['requestReschedule'],
     ['deleteInterview'],
   ] as const)('%s answers 401 when there is no authenticated user', async (handler) => {
     const { res } = response({ params: { id: ID } });

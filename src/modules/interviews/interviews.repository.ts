@@ -12,6 +12,7 @@ import {
   type InterviewData,
   type InterviewDoc,
   type InterviewMode,
+  type InterviewRescheduleRequest,
   type InterviewStatus,
   type InterviewStatusHistoryEntry,
 } from '../../models/interview.model.js';
@@ -105,6 +106,11 @@ export interface InterviewConflictParams {
   startsAt: Date;
   endsAt: Date;
   excludeId?: string | undefined;
+}
+
+export interface RequestInterviewRescheduleRecord {
+  proposedDateTime: Date;
+  reason: string;
 }
 
 const ASCENDING = 1;
@@ -269,6 +275,32 @@ export class InterviewsRepository {
         ...(options.endedBefore ? { ends_at: { $lte: options.endedBefore } } : {}),
       },
       { $set: { status }, $push: { status_history: entry } },
+      { returnDocument: 'after' },
+    )
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
+  // Atomic ownership-and-state guard prevents duplicate requests and a response racing a recruiter transition.
+  async requestReschedule(
+    id: string,
+    applicantId: string,
+    record: RequestInterviewRescheduleRecord,
+  ): Promise<InterviewDoc | null> {
+    const requestedAt = new Date();
+    const request: InterviewRescheduleRequest = {
+      proposed_time: record.proposedDateTime,
+      reason: record.reason,
+      requested_at: requestedAt,
+    };
+    const entry: InterviewStatusHistoryEntry = {
+      status: 'reschedule_requested',
+      changed_at: requestedAt,
+      changed_by: new Types.ObjectId(applicantId),
+    };
+    return Interview.findOneAndUpdate(
+      { _id: id, applicant_id: applicantId, status: INTERVIEW_EDITABLE_STATUS },
+      { $set: { status: 'reschedule_requested', reschedule_request: request }, $push: { status_history: entry } },
       { returnDocument: 'after' },
     )
       .lean<InterviewDoc>()

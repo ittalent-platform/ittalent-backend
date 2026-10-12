@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
-import { INTERVIEW_MANAGER_ROLE } from './interviews.constants.js';
+import { INTERVIEW_APPLICANT_ROLE, INTERVIEW_MANAGER_ROLE } from './interviews.constants.js';
 import { interviewsController } from './interviews.controller.js';
 import {
   createInterviewBodyValidator,
@@ -12,6 +12,7 @@ import {
   interviewLookupQuerySchema,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
+  requestInterviewRescheduleBodySchema,
 } from './interviews.schemas.js';
 
 export const interviewsRouter = Router();
@@ -35,6 +36,16 @@ interviewsRouter.get(
   interviewsController.listSchedulableApplications,
 );
 interviewsRouter.get('/interviewers', ...manageInterviews, validateQuery(interviewLookupQuerySchema), interviewsController.listInterviewers);
+
+// An applicant can request another time for their own scheduled interview. PATCH reflects the state transition.
+interviewsRouter.patch(
+  '/:id/reschedule-request',
+  authenticate,
+  authorize(INTERVIEW_APPLICANT_ROLE),
+  validateParams(interviewIdParamSchema),
+  validateBody(requestInterviewRescheduleBodySchema),
+  interviewsController.requestReschedule,
+);
 
 interviewsRouter.get('/:id', ...manageInterviews, validateParams(interviewIdParamSchema), interviewsController.getDetail);
 
