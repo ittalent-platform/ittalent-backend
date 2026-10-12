@@ -73,6 +73,7 @@ let mockService: Partial<ApplicationsService>;
       hired: 0,
       rejected: 0,
       withdrawn: 0,
+      position_filled: 0,
     },
   };
 
