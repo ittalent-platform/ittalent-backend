@@ -9,20 +9,26 @@ export const applicationStatuses = [
   'hired',
   'rejected',
   'withdrawn',
+  'position_filled',
 ] as const;
 export type ApplicationStatus = (typeof applicationStatuses)[number];
 export const APPLICATION_REASON_MAX_LENGTH = 500;
 
-// BR-APP-002 / BR-APP-010: a Withdrawn or Rejected record is closed and frees the applicant/job pair;
-// every other status keeps the pair occupied, so at most one active application exists per pair.
+// BR-APP-002 / BR-APP-010 / BR-18: a Withdrawn, Rejected, or Position Filled record is closed and frees
+// the applicant/job pair; every other status keeps the pair occupied, so at most one active application
+// exists per pair.
 export const applicationOccupyingStatuses = applicationStatuses.filter(
-  (status) => status !== 'withdrawn' && status !== 'rejected',
+  (status) => status !== 'withdrawn' && status !== 'rejected' && status !== 'position_filled',
 );
 
 export interface ApplicationStatusHistoryEntry {
   status: ApplicationStatus;
   changed_at: Date;
   changed_by: Types.ObjectId;
+  actor_role?: string;
+  note?: string;
+  message_to_candidate?: string;
+  rejection_reason?: string;
 }
 
 export interface ApplicationData {
@@ -47,6 +53,10 @@ const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
     status: { type: String, enum: applicationStatuses, required: true },
     changed_at: { type: Date, required: true },
     changed_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    actor_role: { type: String, trim: true },
+    note: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
+    message_to_candidate: { type: String, trim: true, maxlength: 1000 },
+    rejection_reason: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
   },
   { _id: false },
 );
