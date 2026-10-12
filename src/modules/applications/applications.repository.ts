@@ -328,6 +328,30 @@ export class ApplicationsRepository {
 
     return counts;
   }
+
+  async findById(id: string | Types.ObjectId): Promise<ApplicationDoc | null> {
+    if (!Types.ObjectId.isValid(id)) {
+      return null;
+    }
+    return Application.findById(id).lean<ApplicationDoc>().exec();
+  }
+
+  // Scoped to enterprise job IDs to prevent leaking application existence across organizations (BR-06).
+  async findByIdAndJobIds(
+    applicationId: string | Types.ObjectId,
+    jobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationDoc | null> {
+    if (jobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    return Application.findOne({
+      _id: new Types.ObjectId(applicationId),
+      job_id: { $in: jobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    })
+      .lean<ApplicationDoc>()
+      .exec();
+  }
 }
 
 export const applicationsRepository = new ApplicationsRepository();
