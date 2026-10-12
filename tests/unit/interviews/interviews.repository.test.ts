@@ -77,6 +77,11 @@ describe('InterviewsRepository', () => {
       expect(document).not.toHaveProperty('notes');
     });
 
+    it('never deletes a completed interview', async () => {
+      const remove = vi.spyOn(Interview, 'findOneAndDelete').mockReturnValue(query(null) as never);
+      await repository.deleteNotCompleted('i1');
+      expect(remove).toHaveBeenCalledWith({ _id: 'i1', status: { $ne: 'completed' } });
+    });
   });
 
 });

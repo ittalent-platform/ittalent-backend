@@ -16,6 +16,7 @@ import {
   INTERVIEW_ERROR_CODES,
   INTERVIEW_MANAGER_ROLE,
   INTERVIEW_MESSAGES,
+  INTERVIEW_COMPLETED_STATUS,
   ACTIVE_USER_STATUS,
   SCHEDULABLE_APPLICATION_STATUSES,
 } from './interviews.constants.js';
@@ -113,6 +114,40 @@ export class InterviewsService {
     return detail;
   }
 
+  async remove(actor: InterviewActor, id: string): Promise<void> {
+    const scope = await this.resolveScope(actor);
+    const existing = await this.loadScoped(scope, id);
+    // A completed interview is a record of work done, so it stays.
+    if (existing.status === INTERVIEW_COMPLETED_STATUS) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        INTERVIEW_MESSAGES.COMPLETED_NOT_DELETABLE,
+        INTERVIEW_ERROR_CODES.COMPLETED_NOT_DELETABLE,
+      );
+    }
+
+    const deleted = await this.repository.deleteNotCompleted(id);
+    if (!deleted) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+
+    // Deleting an interview that was still scheduled tells the participants it will not happen.
+    if (deleted.status === INTERVIEW_EDITABLE_STATUS) {
+      await this.safely(async () => {
+        await this.notify('cancelled', await this.hydrateOne(deleted), scope.enterpriseId);
+      });
+    }
+  }
+
+  // ---- reads ----
+
+  async getDetail(actor: InterviewActor, id: string): Promise<InterviewDetailDTO> {
+    const scope = await this.resolveScope(actor);
+    return this.hydrateDetail(await this.loadScoped(scope, id));
+  }
+
+  // ---- scope and rules ----
+
   // The routes already restrict these endpoints to recruiters; the service enforces it too so it is safe to call from anywhere.
   private async resolveScope(actor: InterviewActor): Promise<InterviewScope> {
     if (actor.role !== INTERVIEW_MANAGER_ROLE) {
@@ -123,6 +158,15 @@ export class InterviewsService {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.NO_ENTERPRISE);
     }
     return { enterpriseId };
+  }
+
+  // Another company's interview is indistinguishable from a missing one.
+  private async loadScoped(scope: InterviewScope, id: string): Promise<InterviewDoc> {
+    const interview = await this.repository.findById(id);
+    if (!interview || String(interview.enterprise_id) !== scope.enterpriseId) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, INTERVIEW_MESSAGES.NOT_FOUND);
+    }
+    return interview;
   }
 
   private endOf(startsAt: Date, durationMinutes: number): Date {

@@ -8,7 +8,10 @@ import {
   type InterviewMode,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
-import { INTERVIEW_INITIAL_STATUS } from './interviews.constants.js';
+import {
+  INTERVIEW_COMPLETED_STATUS,
+  INTERVIEW_INITIAL_STATUS,
+} from './interviews.constants.js';
 
 // Narrow read models: this module only reads these entities (the "shared models" the architecture allows)
 // and never writes to them. People are read through UsersService, never through the User model.
@@ -110,6 +113,17 @@ export class InterviewsRepository {
       status_history: [{ status: INTERVIEW_INITIAL_STATUS, changed_at: now, changed_by: record.createdBy }],
     });
     return created.toObject() as unknown as InterviewDoc;
+  }
+
+  async findById(id: string): Promise<InterviewDoc | null> {
+    return Interview.findById(id).lean<InterviewDoc>().exec();
+  }
+
+  // Deletes unless the interview was completed meanwhile; returns the deleted record.
+  async deleteNotCompleted(id: string): Promise<InterviewDoc | null> {
+    return Interview.findOneAndDelete({ _id: id, status: { $ne: INTERVIEW_COMPLETED_STATUS } })
+      .lean<InterviewDoc>()
+      .exec();
   }
 
 }
