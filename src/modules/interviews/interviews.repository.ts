@@ -16,6 +16,9 @@ import {
   INTERVIEW_EDITABLE_STATUS,
   INTERVIEW_COMPLETED_STATUS,
   INTERVIEW_INITIAL_STATUS,
+  INTERVIEW_SORT_COLUMNS,
+  type InterviewSortField,
+  type InterviewSortOrder,
 } from './interviews.constants.js';
 
 // Narrow read models: this module only reads these entities (the "shared models" the architecture allows)
@@ -75,6 +78,13 @@ export interface InterviewFilter {
   search?: { userIds: string[]; jobIds: string[] } | undefined;
 }
 
+export interface FindInterviewsPageParams {
+  page: number;
+  limit: number;
+  sortBy: InterviewSortField;
+  sortOrder: InterviewSortOrder;
+}
+
 export interface InterviewConflictParams {
   interviewerIds: string[];
   applicantId: string;
@@ -84,6 +94,7 @@ export interface InterviewConflictParams {
 }
 
 const ASCENDING = 1;
+const DESCENDING = -1;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -230,6 +241,25 @@ export class InterviewsRepository {
     return Interview.findOneAndDelete({ _id: id, status: { $ne: INTERVIEW_COMPLETED_STATUS } })
       .lean<InterviewDoc>()
       .exec();
+  }
+
+  async findPage(
+    filter: InterviewFilter,
+    params: FindInterviewsPageParams,
+  ): Promise<{ items: InterviewDoc[]; total: number }> {
+    const query = this.buildQuery(filter);
+    const direction = params.sortOrder === 'asc' ? ASCENDING : DESCENDING;
+    const [items, total] = await Promise.all([
+      Interview.find(query)
+        // _id breaks ties so paging never repeats or skips a row.
+        .sort({ [INTERVIEW_SORT_COLUMNS[params.sortBy]]: direction, _id: direction })
+        .skip((params.page - 1) * params.limit)
+        .limit(params.limit)
+        .lean<InterviewDoc[]>()
+        .exec(),
+      Interview.countDocuments(query).exec(),
+    ]);
+    return { items, total };
   }
 
   // Everything in the window, earliest first, capped at `limit`; `total` is the uncapped match count.

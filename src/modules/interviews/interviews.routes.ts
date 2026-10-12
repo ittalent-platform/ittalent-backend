@@ -8,6 +8,7 @@ import {
   createInterviewBodyValidator,
   interviewCalendarQueryValidator,
   interviewIdParamSchema,
+  interviewListQueryValidator,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
 } from './interviews.schemas.js';
@@ -20,6 +21,8 @@ const manageInterviews = [authenticate, authorize(INTERVIEW_MANAGER_ROLE)];
 // POST creates a new interview and emails the applicant and the interviewers.
 interviewsRouter.post('/', ...manageInterviews, validateBody(createInterviewBodyValidator), interviewsController.createInterview);
 
+// List view (paginated) and Calendar view (a date window). Both take the same search and filters.
+interviewsRouter.get('/', ...manageInterviews, validateQuery(interviewListQueryValidator), interviewsController.listInterviews);
 // Registered before /:id so "calendar" is not read as an interview id.
 interviewsRouter.get('/calendar', ...manageInterviews, validateQuery(interviewCalendarQueryValidator), interviewsController.calendar);
 

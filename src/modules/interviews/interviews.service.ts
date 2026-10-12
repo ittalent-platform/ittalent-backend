@@ -34,6 +34,8 @@ import {
   type InterviewCalendarResponse,
   type InterviewDetailDTO,
   type InterviewDTO,
+  type InterviewListQuery,
+  type InterviewListResponse,
   type InterviewParticipantDTO,
   type UpdateInterviewBody,
   type UpdateInterviewStatusBody,
@@ -251,6 +253,24 @@ export class InterviewsService {
   }
 
   // ---- reads ----
+
+  async list(actor: InterviewActor, query: InterviewListQuery): Promise<InterviewListResponse> {
+    const scope = await this.resolveScope(actor);
+    const filter = await this.buildFilter(scope, query, false);
+    const { items, total } = await this.repository.findPage(filter, {
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+    return {
+      items: await this.hydrate(items),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
 
   async calendar(actor: InterviewActor, query: InterviewCalendarQuery): Promise<InterviewCalendarResponse> {
     const scope = await this.resolveScope(actor);

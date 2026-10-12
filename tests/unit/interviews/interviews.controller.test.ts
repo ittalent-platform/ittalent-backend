@@ -44,6 +44,18 @@ describe('InterviewsController', () => {
     expect(json).toHaveBeenCalledWith({ id: ID });
   });
 
+  it('lists interviews with the validated query', async () => {
+    const query = { page: 1, limit: 20 };
+    service.list!.mockResolvedValue({ items: [] });
+    const { res, status, json } = response({ query });
+
+    await controller.listInterviews(req, res, vi.fn());
+
+    expect(service.list).toHaveBeenCalledWith(actor, query);
+    expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+    expect(json).toHaveBeenCalledWith({ items: [] });
+  });
+
   it('returns the calendar for the validated window', async () => {
     const query = { from: new Date(), to: new Date() };
     service.calendar!.mockResolvedValue({ items: [] });
@@ -100,6 +112,7 @@ describe('InterviewsController', () => {
 
   it.each([
     ['createInterview'],
+    ['listInterviews'],
     ['calendar'],
     ['getDetail'],
     ['updateInterview'],

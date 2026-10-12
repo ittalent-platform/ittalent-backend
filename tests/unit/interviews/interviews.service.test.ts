@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApplicationStatus } from '../../../src/models/application.model.js';
 import type { InterviewDoc, InterviewStatus } from '../../../src/models/interview.model.js';
 import type { UserDoc } from '../../../src/models/user.model.js';
-import { INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
+import { INTERVIEW_CONFIG, INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
 import type { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
 import { InterviewsService, type InterviewActor } from '../../../src/modules/interviews/interviews.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
@@ -538,6 +538,70 @@ describe('InterviewsService', () => {
       await expect(service.getDetail(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 404 });
       repository.findById!.mockResolvedValue(null);
       await expect(service.getDetail(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe('list (List view)', () => {
+    const query = { page: 2, limit: 10, sortBy: 'scheduledAt', sortOrder: 'asc' } as const;
+
+    it('applies the filters and pages the result', async () => {
+      repository.findPage!.mockResolvedValue({ items: [interview()], total: 21 });
+      const from = new Date('2026-10-01T00:00:00.000Z');
+      const to = new Date('2026-10-31T00:00:00.000Z');
+
+      const result = await service.list(recruiter, {
+        ...query,
+        status: 'scheduled, completed',
+        mode: 'online',
+        jobId: JOB,
+        applicationId: APPLICATION,
+        interviewerId: INTERVIEWER_A,
+        from,
+        to,
+      });
+
+      expect(repository.findPage).toHaveBeenCalledWith(
+        {
+          enterpriseId: ENTERPRISE,
+          interviewerId: INTERVIEWER_A,
+          statuses: ['scheduled', 'completed'],
+          mode: 'online',
+          jobId: JOB,
+          applicationId: APPLICATION,
+          from,
+          to,
+          overlapRange: false,
+          search: undefined,
+        },
+        { page: 2, limit: 10, sortBy: 'scheduledAt', sortOrder: 'asc' },
+      );
+      expect(result).toMatchObject({ page: 2, limit: 10, total: 21, totalPages: 3 });
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('turns a keyword into the users and jobs it matches', async () => {
+      users.findIdsByKeyword.mockResolvedValue([APPLICANT]);
+      repository.findJobIdsByTitle!.mockResolvedValue([JOB]);
+      await service.list(recruiter, { ...query, search: 'nguyen' });
+      expect(users.findIdsByKeyword).toHaveBeenCalledWith('nguyen', INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT);
+      expect(repository.findJobIdsByTitle).toHaveBeenCalledWith(ENTERPRISE, 'nguyen');
+      expect(repository.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { userIds: [APPLICANT], jobIds: [JOB] } }),
+        expect.anything(),
+      );
+    });
+
+    it('scopes every list to the enterprise of the recruiter and can filter by one interviewer', async () => {
+      await service.list(recruiter, { ...query, interviewerId: INTERVIEWER_B });
+      expect(repository.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, interviewerId: INTERVIEWER_B }),
+        expect.anything(),
+      );
+    });
+
+    it('refuses an account that has no enterprise', async () => {
+      users.getEnterpriseId.mockResolvedValue(null);
+      await expect(service.list(recruiter, query)).rejects.toMatchObject({ statusCode: 403 });
     });
   });
 

@@ -2,9 +2,12 @@ import { z } from 'zod';
 
 import { interviewModes, interviewStatuses, type InterviewStatus } from '../../models/interview.model.js';
 import { objectIdSchema } from '../../shared/schemas/object-id.schemas.js';
+import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
 import {
   INTERVIEW_CONFIG,
   INTERVIEW_MESSAGES,
+  INTERVIEW_SORT_FIELDS,
+  INTERVIEW_SORT_ORDERS,
   SETTABLE_STATUSES,
 } from './interviews.constants.js';
 
@@ -110,6 +113,21 @@ const interviewFilterShape = {
     .optional(),
 };
 
+export const interviewListQuerySchema = z.strictObject({
+  ...paginationQueryShape,
+  ...interviewFilterShape,
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  sortBy: z.enum(INTERVIEW_SORT_FIELDS).default('scheduledAt'),
+  sortOrder: z.enum(INTERVIEW_SORT_ORDERS).default('asc'),
+});
+export const interviewListQueryValidator = interviewListQuerySchema.superRefine((data, ctx) => {
+  if (data.from && data.to && data.from > data.to) {
+    ctx.addIssue({ code: 'custom', message: INTERVIEW_MESSAGES.RANGE_ORDER, path: ['to'] });
+  }
+});
+export type InterviewListQuery = z.infer<typeof interviewListQuerySchema>;
+
 export const interviewCalendarQuerySchema = z.strictObject({
   ...interviewFilterShape,
   from: z.coerce.date(),
@@ -168,6 +186,15 @@ export const interviewDetailDtoSchema = interviewDtoSchema.extend({
   statusHistory: z.array(statusHistoryEntryDtoSchema),
 });
 export type InterviewDetailDTO = z.infer<typeof interviewDetailDtoSchema>;
+
+export const interviewListResponseSchema = z.object({
+  items: z.array(interviewDtoSchema),
+  page: z.number().int(),
+  limit: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
+});
+export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>;
 
 export const interviewCalendarResponseSchema = z.object({
   from: z.string(),
