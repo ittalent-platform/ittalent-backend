@@ -8,6 +8,10 @@ export interface CreateUserData {
   email: string;
   username: string;
   status?: UserStatus;
+  role?: UserRole;
+  full_name?: string;
+  phone?: string;
+  email_verified?: boolean;
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
@@ -115,6 +119,10 @@ export class UsersRepository {
       email: data.email,
       username: data.username,
       ...(data.status ? { status: data.status } : {}),
+      ...(data.role ? { role: data.role } : {}),
+      ...(data.full_name ? { full_name: data.full_name } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.email_verified !== undefined ? { email_verified: data.email_verified } : {}),
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
     return user.save();
@@ -140,6 +148,17 @@ export class UsersRepository {
     return User.findByIdAndUpdate(
       id,
       { $set: { enterprise_id: enterpriseId } },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async updateRole(
+    id: Types.ObjectId | string,
+    role: UserRole,
+  ): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: { role } },
       { returnDocument: 'after' },
     ).exec();
   }

@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env.js';
+import type { Types } from 'mongoose';
+import type { AccountDoc } from '../../models/account.model.js';
 import type { UserDoc, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
@@ -73,6 +75,10 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
+  }
+
+  issueTokens(user: { _id: unknown; email: string; role: string }): AuthTokens {
+    return this.generateTokens(user);
   }
 
   private mapUserDto(user: UserDoc): UserDTO {
@@ -381,6 +387,28 @@ export class AuthService {
     }, env.AUTH_VERIFICATION_JOB_INTERVAL_MS);
 
     return () => clearInterval(interval);
+  }
+
+  async createLocalAccount(userId: Types.ObjectId | string, password: string): Promise<AccountDoc> {
+    const password_hash = await bcrypt.hash(password, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+    return this.repository.createAccount({
+      userId,
+      provider: 'local',
+      password_hash,
+    });
+  }
+
+  async verifyLocalPassword(userId: Types.ObjectId | string, password: string): Promise<boolean> {
+    const account = await this.repository.findLocalAccountByUserId(userId);
+    if (!account?.password_hash) {
+      return false;
+    }
+    return bcrypt.compare(password, account.password_hash);
+  }
+
+  async hasLocalAccount(userId: Types.ObjectId | string): Promise<boolean> {
+    const account = await this.repository.findLocalAccountByUserId(userId);
+    return Boolean(account);
   }
 }
 
