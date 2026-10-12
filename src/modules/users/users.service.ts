@@ -93,6 +93,16 @@ export class UsersService {
     return this.repository.findByEmail(email);
   }
 
+  // For modules that reference people (for example the participants of an interview): they read through the users
+  // module instead of querying the User model themselves.
+  async findByIds(ids: string[]): Promise<UserDoc[]> {
+    return this.repository.findByIds(ids);
+  }
+
+  async findIdsByKeyword(keyword: string, limit: number): Promise<string[]> {
+    return this.repository.findIdsByKeyword(keyword, limit);
+  }
+
   async existsByEmail(email: string): Promise<boolean> {
     return this.repository.existsByEmail(email);
   }
