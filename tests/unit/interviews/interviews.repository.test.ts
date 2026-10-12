@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { Application } from '../../../src/models/application.model.js';
 import { Interview } from '../../../src/models/interview.model.js';
 import { JobPosting } from '../../../src/models/job-posting.model.js';
 import { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
@@ -201,6 +202,50 @@ describe('InterviewsRepository', () => {
       const remove = vi.spyOn(Interview, 'findOneAndDelete').mockReturnValue(query(null) as never);
       await repository.deleteNotCompleted('i1');
       expect(remove).toHaveBeenCalledWith({ _id: 'i1', status: { $ne: 'completed' } });
+    });
+  });
+
+  describe('findSchedulableApplications', () => {
+    it('looks at the applications of the enterprise jobs in the given statuses, newest first and capped', async () => {
+      vi.spyOn(JobPosting, 'find').mockReturnValue(query([{ _id: JOB }]) as never);
+      const chain = query([]);
+      const find = vi.spyOn(Application, 'find').mockReturnValue(chain as never);
+
+      await repository.findSchedulableApplications({
+        enterpriseId: ENTERPRISE,
+        statuses: ['submitted', 'under_review'],
+        search: { userIds: [APPLICANT], jobIds: [JOB] },
+        limit: 20,
+      });
+
+      expect(find).toHaveBeenCalledWith({
+        $and: [
+          { job_id: { $in: [JOB] } },
+          { status: { $in: ['submitted', 'under_review'] } },
+          { $or: [{ applicant_id: { $in: [APPLICANT] } }, { job_id: { $in: [JOB] } }] },
+        ],
+      });
+      expect(chain.sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+      expect(chain.limit).toHaveBeenCalledWith(20);
+    });
+
+    it('adds no keyword condition when there is no search', async () => {
+      vi.spyOn(JobPosting, 'find').mockReturnValue(query([{ _id: JOB }]) as never);
+      const find = vi.spyOn(Application, 'find').mockReturnValue(query([]) as never);
+
+      await repository.findSchedulableApplications({ enterpriseId: ENTERPRISE, statuses: ['submitted'], limit: 20 });
+
+      expect(find).toHaveBeenCalledWith({ $and: [{ job_id: { $in: [JOB] } }, { status: { $in: ['submitted'] } }] });
+    });
+
+    it('does not query applications when the enterprise has no job', async () => {
+      vi.spyOn(JobPosting, 'find').mockReturnValue(query([]) as never);
+      const find = vi.spyOn(Application, 'find');
+
+      await expect(
+        repository.findSchedulableApplications({ enterpriseId: ENTERPRISE, statuses: ['submitted'], limit: 20 }),
+      ).resolves.toEqual([]);
+      expect(find).not.toHaveBeenCalled();
     });
   });
 

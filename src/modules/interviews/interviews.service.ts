@@ -36,7 +36,10 @@ import {
   type InterviewDTO,
   type InterviewListQuery,
   type InterviewListResponse,
+  type InterviewLookupQuery,
   type InterviewParticipantDTO,
+  type InterviewerListResponse,
+  type SchedulableApplicationListResponse,
   type UpdateInterviewBody,
   type UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
@@ -283,6 +286,54 @@ export class InterviewsService {
   async getDetail(actor: InterviewActor, id: string): Promise<InterviewDetailDTO> {
     const scope = await this.resolveScope(actor);
     return this.hydrateDetail(await this.loadScoped(scope, id));
+  }
+
+  // ---- lookups for the Schedule dialog ----
+
+  // The applications an interview can still be scheduled for (see SCHEDULABLE_APPLICATION_STATUSES), newest first.
+  // `search` matches the applicant name/email or the job title.
+  async listSchedulableApplications(actor: InterviewActor, query: InterviewLookupQuery): Promise<SchedulableApplicationListResponse> {
+    const scope = await this.resolveScope(actor);
+    const search = query.search ? await this.resolveSearch(scope.enterpriseId, query.search) : undefined;
+    const applications = await this.repository.findSchedulableApplications({
+      enterpriseId: scope.enterpriseId,
+      statuses: SCHEDULABLE_APPLICATION_STATUSES,
+      search,
+      limit: query.limit,
+    });
+    const [applicants, jobTitles] = await Promise.all([
+      this.users.findByIds(unique(applications.map((application) => String(application.applicant_id)))),
+      this.repository.findJobTitles(unique(applications.map((application) => String(application.job_id)))),
+    ]);
+    const lookups: InterviewLookups = { users: new Map(applicants.map((user) => [String(user._id), user])), jobTitles };
+    return {
+      items: applications.map((application) => ({
+        id: String(application._id),
+        status: application.status,
+        appliedAt: application.createdAt.toISOString(),
+        job: { id: String(application.job_id), title: jobTitles.get(String(application.job_id)) ?? null },
+        applicant: this.participant(lookups, String(application.applicant_id)),
+      })),
+    };
+  }
+
+  // The active recruiters of the actor's enterprise who can be added as interviewers (the actor included),
+  // by name or email. A recruiter team is small, so it is filtered here instead of with a dedicated query.
+  async listInterviewers(actor: InterviewActor, query: InterviewLookupQuery): Promise<InterviewerListResponse> {
+    const scope = await this.resolveScope(actor);
+    const keyword = query.search?.toLowerCase();
+    const recruiters = await this.users.findRecruitersByEnterpriseId(scope.enterpriseId);
+    const items = recruiters
+      .filter((recruiter) => recruiter.status === ACTIVE_USER_STATUS)
+      .filter(
+        (recruiter) =>
+          !keyword ||
+          [recruiter.full_name, recruiter.email, recruiter.username].some((value) => value?.toLowerCase().includes(keyword)),
+      )
+      .map((recruiter) => ({ id: String(recruiter._id), fullName: recruiter.full_name ?? null, email: recruiter.email }))
+      .sort((left, right) => (left.fullName ?? left.email).localeCompare(right.fullName ?? right.email))
+      .slice(0, query.limit);
+    return { items };
   }
 
   // ---- scope and rules ----

@@ -15,7 +15,10 @@ function response(validated: Record<string, unknown>): { res: never; status: Ret
 }
 
 describe('InterviewsController', () => {
-  let service: Record<'create' | 'list' | 'calendar' | 'getDetail' | 'update' | 'updateStatus' | 'remove', ReturnType<typeof vi.fn>>;
+  let service: Record<
+    'create' | 'list' | 'calendar' | 'getDetail' | 'update' | 'updateStatus' | 'remove' | 'listSchedulableApplications' | 'listInterviewers',
+    ReturnType<typeof vi.fn>
+  >;
   let controller: InterviewsController;
   const req = { user: actor } as never;
 
@@ -28,6 +31,8 @@ describe('InterviewsController', () => {
       update: vi.fn(),
       updateStatus: vi.fn(),
       remove: vi.fn(),
+      listSchedulableApplications: vi.fn(),
+      listInterviewers: vi.fn(),
     };
     controller = new InterviewsController(service as unknown as InterviewsService);
   });
@@ -136,5 +141,20 @@ describe('InterviewsController', () => {
     await controller.getDetail(req, res, next);
 
     expect(next).toHaveBeenCalledWith(error);
+  });
+
+  it.each([
+    ['listSchedulableApplications', 'listSchedulableApplications'],
+    ['listInterviewers', 'listInterviewers'],
+  ] as const)('%s hands the validated query to the service and answers 200', async (handler, method) => {
+    const query = { search: 'bao', limit: 20 };
+    service[method]!.mockResolvedValue({ items: [] });
+    const { res, status, json } = response({ query });
+
+    await controller[handler](req, res, vi.fn());
+
+    expect(service[method]).toHaveBeenCalledWith(actor, query);
+    expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+    expect(json).toHaveBeenCalledWith({ items: [] });
   });
 });

@@ -51,6 +51,9 @@ export const INTERVIEW_CONFIG = {
   CALENDAR_MAX_ITEMS: 500,
   // Upper bound on users/jobs a search keyword may resolve to before it is applied to the interviews.
   SEARCH_MATCH_LIMIT: 200,
+  // The Schedule dialog's pickers (application, interviewer) only show the best few matches.
+  LOOKUP_DEFAULT_LIMIT: 20,
+  LOOKUP_MAX_LIMIT: 50,
   MS_PER_MINUTE: 60_000,
   MS_PER_DAY: 86_400_000,
 } as const;

@@ -4,6 +4,7 @@ import {
   createInterviewBodyValidator,
   interviewCalendarQueryValidator,
   interviewListQueryValidator,
+  interviewLookupQuerySchema,
   parseInterviewStatusFilter,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
@@ -145,5 +146,22 @@ describe('interviewCalendarQueryValidator', () => {
     ['paging, which the calendar does not use', { ...window, page: '1' }],
   ])('rejects %s', (_label, query) => {
     expect(interviewCalendarQueryValidator.safeParse(query).success).toBe(false);
+  });
+});
+
+describe('interviewLookupQuerySchema', () => {
+  it('defaults the limit and trims the keyword', () => {
+    expect(interviewLookupQuerySchema.parse({})).toEqual({ limit: 20 });
+    expect(interviewLookupQuerySchema.parse({ search: '  bao ', limit: '5' })).toEqual({ search: 'bao', limit: 5 });
+  });
+
+  it.each([
+    ['a blank keyword', { search: '   ' }],
+    ['a limit of zero', { limit: '0' }],
+    ['a limit above the maximum', { limit: '51' }],
+    ['a keyword that is too long', { search: 'x'.repeat(101) }],
+    ['a parameter that is not supported', { page: '2' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewLookupQuerySchema.safeParse(query).success).toBe(false);
   });
 });

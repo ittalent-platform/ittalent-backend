@@ -92,6 +92,7 @@ function makeRepository(): Record<keyof InterviewsRepository, ReturnType<typeof 
     deleteNotCompleted: vi.fn().mockResolvedValue(interview()),
     findPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     findCalendar: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    findSchedulableApplications: vi.fn().mockResolvedValue([]),
   } as unknown as Record<keyof InterviewsRepository, ReturnType<typeof vi.fn>>;
 }
 
@@ -102,6 +103,7 @@ describe('InterviewsService', () => {
     findById: ReturnType<typeof vi.fn>;
     findByIds: ReturnType<typeof vi.fn>;
     findIdsByKeyword: ReturnType<typeof vi.fn>;
+    findRecruitersByEnterpriseId: ReturnType<typeof vi.fn>;
   };
   let service: InterviewsService;
   let now: Date;
@@ -114,6 +116,7 @@ describe('InterviewsService', () => {
       findById: vi.fn().mockResolvedValue({ _id: APPLICANT, email: 'applicant@example.com', status: 'active' }),
       findByIds: vi.fn().mockImplementation(async (ids: string[]) => ids.map((id) => user(id))),
       findIdsByKeyword: vi.fn().mockResolvedValue([]),
+      findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]),
     };
     now = NOW;
     service = new InterviewsService(
@@ -629,6 +632,125 @@ describe('InterviewsService', () => {
         expect.objectContaining({ enterpriseId: ENTERPRISE, interviewerId: INTERVIEWER_B }),
         500,
       );
+    });
+  });
+
+  describe('listSchedulableApplications (application picker)', () => {
+    const application = (overrides: Record<string, unknown> = {}): unknown => ({
+      _id: APPLICATION,
+      job_id: JOB,
+      applicant_id: APPLICANT,
+      status: 'under_review',
+      createdAt: new Date('2026-10-10T03:00:00.000Z'),
+      ...overrides,
+    });
+
+    it.each(['user', 'applicant', 'admin'])('refuses a %s before looking anything up', async (role) => {
+      await expect(service.listSchedulableApplications({ id: RECRUITER, role }, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(users.getEnterpriseId).not.toHaveBeenCalled();
+      expect(repository.findSchedulableApplications).not.toHaveBeenCalled();
+    });
+
+    it('refuses a recruiter who has no enterprise', async () => {
+      users.getEnterpriseId.mockResolvedValue(null);
+      await expect(service.listSchedulableApplications(recruiter, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(repository.findSchedulableApplications).not.toHaveBeenCalled();
+    });
+
+    it('asks only for the schedulable statuses of the recruiter enterprise and names the applicant and the job', async () => {
+      repository.findSchedulableApplications!.mockResolvedValue([application()]);
+      users.findByIds.mockResolvedValue([user(APPLICANT, { full_name: 'Ha Quoc Bao', email: 'bao.ha@gmail.com', role: 'user' })]);
+
+      const result = await service.listSchedulableApplications(recruiter, { limit: 20 });
+
+      expect(repository.findSchedulableApplications).toHaveBeenCalledWith({
+        enterpriseId: ENTERPRISE,
+        statuses: ['submitted', 'under_review', 'interviewing'],
+        search: undefined,
+        limit: 20,
+      });
+      expect(users.findIdsByKeyword).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        items: [
+          {
+            id: APPLICATION,
+            status: 'under_review',
+            appliedAt: '2026-10-10T03:00:00.000Z',
+            job: { id: JOB, title: 'Backend Engineer' },
+            applicant: { id: APPLICANT, fullName: 'Ha Quoc Bao', email: 'bao.ha@gmail.com' },
+          },
+        ],
+      });
+    });
+
+    it('turns the keyword into applicant and job matches', async () => {
+      users.findIdsByKeyword.mockResolvedValue([APPLICANT]);
+      repository.findJobIdsByTitle!.mockResolvedValue([JOB]);
+
+      await service.listSchedulableApplications(recruiter, { search: 'bao', limit: 5 });
+
+      expect(users.findIdsByKeyword).toHaveBeenCalledWith('bao', INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT);
+      expect(repository.findJobIdsByTitle).toHaveBeenCalledWith(ENTERPRISE, 'bao');
+      expect(repository.findSchedulableApplications).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { userIds: [APPLICANT], jobIds: [JOB] }, limit: 5 }),
+      );
+    });
+
+    it('falls back to empty names when the applicant account or the job no longer exists', async () => {
+      repository.findSchedulableApplications!.mockResolvedValue([application()]);
+      users.findByIds.mockResolvedValue([]);
+      repository.findJobTitles!.mockResolvedValue(new Map());
+
+      const result = await service.listSchedulableApplications(recruiter, { limit: 20 });
+
+      expect(result.items[0]).toMatchObject({
+        job: { id: JOB, title: null },
+        applicant: { id: APPLICANT, fullName: null, email: null },
+      });
+    });
+  });
+
+  describe('listInterviewers (interviewer picker)', () => {
+    const team = [
+      user('a00000000000000000000011', { full_name: 'Binh Nguyen', email: 'binh@acme.vn', username: 'binh' }),
+      user('a00000000000000000000012', { full_name: 'An Tran', email: 'an.tran@acme.vn', username: 'antran' }),
+      user('a00000000000000000000013', { full_name: 'Chi Le', email: 'chi@acme.vn', username: 'chi', status: 'blocked' }),
+      user('a00000000000000000000014', { full_name: undefined, email: 'zed@acme.vn', username: 'zed' }),
+    ];
+
+    beforeEach(() => {
+      users.findRecruitersByEnterpriseId.mockResolvedValue(team);
+    });
+
+    it.each(['user', 'applicant', 'admin'])('refuses a %s before looking anything up', async (role) => {
+      await expect(service.listInterviewers({ id: RECRUITER, role }, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(users.findRecruitersByEnterpriseId).not.toHaveBeenCalled();
+    });
+
+    it('lists the active recruiters of the enterprise sorted by name, leaving out accounts that are not active', async () => {
+      const result = await service.listInterviewers(recruiter, { limit: 20 });
+
+      expect(users.findRecruitersByEnterpriseId).toHaveBeenCalledWith(ENTERPRISE);
+      expect(result.items).toEqual([
+        { id: 'a00000000000000000000012', fullName: 'An Tran', email: 'an.tran@acme.vn' },
+        { id: 'a00000000000000000000011', fullName: 'Binh Nguyen', email: 'binh@acme.vn' },
+        { id: 'a00000000000000000000014', fullName: null, email: 'zed@acme.vn' },
+      ]);
+    });
+
+    it.each([
+      ['an email, ignoring case', 'BINH@ACME', ['a00000000000000000000011']],
+      ['a name', 'tran', ['a00000000000000000000012']],
+      ['a username', 'zed', ['a00000000000000000000014']],
+      ['an inactive account (it never shows)', 'chi', []],
+    ])('finds a recruiter by %s', async (_label, search, ids) => {
+      const result = await service.listInterviewers(recruiter, { search, limit: 20 });
+      expect(result.items.map((item) => item.id)).toEqual(ids);
+    });
+
+    it('returns at most `limit` recruiters', async () => {
+      const result = await service.listInterviewers(recruiter, { limit: 1 });
+      expect(result.items).toHaveLength(1);
     });
   });
 });

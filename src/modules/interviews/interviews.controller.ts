@@ -8,6 +8,7 @@ import type {
   InterviewCalendarQuery,
   InterviewIdParam,
   InterviewListQuery,
+  InterviewLookupQuery,
   UpdateInterviewBody,
   UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
@@ -48,6 +49,26 @@ export class InterviewsController {
     try {
       const query = res.locals.validated?.query as InterviewCalendarQuery;
       const result = await this.service.calendar(this.actorOf(req), query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listSchedulableApplications: RequestHandler = async (req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as InterviewLookupQuery;
+      const result = await this.service.listSchedulableApplications(this.actorOf(req), query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listInterviewers: RequestHandler = async (req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as InterviewLookupQuery;
+      const result = await this.service.listInterviewers(this.actorOf(req), query);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
