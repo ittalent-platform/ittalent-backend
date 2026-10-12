@@ -67,8 +67,8 @@ export interface EnterpriseData {
   address: EnterpriseAddress;
   branches?: EnterpriseAddress[] | undefined;
 
-  logo_url?: string | undefined;
-  cover_url?: string | undefined;
+  logo_url?: string | null | undefined;
+  cover_url?: string | null | undefined;
   short_description?: string | undefined;
   description?: string | undefined;
   culture_summary?: string | undefined;

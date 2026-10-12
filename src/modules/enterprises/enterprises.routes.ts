@@ -28,6 +28,13 @@ enterprisesRouter.get(
   enterprisesController.listEnterprises,
 );
 
+// UC-17 / UC-ME-ENT-01: View my enterprise profile (direct endpoint)
+enterprisesRouter.get(
+  '/my-profile',
+  authenticate,
+  enterprisesController.getMyEnterpriseProfile,
+);
+
 enterprisesRouter.get(
   '/:enterpriseId',
   authenticateOptional,
