@@ -35,6 +35,24 @@ export interface FindApplicationsPageParams {
   filters: ApplicationListFilters;
 }
 
+export interface RecruiterApplicationListFilters {
+  jobIds: string[];
+  applicantIds?: string[] | undefined;
+  applicationIds?: string[] | undefined;
+  statuses?: ApplicationStatus[] | undefined;
+  documentType?: 'cv' | 'cover_letter' | undefined;
+  submittedFrom?: Date | undefined;
+  submittedTo?: Date | undefined;
+}
+
+export interface FindRecruiterApplicationsPageParams {
+  page: number;
+  limit: number;
+  sortBy: ApplicationSortField;
+  sortOrder: ApplicationSortOrder;
+  filters: RecruiterApplicationListFilters;
+}
+
 export interface SubmitApplicationData {
   jobId: Types.ObjectId | string;
   applicantId: Types.ObjectId | string;
@@ -203,6 +221,82 @@ export class ApplicationsRepository {
       changed_at: new Date(),
       changed_by: changedBy,
     };
+  }
+
+  // ---- Recruiter application listing & status counting (UC-S2-AA-01, 05, 06) ----
+
+  private buildRecruiterFilter(filters: RecruiterApplicationListFilters): QueryFilter<ApplicationData> {
+    const filter: QueryFilter<ApplicationData> = {
+      job_id: { $in: filters.jobIds.map((id) => new Types.ObjectId(id)) },
+    };
+
+    if (filters.statuses?.length) {
+      filter.status = { $in: filters.statuses };
+    }
+
+    if (filters.applicantIds?.length) {
+      filter.applicant_id = { $in: filters.applicantIds.map((id) => new Types.ObjectId(id)) };
+    }
+
+    if (filters.applicationIds?.length) {
+      filter._id = { $in: filters.applicationIds.map((id) => new Types.ObjectId(id)) };
+    }
+
+    if (filters.documentType === 'cv') {
+      filter.cv_id = { $exists: true, $ne: null as unknown as Types.ObjectId };
+    } else if (filters.documentType === 'cover_letter') {
+      filter.cover_letter_id = { $exists: true, $ne: null as unknown as Types.ObjectId };
+    }
+
+    if (filters.submittedFrom || filters.submittedTo) {
+      filter.createdAt = {
+        ...(filters.submittedFrom ? { $gte: filters.submittedFrom } : {}),
+        ...(filters.submittedTo ? { $lt: new Date(filters.submittedTo.getTime() + TIME_MS.ONE_DAY) } : {}),
+      };
+    }
+
+    return filter;
+  }
+
+  async findPageForRecruiter(
+    params: FindRecruiterApplicationsPageParams,
+  ): Promise<{ items: ApplicationDoc[]; total: number }> {
+    if (params.filters.jobIds.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    const filter = this.buildRecruiterFilter(params.filters);
+    const [items, total] = await Promise.all([
+      Application.find(filter)
+        .sort(this.buildSort(params.sortBy, params.sortOrder))
+        .skip((params.page - 1) * params.limit)
+        .limit(params.limit)
+        .lean<ApplicationDoc[]>()
+        .exec(),
+      Application.countDocuments(filter).exec(),
+    ]);
+
+    return { items, total };
+  }
+
+  async countByStatusForRecruiter(
+    filters: RecruiterApplicationListFilters,
+  ): Promise<Record<ApplicationStatus, number>> {
+    const counts = createEmptyStatusCounts();
+    if (filters.jobIds.length === 0) {
+      return counts;
+    }
+
+    const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
+      { $match: this.buildRecruiterFilter(filters) },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]).exec();
+
+    for (const row of rows) {
+      counts[row._id] = row.count;
+    }
+
+    return counts;
   }
 }
 
