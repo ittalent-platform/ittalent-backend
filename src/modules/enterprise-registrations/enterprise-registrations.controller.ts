@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import type {
+  AcceptInvitationDTO,
   AdminDecisionDTO,
   RegistrationIdParam,
   RegistrationListQuery,
@@ -100,6 +101,16 @@ export class EnterpriseRegistrationsController {
       const body = res.locals.validated?.body as AdminDecisionDTO;
       const adminId = req.user!.id;
       const result = await this.service.processAdminDecision(params.id, body, adminId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  acceptInvitation: RequestHandler = async (_req, res, next) => {
+    try {
+      const body = res.locals.validated?.body as AcceptInvitationDTO;
+      const result = await this.service.acceptInvitation(body);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

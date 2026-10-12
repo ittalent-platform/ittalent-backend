@@ -14,7 +14,10 @@ import {
 import type { CreateEnterpriseDTO } from '../enterprises/enterprises.schemas.js';
 import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
+import { authService as defaultAuthService, type AuthService } from '../auth/auth.service.js';
+import { AUTH_MESSAGES } from '../auth/auth.constants.js';
 import { isValidPdf, storageService } from '../../shared/services/storage.service.js';
+import type { UserDoc } from '../../models/user.model.js';
 import type {
   EnterpriseRegistrationDoc,
   LegalDocumentData,
@@ -31,6 +34,8 @@ import {
   type EnterpriseRegistrationsRepository,
 } from './enterprise-registrations.repository.js';
 import type {
+  AcceptInvitationDTO,
+  AcceptInvitationResult,
   AdminDecisionDTO,
   EnterpriseRegistrationSummaryDTO,
   RegistrationListQuery,
@@ -79,6 +84,7 @@ export class EnterpriseRegistrationsService {
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
     private readonly enterpriseService: EnterprisesService = enterprisesService,
     private readonly userService: UsersService = usersService,
+    private readonly authService: AuthService = defaultAuthService,
   ) {}
 
   generateRegistrationCode(date = new Date()): string {
@@ -656,6 +662,127 @@ export class EnterpriseRegistrationsService {
       status: registration.status,
       version: registration.version,
       enterprise_id: createdEnterprise.id,
+    };
+  }
+
+  async acceptInvitation(payload: AcceptInvitationDTO): Promise<AcceptInvitationResult> {
+    const tokenHash = this.hashToken(payload.token);
+    const registration = await this.repository.findByInvitationTokenHash(tokenHash);
+
+    // [BR-43 / EX5]: Validate invitation existence and case status
+    if (!registration || registration.status !== 'approved') {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_INVALID_OR_EXPIRED,
+      );
+    }
+
+    if (!registration.created_enterprise_id) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.ENTERPRISE_NOT_LINKED,
+      );
+    }
+
+    if (registration.invitation_token?.accepted_at) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_ALREADY_ACCEPTED,
+      );
+    }
+
+    const expiresAt = registration.invitation_token?.expires_at;
+    if (!expiresAt || expiresAt.getTime() < Date.now()) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_INVALID_OR_EXPIRED,
+      );
+    }
+
+    const corporateEmail = registration.corporate_email.toLowerCase();
+    const existingUser = await this.userService.findByEmail(corporateEmail);
+    let user: UserDoc;
+
+    if (existingUser) {
+      // [AC.4]: Existing user path
+      const hasLocal = await this.authService.hasLocalAccount(existingUser._id);
+      if (hasLocal) {
+        const isPasswordValid = await this.authService.verifyLocalPassword(
+          existingUser._id,
+          payload.password,
+        );
+        if (!isPasswordValid) {
+          throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_CREDENTIALS);
+        }
+      } else {
+        await this.authService.createLocalAccount(existingUser._id, payload.password);
+      }
+
+      // Elevate role to 'enterprise_admin' if user was applicant / regular user
+      if (existingUser.role === 'user' || existingUser.role === 'applicant') {
+        await this.userService.updateRole(String(existingUser._id), 'enterprise_admin');
+        existingUser.role = 'enterprise_admin';
+      }
+
+      // Assign approved enterprise
+      await this.userService.assignEnterprise(
+        String(existingUser._id),
+        String(registration.created_enterprise_id),
+      );
+      existingUser.enterprise_id = registration.created_enterprise_id;
+      user = existingUser;
+    } else {
+      // [AC.3]: New user path
+      let username = payload.username?.trim().toLowerCase();
+      if (username) {
+        const usernameExists = await this.userService.existsByUsername(username);
+        if (usernameExists) {
+          throw createHttpError(
+            HTTP_STATUS.HTTP_409_CONFLICT,
+            REGISTRATION_MESSAGES.USERNAME_ALREADY_EXISTS,
+          );
+        }
+      } else {
+        const emailPrefix = corporateEmail.split('@')[0] ?? '';
+        const baseUsername =
+          emailPrefix.replace(/[^a-zA-Z0-9_]/g, '') || 'recruiter';
+        username = baseUsername;
+        let counter = 1;
+        while (await this.userService.existsByUsername(username)) {
+          username = `${baseUsername}${counter}`;
+          counter += 1;
+        }
+      }
+
+      user = await this.userService.createUser({
+        email: corporateEmail,
+        username,
+        role: 'enterprise_admin',
+        status: 'active',
+        email_verified: true,
+        full_name: registration.representative.full_name,
+        phone: registration.representative.phone,
+        enterprise_id: registration.created_enterprise_id,
+      });
+
+      await this.authService.createLocalAccount(user._id, payload.password);
+    }
+
+    // [POST-3 / BR-43]: Mark invitation token redeemed
+    registration.invitation_token = {
+      token_hash: registration.invitation_token?.token_hash,
+      expires_at: expiresAt,
+      accepted_at: new Date(),
+    };
+    registration.version += 1;
+    await registration.save();
+
+    const tokens = this.authService.issueTokens(user);
+
+    return {
+      message: REGISTRATION_MESSAGES.INVITATION_ACCEPTED,
+      user: this.userService.mapUserDto(user),
+      tokens,
     };
   }
 }

@@ -141,4 +141,9 @@ export const REGISTRATION_MESSAGES = {
   PDF_DOCUMENT_REQUIRED: 'Only valid PDF files are accepted for enterprise legal documents',
   DOCUMENT_FILE_SIZE_LIMIT: 'Document file cannot exceed 5MB',
   SUBMISSION_SUCCESS: 'Enterprise registration submitted successfully for review',
+  INVITATION_ACCEPTED: 'Invitation accepted and account onboarding complete',
+  INVITATION_INVALID_OR_EXPIRED: 'Invitation link is invalid, revoked, or has expired. Please contact support or request a new invitation',
+  INVITATION_ALREADY_ACCEPTED: 'This invitation has already been accepted',
+  ENTERPRISE_NOT_LINKED: 'Approved enterprise entity was not found for this registration',
+  USERNAME_ALREADY_EXISTS: 'Username is already taken',
 } as const;

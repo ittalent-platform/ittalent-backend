@@ -6,6 +6,7 @@ import { registerRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { enterpriseRegistrationsController } from './enterprise-registrations.controller.js';
 import {
+  acceptInvitationBodySchema,
   adminDecisionBodySchema,
   registrationIdParamSchema,
   registrationListQuerySchema,
@@ -37,6 +38,13 @@ enterpriseRegistrationsRouter.get(
   '/verify-email',
   validateQuery(verifyEmailQuerySchema),
   enterpriseRegistrationsController.verifyEmail,
+);
+
+enterpriseRegistrationsRouter.post(
+  '/invitations/accept',
+  registerRateLimit,
+  validateBody(acceptInvitationBodySchema),
+  enterpriseRegistrationsController.acceptInvitation,
 );
 
 enterpriseRegistrationsRouter.get(

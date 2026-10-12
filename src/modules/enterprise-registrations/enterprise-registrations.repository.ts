@@ -70,6 +70,14 @@ export class EnterpriseRegistrationsRepository {
       .exec();
   }
 
+  async findByInvitationTokenHash(tokenHash: string): Promise<EnterpriseRegistrationDoc | null> {
+    return EnterpriseRegistration.findOne({
+      'invitation_token.token_hash': tokenHash,
+    })
+      .select('+invitation_token.token_hash')
+      .exec();
+  }
+
   async updateById(
     id: string | Types.ObjectId,
     update: UpdateQuery<EnterpriseRegistrationData>,
