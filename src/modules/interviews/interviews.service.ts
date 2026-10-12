@@ -10,6 +10,7 @@ import type { UserDoc } from '../../models/user.model.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   INTERVIEW_CONFIG,
+  INTERVIEW_APPLICANT_ROLE,
   INTERVIEW_EDITABLE_STATUS,
   INTERVIEW_EMAIL_FAILED_LOG,
   INTERVIEW_EMAIL_FALLBACKS,
@@ -37,6 +38,7 @@ import {
   type InterviewListQuery,
   type InterviewListResponse,
   type InterviewLookupQuery,
+  type RequestInterviewRescheduleBody,
   type InterviewParticipantDTO,
   type InterviewerListResponse,
   type SchedulableApplicationListResponse,
@@ -228,6 +230,36 @@ export class InterviewsService {
       await this.notify('cancelled', detail, scope.enterpriseId);
     }
     return detail;
+  }
+
+  async requestReschedule(actor: InterviewActor, id: string, body: RequestInterviewRescheduleBody): Promise<InterviewDetailDTO> {
+    if (actor.role !== INTERVIEW_APPLICANT_ROLE) {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.APPLICANT_ONLY);
+    }
+
+    const existing = await this.repository.findById(id);
+    if (!existing) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, INTERVIEW_MESSAGES.NOT_FOUND);
+    }
+    if (String(existing.applicant_id) !== actor.id) {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, INTERVIEW_MESSAGES.NOT_APPLICANT);
+    }
+    if (existing.status !== INTERVIEW_EDITABLE_STATUS) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        existing.status === 'reschedule_requested' ? INTERVIEW_MESSAGES.RESCHEDULE_REQUESTED : INTERVIEW_MESSAGES.ALREADY_FINAL,
+        existing.status === 'reschedule_requested' ? INTERVIEW_ERROR_CODES.RESCHEDULE_REQUESTED : INTERVIEW_ERROR_CODES.ALREADY_FINAL,
+      );
+    }
+
+    const updated = await this.repository.requestReschedule(id, actor.id, {
+      proposedDateTime: new Date(body.proposedDateTime),
+      reason: body.reason,
+    });
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+    return this.hydrateDetail(updated);
   }
 
   async remove(actor: InterviewActor, id: string): Promise<void> {
@@ -482,6 +514,13 @@ export class InterviewsService {
       meetingLink: interview.meeting_link ?? null,
       location: interview.location ?? null,
       notes: interview.notes ?? null,
+      rescheduleRequest: interview.reschedule_request
+        ? {
+            proposedDateTime: interview.reschedule_request.proposed_time.toISOString(),
+            reason: interview.reschedule_request.reason,
+            requestedAt: interview.reschedule_request.requested_at.toISOString(),
+          }
+        : null,
       applicationId: String(interview.application_id),
       job: { id: String(interview.job_id), title: lookups.jobTitles.get(String(interview.job_id)) ?? null },
       applicant: this.participant(lookups, String(interview.applicant_id)),

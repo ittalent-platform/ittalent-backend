@@ -57,6 +57,7 @@ describe('interviews routes (integration)', () => {
       ['GET', `/${ID}`, undefined],
       ['PATCH', `/${ID}`, { notes: 'x' }],
       ['PATCH', `/${ID}/status`, { status: 'cancelled' }],
+      ['PATCH', `/${ID}/reschedule-request`, { proposedDateTime: '2030-01-16T03:00:00.000Z', reason: 'Medical appointment' }],
       ['DELETE', `/${ID}`, undefined],
     ])('%s %s requires authentication', async (method, path, body) => {
       expect((await send(method, path, undefined, body)).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
@@ -76,6 +77,14 @@ describe('interviews routes (integration)', () => {
       for (const role of roles) {
         expect((await send(method, path, role, body)).status, `${method} ${path} as ${role}`).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
       }
+    });
+
+    it.each(['recruiter', 'admin', 'applicant'])('PATCH reschedule-request is closed to %s', async (role) => {
+      const response = await send('PATCH', `/${ID}/reschedule-request`, role, {
+        proposedDateTime: '2030-01-16T03:00:00.000Z',
+        reason: 'Medical appointment',
+      });
+      expect(response.status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
     });
   });
 
@@ -102,13 +111,30 @@ describe('interviews routes (integration)', () => {
     });
 
     it.each([
+      ['a missing time', { reason: 'Medical appointment' }],
+      ['a time without an offset', { proposedDateTime: '2030-01-16T03:00:00', reason: 'Medical appointment' }],
+      ['an empty reason', { proposedDateTime: '2030-01-16T03:00:00.000Z', reason: '  ' }],
+      ['an unsupported response field', { proposedDateTime: '2030-01-16T03:00:00.000Z', reason: 'Medical appointment', response: 'accept' }],
+    ])('PATCH reschedule request rejects %s', async (_label, body) => {
+      expect((await send('PATCH', `/${ID}/reschedule-request`, 'user', body)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    });
+
+    it.each([
       ['GET', '/not-an-id'],
       ['PATCH', '/not-an-id'],
       ['PATCH', '/not-an-id/status'],
+      ['PATCH', '/not-an-id/reschedule-request'],
       ['DELETE', '/not-an-id'],
     ])('%s %s rejects a malformed interview id', async (method, path) => {
-      const body = path.endsWith('/status') ? { status: 'cancelled' } : method === 'PATCH' ? { notes: 'x' } : undefined;
-      expect((await send(method, path, 'recruiter', body)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+      const body = path.endsWith('/status')
+        ? { status: 'cancelled' }
+        : path.endsWith('/reschedule-request')
+          ? { proposedDateTime: '2030-01-16T03:00:00.000Z', reason: 'Medical appointment' }
+          : method === 'PATCH'
+            ? { notes: 'x' }
+            : undefined;
+      const role = path.endsWith('/reschedule-request') ? 'user' : 'recruiter';
+      expect((await send(method, path, role, body)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
     });
 
     it.each([
@@ -157,5 +183,6 @@ describe('interviews routes (integration)', () => {
     expect(Object.keys(spec.paths['/api/v1/interviews/interviewers'] ?? {})).toEqual(['get']);
     expect(Object.keys(spec.paths['/api/v1/interviews/{id}'] ?? {}).sort()).toEqual(['delete', 'get', 'patch']);
     expect(Object.keys(spec.paths['/api/v1/interviews/{id}/status'] ?? {})).toEqual(['patch']);
+    expect(Object.keys(spec.paths['/api/v1/interviews/{id}/reschedule-request'] ?? {})).toEqual(['patch']);
   });
 });
