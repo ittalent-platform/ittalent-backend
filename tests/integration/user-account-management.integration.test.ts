@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -10,6 +11,7 @@ import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { disconnectRedis } from '../../src/config/redis.js';
 import { Account } from '../../src/models/account.model.js';
 import { Enterprise } from '../../src/models/enterprise.model.js';
+import { EnterpriseRegistration } from '../../src/models/enterprise-registration.model.js';
 import { UserAudit } from '../../src/models/user-audit.model.js';
 import { UserInvitation } from '../../src/models/user-invitation.model.js';
 import { UserEmailChange } from '../../src/models/user-email-change.model.js';
@@ -21,6 +23,7 @@ import { userInvitationsService } from '../../src/modules/user-invitations/user-
 import { authRepository } from '../../src/modules/auth/auth.repository.js';
 import { resetRateLimitMemory } from '../../src/middleware/rate-limit.middleware.js';
 import { env } from '../../src/config/env.js';
+import { enterpriseRegistrationsService } from '../../src/modules/enterprise-registrations/enterprise-registrations.service.js';
 
 describe('System administrator account management full flows', () => {
   let server: Server;
@@ -136,6 +139,116 @@ describe('System administrator account management full flows', () => {
       body: JSON.stringify({ token: invitationToken, password: 'AnotherStrong123!' }),
     });
     expect(replay.status).toBe(HTTP_STATUS.HTTP_410_GONE);
+  });
+
+  it('reserves first-admin onboarding for enterprise registration, then allows additional invitations after acceptance', async () => {
+    const suffix = new Types.ObjectId().toHexString();
+    const email = `onboarding-${suffix}@example.test`;
+    const registration = await EnterpriseRegistration.create({
+      registration_code: `REG-${suffix}`, corporate_email: email,
+      representative: { full_name: 'Onboarding Owner', phone: '+84900000000' },
+      status: 'approved', created_enterprise_id: enterpriseId,
+      invitation_token: { token_hash: suffix, expires_at: new Date(Date.now() + 60_000) },
+    });
+    try {
+      for (const role of ['enterprise_admin', 'recruiter']) {
+        const blocked = await adminRequest('POST', '/users', {
+          email: `${role}-${suffix}@example.test`, username: `new_${suffix}`, fullName: 'Additional Member', role, enterpriseId: String(enterpriseId),
+        });
+        expect(blocked.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+        expect(blocked.body).toMatchObject({ code: 'ENTERPRISE_ONBOARDING_PENDING' });
+        expect(await User.exists({ email: `${role}-${suffix}@example.test` })).toBeNull();
+      }
+      const bypass = await adminRequest('POST', '/users', { email, username: `cand_${suffix}`, fullName: 'Owner', role: 'user' });
+      expect(bypass.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+      expect(await User.exists({ email })).toBeNull();
+      await EnterpriseRegistration.updateOne({ _id: registration._id }, { $set: { 'invitation_token.accepted_at': new Date() } });
+      const accepted = await adminRequest('POST', '/users', {
+        email, username: `owner_${suffix}`, fullName: 'Owner', role: 'enterprise_admin', enterpriseId: String(enterpriseId),
+      });
+      expect(accepted.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+      createdUserIds.push(new Types.ObjectId(String((accepted.body.user as { id: string }).id)));
+    } finally {
+      await EnterpriseRegistration.deleteOne({ _id: registration._id });
+    }
+  });
+
+  it('recovers a legacy passwordless invited account without resetting credentials or consuming the enterprise token early', async () => {
+    const suffix = new Types.ObjectId().toHexString();
+    const email = `legacy-${suffix}@example.test`;
+    const created = await userInvitationsService.createAccount(String(adminId), {
+      email, username: `old_${suffix}`, fullName: 'Legacy Owner', role: 'enterprise_admin', enterpriseId: String(enterpriseId),
+    });
+    const id = new Types.ObjectId(String(created.user.id));
+    createdUserIds.push(id);
+    const accountToken = new URL(invitationUrl).searchParams.get('token') ?? '';
+    const enterpriseToken = 'c'.repeat(64);
+    const registration = await EnterpriseRegistration.create({
+      registration_code: `LEGACY-${suffix}`, corporate_email: email,
+      representative: { full_name: 'Legacy Owner', phone: '+84900000000' },
+      status: 'approved', created_enterprise_id: enterpriseId,
+      invitation_token: { token_hash: createHash('sha256').update(enterpriseToken).digest('hex'), expires_at: new Date(Date.now() + 60_000) },
+    });
+    try {
+      expect((await Account.findOne({ user_id: id, provider: 'local' }).select('+password_hash'))?.password_hash).toBeUndefined();
+      await expect(enterpriseRegistrationsService.acceptInvitation({ token: enterpriseToken, password: 'LegacyPassword123!' })).rejects.toMatchObject({ statusCode: 409, code: 'ACCOUNT_INVITATION_PENDING' });
+      expect((await EnterpriseRegistration.findById(registration._id))?.invitation_token?.accepted_at).toBeUndefined();
+      expect(await User.findById(id)).toMatchObject({ status: 'invited', email_verified: false });
+      await userInvitationsService.acceptNewAccount({ token: accountToken, password: 'LegacyPassword123!' });
+      const hash = (await Account.findOne({ user_id: id, provider: 'local' }).select('+password_hash'))?.password_hash;
+      await expect(enterpriseRegistrationsService.acceptInvitation({ token: enterpriseToken, password: 'WrongPassword123!' })).rejects.toMatchObject({ statusCode: 401 });
+      const result = await enterpriseRegistrationsService.acceptInvitation({ token: enterpriseToken, password: 'LegacyPassword123!' });
+      expect(result.user).toMatchObject({ status: 'active', role: 'enterprise_admin', emailVerified: true });
+      expect((await Account.findOne({ user_id: id, provider: 'local' }).select('+password_hash'))?.password_hash).toBe(hash);
+      expect((await EnterpriseRegistration.findById(registration._id))?.invitation_token?.accepted_at).toBeInstanceOf(Date);
+      expect(await UserInvitation.findOne({ target_user_id: id })).toMatchObject({ status: 'accepted' });
+    } finally {
+      await EnterpriseRegistration.deleteOne({ _id: registration._id });
+    }
+  });
+
+  it('blocks account invitations for an email in draft/review, but releases a rejected registration email', async () => {
+    const suffix = new Types.ObjectId().toHexString();
+    const email = `review-${suffix}@example.test`;
+    const registration = await EnterpriseRegistration.create({
+      registration_code: `REVIEW-${suffix}`, corporate_email: email,
+      representative: { full_name: 'Review Owner', phone: '+84900000000' }, status: 'draft',
+    });
+    try {
+      for (const status of ['draft', 'pending_review', 'under_review']) {
+        await EnterpriseRegistration.updateOne({ _id: registration._id }, { $set: { status } });
+        const blocked = await adminRequest('POST', '/users', { email, username: `rev_${suffix}`, fullName: 'Review Owner', role: 'user' });
+        expect(blocked.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+        expect(blocked.body).toMatchObject({ code: 'ENTERPRISE_ONBOARDING_PENDING' });
+        expect(await User.exists({ email })).toBeNull();
+      }
+      await EnterpriseRegistration.updateOne({ _id: registration._id }, { $set: { status: 'rejected' } });
+      const allowed = await adminRequest('POST', '/users', { email, username: `rev_${suffix}`, fullName: 'Review Owner', role: 'user' });
+      expect(allowed.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+      createdUserIds.push(new Types.ObjectId(String((allowed.body.user as { id: string }).id)));
+    } finally {
+      await EnterpriseRegistration.deleteOne({ _id: registration._id });
+    }
+  });
+
+  it('allows a SysAdmin recovery invitation after the enterprise onboarding link expires', async () => {
+    const suffix = new Types.ObjectId().toHexString();
+    const email = `expired-onboarding-${suffix}@example.test`;
+    const registration = await EnterpriseRegistration.create({
+      registration_code: `EXPIRED-${suffix}`, corporate_email: email,
+      representative: { full_name: 'Expired Owner', phone: '+84900000000' },
+      status: 'approved', created_enterprise_id: enterpriseId,
+      invitation_token: { token_hash: suffix, expires_at: new Date(Date.now() - 1) },
+    });
+    try {
+      const result = await adminRequest('POST', '/users', {
+        email, username: `exp_${suffix}`, fullName: 'Expired Owner', role: 'enterprise_admin', enterpriseId: String(enterpriseId),
+      });
+      expect(result.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+      createdUserIds.push(new Types.ObjectId(String((result.body.user as { id: string }).id)));
+    } finally {
+      await EnterpriseRegistration.deleteOne({ _id: registration._id });
+    }
   });
 
   it('returns gone for the removed Candidate-to-HR invitation route and preserves the Candidate account', async () => {

@@ -80,6 +80,10 @@ export interface SubmissionReceiptResult {
 }
 
 export class EnterpriseRegistrationsService {
+  async hasIncompleteOnboarding(email: string, enterpriseId: mongoose.Types.ObjectId | null, session?: mongoose.ClientSession): Promise<boolean> {
+    return this.repository.hasIncompleteOnboarding(email, enterpriseId, session);
+  }
+
   constructor(
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
     private readonly enterpriseService: EnterprisesService = enterprisesService,
@@ -704,6 +708,9 @@ export class EnterpriseRegistrationsService {
     let user: UserDoc;
 
     if (existingUser) {
+      if (existingUser.status === 'invited') {
+        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ACCOUNT_INVITATION_PENDING, 'ACCOUNT_INVITATION_PENDING');
+      }
       // [AC.4]: Existing user path
       const hasLocal = await this.authService.hasLocalAccount(existingUser._id);
       if (hasLocal) {

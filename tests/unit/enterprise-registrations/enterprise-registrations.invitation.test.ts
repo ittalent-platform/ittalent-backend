@@ -135,6 +135,22 @@ describe('Enterprise Registrations: Invitation Acceptance Workflow', () => {
   });
 
   describe('Service: acceptInvitation', () => {
+    it('directs an invited account to finish its account invitation without checking or replacing a password', async () => {
+      const registration = createMockApprovedDoc();
+      vi.mocked(mockRepo.findByInvitationTokenHash!).mockResolvedValue(registration);
+      vi.mocked(mockUserService.findByEmail!).mockResolvedValue(createMockUserDoc({ status: 'invited', email_verified: false }));
+
+      await expect(service.acceptInvitation({ token: rawToken, password: 'ValidPassword123!' })).rejects.toMatchObject({
+        statusCode: HTTP_STATUS.HTTP_409_CONFLICT,
+        code: 'ACCOUNT_INVITATION_PENDING',
+      });
+      expect(mockAuthService.hasLocalAccount).not.toHaveBeenCalled();
+      expect(mockAuthService.verifyLocalPassword).not.toHaveBeenCalled();
+      expect(mockAuthService.createLocalAccount).not.toHaveBeenCalled();
+      expect(mockAuthService.issueTokens).not.toHaveBeenCalled();
+      expect(registration.save).not.toHaveBeenCalled();
+    });
+
     it('successfully provisions new user, sets up password, redeems token, and returns tokens', async () => {
       const mockDoc = createMockApprovedDoc();
       vi.mocked(mockRepo.findByInvitationTokenHash!).mockResolvedValue(mockDoc);
