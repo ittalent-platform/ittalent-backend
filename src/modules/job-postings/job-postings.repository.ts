@@ -112,6 +112,36 @@ export class JobPostingsRepository {
       .exec();
     return jobs.map((job) => String(job._id));
   }
+  // Ids of all jobs belonging to an enterprise, regardless of status.
+  async findJobIdsByEnterpriseId(enterpriseId: string): Promise<string[]> {
+    const jobs = await JobPosting.find(
+      { enterprise_id: new Types.ObjectId(enterpriseId) },
+      { _id: 1 },
+    )
+      .lean()
+      .exec();
+    return jobs.map((job) => String(job._id));
+  }
+  // Ids of jobs belonging to an enterprise whose title matches the keyword (case-insensitive).
+  async findJobIdsByTitleAndEnterpriseId(
+    enterpriseId: string,
+    keyword: string,
+  ): Promise<string[]> {
+    const pattern = new RegExp(
+      keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      'i',
+    );
+    const jobs = await JobPosting.find(
+      {
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        title: pattern,
+      },
+      { _id: 1 },
+    )
+      .lean()
+      .exec();
+    return jobs.map((job) => String(job._id));
+  }
   // A job accepts applications only while it is Published, not being deleted, before its deadline and
   // owned by an Active enterprise.
   async findOpenPublishedById(
