@@ -184,6 +184,20 @@ export const registrationListQuerySchema = z.object({
 
 export type RegistrationListQuery = z.infer<typeof registrationListQuerySchema>;
 
+export interface EnterpriseRegistrationSummaryDTO {
+  id: string;
+  registration_code: string;
+  corporate_email: string;
+  company_name: string | null;
+  tax_code: string | null;
+  representative_name: string;
+  representative_phone: string;
+  status: string;
+  version: number;
+  created_at: string | null;
+  submitted_at: string | null;
+}
+
 export const registrationChecklistSchema = z.object({
   tax_code_verified: z.boolean(),
   legal_representative_verified: z.boolean(),

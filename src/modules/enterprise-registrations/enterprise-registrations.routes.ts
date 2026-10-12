@@ -1,11 +1,14 @@
 import { Router } from 'express';
 
+import { authenticate, authorize } from '../../middleware/auth.middleware.js';
 import { parseLegalDocumentUpload } from '../../middleware/legal-document-upload.middleware.js';
 import { registerRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { enterpriseRegistrationsController } from './enterprise-registrations.controller.js';
 import {
+  adminDecisionBodySchema,
   registrationIdParamSchema,
+  registrationListQuerySchema,
   saveDraftBodySchema,
   startRegistrationBodySchema,
   submitRegistrationBodySchema,
@@ -14,6 +17,14 @@ import {
 } from './enterprise-registrations.schemas.js';
 
 export const enterpriseRegistrationsRouter = Router();
+
+enterpriseRegistrationsRouter.get(
+  '/',
+  authenticate,
+  authorize('admin'),
+  validateQuery(registrationListQuerySchema),
+  enterpriseRegistrationsController.listRegistrations,
+);
 
 enterpriseRegistrationsRouter.post(
   '/start',
@@ -54,4 +65,13 @@ enterpriseRegistrationsRouter.post(
   validateParams(registrationIdParamSchema),
   validateBody(submitRegistrationBodySchema),
   enterpriseRegistrationsController.submitRegistration,
+);
+
+enterpriseRegistrationsRouter.post(
+  '/:id/decision',
+  authenticate,
+  authorize('admin'),
+  validateParams(registrationIdParamSchema),
+  validateBody(adminDecisionBodySchema),
+  enterpriseRegistrationsController.processAdminDecision,
 );

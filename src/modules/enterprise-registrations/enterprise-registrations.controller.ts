@@ -2,7 +2,9 @@ import type { RequestHandler } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import type {
+  AdminDecisionDTO,
   RegistrationIdParam,
+  RegistrationListQuery,
   SaveDraftDTO,
   StartRegistrationDTO,
   SubmitRegistrationDTO,
@@ -18,6 +20,16 @@ export class EnterpriseRegistrationsController {
   constructor(
     private readonly service: EnterpriseRegistrationsService = enterpriseRegistrationsService,
   ) {}
+
+  listRegistrations: RequestHandler = async (_req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as RegistrationListQuery;
+      const result = await this.service.listRegistrations(query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
 
   startRegistration: RequestHandler = async (_req, res, next) => {
     try {
@@ -76,6 +88,18 @@ export class EnterpriseRegistrationsController {
       const params = res.locals.validated?.params as RegistrationIdParam;
       const body = res.locals.validated?.body as SubmitRegistrationDTO;
       const result = await this.service.submitRegistration(params.id, body);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  processAdminDecision: RequestHandler = async (req, res, next) => {
+    try {
+      const params = res.locals.validated?.params as RegistrationIdParam;
+      const body = res.locals.validated?.body as AdminDecisionDTO;
+      const adminId = req.user!.id;
+      const result = await this.service.processAdminDecision(params.id, body, adminId);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

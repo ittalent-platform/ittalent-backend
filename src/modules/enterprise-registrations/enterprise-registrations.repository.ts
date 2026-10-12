@@ -1,10 +1,20 @@
-import type { Types, UpdateQuery } from 'mongoose';
+import type { QueryFilter, Types, UpdateQuery } from 'mongoose';
 
 import {
   EnterpriseRegistration,
   type EnterpriseRegistrationData,
   type EnterpriseRegistrationDoc,
 } from '../../models/enterprise-registration.model.js';
+import { REGISTRATION_CONFIG } from './enterprise-registrations.constants.js';
+import type { RegistrationListQuery } from './enterprise-registrations.schemas.js';
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsRegex(value: string): RegExp {
+  return new RegExp(escapeRegex(value), 'i');
+}
 
 export class EnterpriseRegistrationsRepository {
   async create(data: Partial<EnterpriseRegistrationData>): Promise<EnterpriseRegistrationDoc> {
@@ -103,6 +113,42 @@ export class EnterpriseRegistrationsRepository {
     const count = await EnterpriseRegistration.countDocuments(filter).exec();
 
     return count > 0;
+  }
+
+  async findPage(
+    params: Partial<RegistrationListQuery> = {},
+  ): Promise<{ items: EnterpriseRegistrationDoc[]; total: number }> {
+    const filter: QueryFilter<EnterpriseRegistrationData> = {};
+
+    if (params.status) {
+      filter.status = params.status;
+    }
+
+    if (params.search) {
+      const searchRegex = containsRegex(params.search);
+      filter.$or = [
+        { registration_code: searchRegex },
+        { corporate_email: searchRegex },
+        { 'representative.full_name': searchRegex },
+        { 'company_data.name': searchRegex },
+        { 'company_data.tax_code': searchRegex },
+      ];
+    }
+
+    const page = params.page ?? REGISTRATION_CONFIG.DEFAULT_PAGE;
+    const limit = params.limit ?? REGISTRATION_CONFIG.DEFAULT_LIMIT;
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      EnterpriseRegistration.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      EnterpriseRegistration.countDocuments(filter).exec(),
+    ]);
+
+    return { items, total };
   }
 }
 
