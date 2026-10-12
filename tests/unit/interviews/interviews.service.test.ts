@@ -404,6 +404,71 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('updateStatus', () => {
+    it.each<'completed' | 'no_show'>(['completed', 'no_show'])(
+      'refuses %s before the interview has ended',
+      async (status) => {
+        now = new Date('2026-10-13T03:59:59.999Z');
+        await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status })).rejects.toMatchObject({
+          statusCode: 409,
+          code: INTERVIEW_ERROR_CODES.NOT_ENDED,
+        });
+        expect(repository.transitionFromScheduled).not.toHaveBeenCalled();
+      },
+    );
+
+    it('completes the interview from the moment it has ended', async () => {
+      now = new Date('2026-10-13T04:00:00.000Z');
+      const result = await service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed', note: 'Strong candidate' });
+
+      expect(repository.transitionFromScheduled).toHaveBeenCalledWith(INTERVIEW_ID, 'completed', RECRUITER, {
+        note: 'Strong candidate',
+        endedBefore: now,
+      });
+      expect(result.status).toBe('completed');
+      expect(sendInterviewEmail).not.toHaveBeenCalled();
+    });
+
+    it('marks a no-show once the interview has ended', async () => {
+      now = new Date('2026-10-13T04:10:00.000Z');
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'no_show' })).resolves.toMatchObject({ status: 'no_show' });
+    });
+
+    it('cancels at any time without the time guard and emails the participants', async () => {
+      const result = await service.updateStatus(recruiter, INTERVIEW_ID, { status: 'cancelled', note: 'Role closed' });
+
+      expect(repository.transitionFromScheduled).toHaveBeenCalledWith(INTERVIEW_ID, 'cancelled', RECRUITER, {
+        note: 'Role closed',
+        endedBefore: undefined,
+      });
+      expect(result.status).toBe('cancelled');
+      expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'cancelled')).toBe(true);
+      expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+    });
+
+    it.each<InterviewStatus>(['completed', 'cancelled', 'no_show'])('does not change a %s interview again', async (status) => {
+      repository.findById!.mockResolvedValue(interview({ status }));
+      now = new Date('2026-10-14T00:00:00.000Z');
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.ALREADY_FINAL,
+      });
+    });
+
+    it('reports a concurrent change (for example the interview was just moved to a later time)', async () => {
+      now = new Date('2026-10-13T04:00:00.000Z');
+      repository.transitionFromScheduled!.mockResolvedValue(null);
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed' })).rejects.toMatchObject({
+        code: INTERVIEW_ERROR_CODES.STATE_CHANGED,
+      });
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'cancelled' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
   describe('remove', () => {
     it('deletes a scheduled interview and tells the participants it is cancelled', async () => {
       await service.remove(recruiter, INTERVIEW_ID);
@@ -458,7 +523,10 @@ describe('InterviewsService', () => {
         statusHistory: [{ status: 'scheduled' }],
       });
 
-      now = new Date('2026-10-13T03:00:00.000Z');
+      now = new Date('2026-10-13T03:59:59.999Z');
+      expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(false);
+
+      now = new Date('2026-10-13T04:00:00.000Z');
       expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(true);
 
       repository.findById!.mockResolvedValue(interview({ status: 'completed' }));
@@ -473,4 +541,30 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('calendar (Calendar view)', () => {
+    const from = new Date('2026-10-01T00:00:00.000Z');
+    const to = new Date('2026-10-31T00:00:00.000Z');
+
+    it('returns every interview that overlaps the window and says when the result was cut', async () => {
+      repository.findCalendar!.mockResolvedValue({ items: [interview()], total: 501 });
+      const result = await service.calendar(recruiter, { from, to, status: 'scheduled' });
+
+      expect(repository.findCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, from, to, overlapRange: true, statuses: ['scheduled'] }),
+        500,
+      );
+      expect(result).toMatchObject({ from: from.toISOString(), to: to.toISOString(), total: 501, truncated: true });
+
+      repository.findCalendar!.mockResolvedValue({ items: [interview()], total: 1 });
+      expect((await service.calendar(recruiter, { from, to })).truncated).toBe(false);
+    });
+
+    it('can filter the calendar by one interviewer', async () => {
+      await service.calendar(recruiter, { from, to, interviewerId: INTERVIEWER_B });
+      expect(repository.findCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, interviewerId: INTERVIEWER_B }),
+        500,
+      );
+    });
+  });
 });

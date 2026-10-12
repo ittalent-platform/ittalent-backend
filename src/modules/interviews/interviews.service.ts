@@ -19,18 +19,24 @@ import {
   INTERVIEW_COMPLETED_STATUS,
   ACTIVE_USER_STATUS,
   SCHEDULABLE_APPLICATION_STATUSES,
+  TIME_GATED_STATUSES,
 } from './interviews.constants.js';
 import {
   interviewsRepository,
+  type InterviewFilter,
   type InterviewsRepository,
   type UpdateInterviewRecord,
 } from './interviews.repository.js';
 import {
+  parseInterviewStatusFilter,
   type CreateInterviewBody,
+  type InterviewCalendarQuery,
+  type InterviewCalendarResponse,
   type InterviewDetailDTO,
   type InterviewDTO,
   type InterviewParticipantDTO,
   type UpdateInterviewBody,
+  type UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
 
 export interface InterviewActor {
@@ -47,6 +53,12 @@ interface InterviewLookups {
   jobTitles: Map<string, string>;
 }
 
+// The filters the List and the Calendar views have in common.
+type InterviewFilterQuery = Pick<
+  InterviewCalendarQuery,
+  'status' | 'mode' | 'jobId' | 'applicationId' | 'interviewerId' | 'search'
+> & { from?: Date | undefined; to?: Date | undefined };
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -59,7 +71,7 @@ export class InterviewsService {
   constructor(
     private readonly repository: InterviewsRepository = interviewsRepository,
     private readonly users: UsersService = usersService,
-    // Injected so the "interview time has arrived" rule can be tested without waiting.
+    // Injected so the "interview has ended" rule can be tested without waiting.
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -184,6 +196,35 @@ export class InterviewsService {
     return detail;
   }
 
+  async updateStatus(actor: InterviewActor, id: string, body: UpdateInterviewStatusBody): Promise<InterviewDetailDTO> {
+    const scope = await this.resolveScope(actor);
+    const existing = await this.loadScoped(scope, id);
+    if (existing.status !== INTERVIEW_EDITABLE_STATUS) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.ALREADY_FINAL, INTERVIEW_ERROR_CODES.ALREADY_FINAL);
+    }
+
+    // Completed / no-show only make sense once the interview has ended; cancelling is always possible.
+    const timeGated = TIME_GATED_STATUSES.includes(body.status);
+    const now = this.now();
+    if (timeGated && now.getTime() < existing.ends_at.getTime()) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.NOT_ENDED, INTERVIEW_ERROR_CODES.NOT_ENDED);
+    }
+
+    const updated = await this.repository.transitionFromScheduled(id, body.status, actor.id, {
+      note: body.note,
+      endedBefore: timeGated ? now : undefined,
+    });
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+
+    const detail = await this.hydrateDetail(updated);
+    if (body.status === 'cancelled') {
+      await this.notify('cancelled', detail, scope.enterpriseId);
+    }
+    return detail;
+  }
+
   async remove(actor: InterviewActor, id: string): Promise<void> {
     const scope = await this.resolveScope(actor);
     const existing = await this.loadScoped(scope, id);
@@ -211,6 +252,14 @@ export class InterviewsService {
 
   // ---- reads ----
 
+  async calendar(actor: InterviewActor, query: InterviewCalendarQuery): Promise<InterviewCalendarResponse> {
+    const scope = await this.resolveScope(actor);
+    const window = { from: query.from.toISOString(), to: query.to.toISOString() };
+    const filter = await this.buildFilter(scope, query, true);
+    const { items, total } = await this.repository.findCalendar(filter, INTERVIEW_CONFIG.CALENDAR_MAX_ITEMS);
+    return { ...window, total, truncated: total > items.length, items: await this.hydrate(items) };
+  }
+
   async getDetail(actor: InterviewActor, id: string): Promise<InterviewDetailDTO> {
     const scope = await this.resolveScope(actor);
     return this.hydrateDetail(await this.loadScoped(scope, id));
@@ -237,6 +286,32 @@ export class InterviewsService {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, INTERVIEW_MESSAGES.NOT_FOUND);
     }
     return interview;
+  }
+
+  private async buildFilter(scope: InterviewScope, query: InterviewFilterQuery, overlapRange: boolean): Promise<InterviewFilter> {
+    const search = query.search ? await this.resolveSearch(scope.enterpriseId, query.search) : undefined;
+    return {
+      enterpriseId: scope.enterpriseId,
+      interviewerId: query.interviewerId,
+      statuses: query.status ? parseInterviewStatusFilter(query.status) : undefined,
+      mode: query.mode,
+      jobId: query.jobId,
+      applicationId: query.applicationId,
+      from: query.from,
+      to: query.to,
+      overlapRange,
+      search,
+    };
+  }
+
+  // A keyword matches people (the applicant or an interviewer, by name, email or username) and the enterprise's job
+  // titles. Each side is capped, so a very short keyword on a large user base can miss some matches.
+  private async resolveSearch(enterpriseId: string, keyword: string): Promise<{ userIds: string[]; jobIds: string[] }> {
+    const [userIds, jobIds] = await Promise.all([
+      this.users.findIdsByKeyword(keyword, INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT),
+      this.repository.findJobIdsByTitle(enterpriseId, keyword),
+    ]);
+    return { userIds, jobIds };
   }
 
   private endOf(startsAt: Date, durationMinutes: number): Date {
@@ -341,10 +416,15 @@ export class InterviewsService {
       applicant: this.participant(lookups, String(interview.applicant_id)),
       interviewers: interview.interviewer_ids.map((interviewerId) => this.participant(lookups, String(interviewerId))),
       canComplete:
-        interview.status === INTERVIEW_EDITABLE_STATUS && interview.scheduled_at.getTime() <= this.now().getTime(),
+        interview.status === INTERVIEW_EDITABLE_STATUS && interview.ends_at.getTime() <= this.now().getTime(),
       createdAt: interview.createdAt.toISOString(),
       updatedAt: interview.updatedAt.toISOString(),
     };
+  }
+
+  private async hydrate(interviews: InterviewDoc[]): Promise<InterviewDTO[]> {
+    const lookups = await this.loadLookups(interviews);
+    return interviews.map((interview) => this.toDto(interview, lookups));
   }
 
   private async hydrateOne(interview: InterviewDoc): Promise<InterviewDTO> {
