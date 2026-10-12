@@ -2,6 +2,7 @@ import { Router, type Express } from 'express';
 import { applicationsRouter } from './applications/index.js';
 import { authRouter } from './auth/index.js';
 import { documentsRouter } from './documents/index.js';
+import { enterpriseRegistrationsRouter } from './enterprise-registrations/index.js';
 import { enterprisesRouter } from './enterprises/index.js';
 import { healthRouter } from './health/index.js';
 import { jobPostingsRouter } from './job-postings/index.js';
@@ -14,6 +15,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use(jobPostingsRouter);
   apiV1Router.use('/users', usersRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
+  apiV1Router.use('/enterprise-registrations', enterpriseRegistrationsRouter);
   apiV1Router.use('/me/applications', applicationsRouter);
 
   app.use(healthRouter);
