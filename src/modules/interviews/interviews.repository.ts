@@ -1,28 +1,33 @@
-import type { Types } from 'mongoose';
+import { Types, type QueryFilter } from 'mongoose';
 
-import { Application, type ApplicationDoc } from '../../models/application.model.js';
+import {
+  Application,
+  type ApplicationData,
+  type ApplicationDoc,
+  type ApplicationStatus,
+} from '../../models/application.model.js';
 import { Enterprise } from '../../models/enterprise.model.js';
 import {
   Interview,
+  type InterviewData,
   type InterviewDoc,
   type InterviewMode,
+  type InterviewStatus,
+  type InterviewStatusHistoryEntry,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
-import { User, type UserRole, type UserStatus } from '../../models/user.model.js';
-import { INTERVIEW_INITIAL_STATUS } from './interviews.constants.js';
+import {
+  INTERVIEW_CONFIG,
+  INTERVIEW_EDITABLE_STATUS,
+  INTERVIEW_COMPLETED_STATUS,
+  INTERVIEW_INITIAL_STATUS,
+  INTERVIEW_SORT_COLUMNS,
+  type InterviewSortField,
+  type InterviewSortOrder,
+} from './interviews.constants.js';
 
 // Narrow read models: this module only reads these entities (the "shared models" the architecture allows)
-// and never writes to them.
-export interface InterviewUserRow {
-  _id: Types.ObjectId;
-  email: string;
-  username: string;
-  full_name?: string;
-  role?: UserRole;
-  status?: UserStatus;
-  enterprise_id?: Types.ObjectId | null;
-}
-
+// and never writes to them. People are read through UsersService, never through the User model.
 export interface InterviewJobRow {
   _id: Types.ObjectId;
   enterprise_id: Types.ObjectId;
@@ -50,12 +55,63 @@ export interface CreateInterviewRecord {
   notes?: string | undefined;
 }
 
+// Only the fields that are present are written; `null` clears an optional field.
+export interface UpdateInterviewRecord {
+  interviewerIds?: string[] | undefined;
+  scheduledAt?: Date | undefined;
+  endsAt?: Date | undefined;
+  durationMinutes?: number | undefined;
+  mode?: InterviewMode | undefined;
+  meetingLink?: string | null | undefined;
+  location?: string | null | undefined;
+  notes?: string | null | undefined;
+}
+
+export interface InterviewFilter {
+  enterpriseId: string;
+  // Set for an interviewer, who only sees the interviews they are assigned to.
+  interviewerId?: string | undefined;
+  statuses?: InterviewStatus[] | undefined;
+  mode?: InterviewMode | undefined;
+  jobId?: string | undefined;
+  applicationId?: string | undefined;
+  from?: Date | undefined;
+  to?: Date | undefined;
+  // false (list): the start time lies inside [from, to]. true (calendar): the interview overlaps [from, to].
+  overlapRange?: boolean | undefined;
+  // Already resolved from the keyword; an empty pair matches nothing.
+  search?: { userIds: string[]; jobIds: string[] } | undefined;
+}
+
+export interface FindInterviewsPageParams {
+  page: number;
+  limit: number;
+  sortBy: InterviewSortField;
+  sortOrder: InterviewSortOrder;
+}
+
+// The applications of one enterprise (through the jobs it owns) that are in one of the given statuses.
+export interface SchedulableApplicationFilter {
+  enterpriseId: string;
+  statuses: readonly ApplicationStatus[];
+  // Already resolved from the keyword: the applicant matches or the job title matches.
+  search?: { userIds: string[]; jobIds: string[] } | undefined;
+  limit: number;
+}
+
 export interface InterviewConflictParams {
   interviewerIds: string[];
   applicantId: string;
   startsAt: Date;
   endsAt: Date;
   excludeId?: string | undefined;
+}
+
+const ASCENDING = 1;
+const DESCENDING = -1;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export class InterviewsRepository {
@@ -72,18 +128,6 @@ export class InterviewsRepository {
     return job ? { application, job } : null;
   }
 
-  async findUsersByIds(ids: string[]): Promise<InterviewUserRow[]> {
-    if (ids.length === 0) {
-      return [];
-    }
-    return User.find(
-      { _id: { $in: ids } },
-      { email: 1, username: 1, full_name: 1, role: 1, status: 1, enterprise_id: 1 },
-    )
-      .lean<InterviewUserRow[]>()
-      .exec();
-  }
-
   async findJobTitles(ids: string[]): Promise<Map<string, string>> {
     if (ids.length === 0) {
       return new Map();
@@ -97,8 +141,41 @@ export class InterviewsRepository {
     return enterprise?.name ?? null;
   }
 
-  // Resolves a search keyword to the users (applicant or interviewer) and the enterprise's jobs it matches.
-  // Each side is capped, so a very short keyword on a large user base can miss some matches.
+  // The enterprise's jobs whose title contains the keyword (plain text, not a pattern). Capped, so a very short
+  // keyword on a large number of jobs can miss some matches.
+  async findJobIdsByTitle(enterpriseId: string, keyword: string): Promise<string[]> {
+    const jobs = await JobPosting.find({ enterprise_id: enterpriseId, title: new RegExp(escapeRegExp(keyword), 'i') }, { _id: 1 })
+      .limit(INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT)
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return jobs.map((job) => String(job._id));
+  }
+
+  // Newest applications first. The enterprise is reached through its jobs, because an application has no enterprise
+  // of its own; an enterprise with no job has nothing to schedule.
+  async findSchedulableApplications(filter: SchedulableApplicationFilter): Promise<ApplicationDoc[]> {
+    const jobs = await JobPosting.find({ enterprise_id: filter.enterpriseId }, { _id: 1 })
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    if (jobs.length === 0) {
+      return [];
+    }
+    const conditions: QueryFilter<ApplicationData>[] = [
+      { job_id: { $in: jobs.map((job) => String(job._id)) } },
+      { status: { $in: [...filter.statuses] } },
+    ];
+    if (filter.search) {
+      conditions.push({
+        $or: [{ applicant_id: { $in: filter.search.userIds } }, { job_id: { $in: filter.search.jobIds } }],
+      });
+    }
+    return Application.find({ $and: conditions })
+      .sort({ createdAt: DESCENDING, _id: DESCENDING })
+      .limit(filter.limit)
+      .lean<ApplicationDoc[]>()
+      .exec();
+  }
+
   // ---- interviews ----
 
   // An active interview that overlaps the window and involves one of the interviewers or the applicant.
@@ -137,6 +214,146 @@ export class InterviewsRepository {
     return created.toObject() as unknown as InterviewDoc;
   }
 
+  async findById(id: string): Promise<InterviewDoc | null> {
+    return Interview.findById(id).lean<InterviewDoc>().exec();
   }
+
+  // Applies the change only while the interview is still scheduled; null means it changed (or vanished) meanwhile.
+  async updateScheduled(id: string, update: UpdateInterviewRecord): Promise<InterviewDoc | null> {
+    const set: Partial<Record<keyof InterviewData, unknown>> = {};
+    const unset: Partial<Record<keyof InterviewData, ''>> = {};
+    if (update.interviewerIds) set.interviewer_ids = update.interviewerIds;
+    if (update.scheduledAt) set.scheduled_at = update.scheduledAt;
+    if (update.endsAt) set.ends_at = update.endsAt;
+    if (update.durationMinutes !== undefined) set.duration_minutes = update.durationMinutes;
+    if (update.mode) set.mode = update.mode;
+    for (const [field, value] of [
+      ['meeting_link', update.meetingLink],
+      ['location', update.location],
+      ['notes', update.notes],
+    ] as const) {
+      if (value === null) unset[field] = '';
+      else if (value !== undefined) set[field] = value;
+    }
+    return Interview.findOneAndUpdate(
+      { _id: id, status: INTERVIEW_EDITABLE_STATUS },
+      {
+        ...(Object.keys(set).length > 0 ? { $set: set } : {}),
+        ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+      },
+      { returnDocument: 'after' },
+    )
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
+  // Atomic scheduled -> status change that also appends the history entry; null means it is no longer scheduled.
+  // `endedBefore` re-checks "the interview has ended" in the same write, so an interview that was just moved to a
+  // later time cannot be completed.
+  async transitionFromScheduled(
+    id: string,
+    status: InterviewStatus,
+    changedBy: string,
+    options: { note?: string | undefined; endedBefore?: Date | undefined } = {},
+  ): Promise<InterviewDoc | null> {
+    const entry: InterviewStatusHistoryEntry = {
+      status,
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(changedBy),
+      ...(options.note ? { note: options.note } : {}),
+    };
+    return Interview.findOneAndUpdate(
+      {
+        _id: id,
+        status: INTERVIEW_EDITABLE_STATUS,
+        ...(options.endedBefore ? { ends_at: { $lte: options.endedBefore } } : {}),
+      },
+      { $set: { status }, $push: { status_history: entry } },
+      { returnDocument: 'after' },
+    )
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
+  // Deletes unless the interview was completed meanwhile; returns the deleted record.
+  async deleteNotCompleted(id: string): Promise<InterviewDoc | null> {
+    return Interview.findOneAndDelete({ _id: id, status: { $ne: INTERVIEW_COMPLETED_STATUS } })
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
+  async findPage(
+    filter: InterviewFilter,
+    params: FindInterviewsPageParams,
+  ): Promise<{ items: InterviewDoc[]; total: number }> {
+    const query = this.buildQuery(filter);
+    const direction = params.sortOrder === 'asc' ? ASCENDING : DESCENDING;
+    const [items, total] = await Promise.all([
+      Interview.find(query)
+        // _id breaks ties so paging never repeats or skips a row.
+        .sort({ [INTERVIEW_SORT_COLUMNS[params.sortBy]]: direction, _id: direction })
+        .skip((params.page - 1) * params.limit)
+        .limit(params.limit)
+        .lean<InterviewDoc[]>()
+        .exec(),
+      Interview.countDocuments(query).exec(),
+    ]);
+    return { items, total };
+  }
+
+  // Everything in the window, earliest first, capped at `limit`; `total` is the uncapped match count.
+  async findCalendar(filter: InterviewFilter, limit: number): Promise<{ items: InterviewDoc[]; total: number }> {
+    const query = this.buildQuery(filter);
+    const [items, total] = await Promise.all([
+      Interview.find(query).sort({ scheduled_at: ASCENDING, _id: ASCENDING }).limit(limit).lean<InterviewDoc[]>().exec(),
+      Interview.countDocuments(query).exec(),
+    ]);
+    return { items, total };
+  }
+
+  private buildQuery(filter: InterviewFilter): QueryFilter<InterviewData> {
+    const conditions: QueryFilter<InterviewData>[] = [{ enterprise_id: filter.enterpriseId }];
+
+    if (filter.interviewerId) {
+      conditions.push({ interviewer_ids: filter.interviewerId });
+    }
+    if (filter.statuses && filter.statuses.length > 0) {
+      conditions.push({ status: { $in: filter.statuses } });
+    }
+    if (filter.mode) {
+      conditions.push({ mode: filter.mode });
+    }
+    if (filter.jobId) {
+      conditions.push({ job_id: filter.jobId });
+    }
+    if (filter.applicationId) {
+      conditions.push({ application_id: filter.applicationId });
+    }
+    if (filter.overlapRange) {
+      if (filter.to) {
+        conditions.push({ scheduled_at: { $lt: filter.to } });
+      }
+      if (filter.from) {
+        conditions.push({ ends_at: { $gt: filter.from } });
+      }
+    } else if (filter.from || filter.to) {
+      conditions.push({
+        scheduled_at: { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lte: filter.to } : {}) },
+      });
+    }
+    if (filter.search) {
+      const { userIds, jobIds } = filter.search;
+      conditions.push({
+        $or: [
+          { applicant_id: { $in: userIds } },
+          { interviewer_ids: { $in: userIds } },
+          { job_id: { $in: jobIds } },
+        ],
+      });
+    }
+
+    return { $and: conditions };
+  }
+}
 
 export const interviewsRepository = new InterviewsRepository();

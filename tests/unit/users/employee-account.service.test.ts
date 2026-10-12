@@ -394,7 +394,7 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
 
       expect(mockRepo.findPage).toHaveBeenCalledWith(
         expect.objectContaining({
-          enterpriseId: '507f1f77bcf86cd799439011',
+          enterpriseId: ['507f1f77bcf86cd799439011'],
           search: 'Nguyen',
         }),
       );

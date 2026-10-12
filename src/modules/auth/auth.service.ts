@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import type { ClientSession, Types } from 'mongoose';
 
 import { env } from '../../config/env.js';
-import type { Types } from 'mongoose';
 import type { AccountDoc } from '../../models/account.model.js';
 import type { UserDoc, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -41,6 +41,7 @@ interface TokenPayload {
   sub: string;
   email: string;
   role: string;
+  av: number;
 }
 
 type ValidExpiresIn = NonNullable<jwt.SignOptions['expiresIn']>;
@@ -64,6 +65,7 @@ export class AuthService {
       sub: String(user._id),
       email: user.email,
       role: user.role,
+      av: 'auth_version' in user && typeof user.auth_version === 'number' ? user.auth_version : 0,
     };
 
     const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -85,13 +87,14 @@ export class AuthService {
     return this.userService.mapUserDto(user);
   }
 
-  private isUserAllowedToLogin(user: { status?: UserStatus; createdAt?: Date | string }): boolean {
+  private isUserAllowedToLogin(user: { status?: UserStatus; createdAt?: Date | string; verification_started_at?: Date | string | undefined }): boolean {
     if (user.status === 'active') {
       return true;
     }
 
-    if (user.status === 'inactive' && user.createdAt) {
-      const createdTime = new Date(user.createdAt).getTime();
+    const windowStart = user.verification_started_at ?? user.createdAt;
+    if (user.status === 'inactive' && windowStart) {
+      const createdTime = new Date(windowStart).getTime();
       return Date.now() - createdTime <= env.EMAIL_VERIFICATION_WINDOW_MS;
     }
 
@@ -249,7 +252,7 @@ export class AuthService {
       const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as unknown as TokenPayload;
 
       const user = await this.userService.findById(decoded.sub);
-      if (!user || !this.isUserAllowedToLogin(user)) {
+      if (!user || !this.isUserAllowedToLogin(user) || (user.auth_version ?? 0) !== (decoded.av ?? 0)) {
         throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_REFRESH_TOKEN);
       }
 
@@ -340,7 +343,7 @@ export class AuthService {
     await this.repository.updateLocalAccountPassword(tokenDoc.user_id, passwordHash);
 
     const user = await this.userService.findById(tokenDoc.user_id);
-    if (user && user.status === 'inactive') {
+    if (user?.status === 'inactive') {
       await this.userService.markEmailVerified(String(tokenDoc.user_id));
     }
 
@@ -398,6 +401,26 @@ export class AuthService {
     });
   }
 
+  async hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+  }
+
+  async createPasswordlessLocalAccount(userId: Types.ObjectId, session: ClientSession): Promise<AccountDoc> {
+    return this.repository.createLocalAccount({ userId, provider: 'local' }, session);
+  }
+
+  async setLocalPasswordHash(userId: Types.ObjectId | string, passwordHash: string, session: ClientSession): Promise<void> {
+    await this.repository.updateLocalAccountPassword(userId, passwordHash, session);
+  }
+
+  async verifyCurrentPassword(userId: Types.ObjectId, password: string, session?: ClientSession): Promise<boolean> {
+    return this.repository.verifyCurrentPassword(userId, password, session);
+  }
+
+  async revokeIdentityTokens(userId: Types.ObjectId, session: ClientSession): Promise<void> {
+    await this.repository.revokeIdentityTokens(userId, session);
+  }
+
   async verifyLocalPassword(userId: Types.ObjectId | string, password: string): Promise<boolean> {
     const account = await this.repository.findLocalAccountByUserId(userId);
     if (!account?.password_hash) {
@@ -417,4 +440,3 @@ export const authService = new AuthService();
 export function startAuthVerificationJob(): () => void {
   return authService.startAuthVerificationJob();
 }
-

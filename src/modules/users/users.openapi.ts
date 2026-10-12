@@ -3,6 +3,8 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
   createEmployeeBodySchema,
+  emergencySuspensionBodySchema,
+  roleUpdateBodySchema,
   updateUserBodySchema,
   updateUserStatusBodySchema,
   userDtoSchema,
@@ -19,6 +21,42 @@ export function registerUsersOpenApi(registry: OpenAPIRegistry): void {
   const registeredCreateEmployeeRequest = registry.register('CreateEmployeeRequest', createEmployeeBodySchema);
   const registeredUpdateUserStatusRequest = registry.register('UpdateUserStatusRequest', updateUserStatusBodySchema);
   const registeredUserHistoryResponse = registry.register('UserHistoryResponse', userHistoryResponseSchema);
+  const registeredRoleUpdate = registry.register('UpdateUserRoleRequest', roleUpdateBodySchema);
+  const emergencySuspension = registry.register('EmergencyUserSuspensionRequest', emergencySuspensionBodySchema);
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/users/{id}/role',
+    tags: ['Users'],
+    summary: 'Change a company account role between HR and Enterprise Administrator',
+    security: [{ bearerAuth: [] }],
+    request: { params: userIdParamSchema, body: { required: true, content: { 'application/json': { schema: registeredRoleUpdate } } } },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Updated account role', content: { 'application/json': { schema: registeredUserDto } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid account ID or role change' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Account not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Invalid transition, stale version or final Enterprise Administrator' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/users/{id}/emergency-suspension',
+    tags: ['Users'],
+    summary: 'Urgently suspend an account with a required audit reason',
+    security: [{ bearerAuth: [] }],
+    request: { params: userIdParamSchema, body: { required: true, content: { 'application/json': { schema: emergencySuspension } } } },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Account suspended and sessions revoked', content: { 'application/json': { schema: registeredUserDto } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid request' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Account not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Platform administrator cannot self-suspend or suspend the final platform administrator' },
+    },
+  });
 
   // UC-10 / UC-EMP-01: Create employee account
   registry.registerPath({
@@ -112,6 +150,7 @@ export function registerUsersOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Cannot suspend own account or cross-tenant forbidden' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'User not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Illegal transition, stale version, final System Administrator, or final Enterprise Administrator' },
     },
   });
 

@@ -6,15 +6,29 @@ export const APPLICANT_ROLE: UserRole = 'user';
 
 export const APPLICATION_INITIAL_STATUS: ApplicationStatus = 'submitted';
 export const APPLICATION_HIRED_STATUS: ApplicationStatus = 'hired';
+export const APPLICATION_POSITION_FILLED_STATUS: ApplicationStatus = 'position_filled';
+
+// Roles authorized to manage applications on behalf of the company/enterprise.
+export const RECRUITER_ROLES = ['recruiter', 'enterprise_admin'] as const;
 
 // BR-APP-010: only a Withdrawn or Rejected application is closed, and only then may the applicant apply again
 // (as a new record). Any other status keeps the pair occupied.
 export const CLOSED_APPLICATION_STATUSES: readonly ApplicationStatus[] = ['withdrawn', 'rejected'];
+
+// BR-17 / BR-18: Terminal states in the recruitment workflow.
+export const APPLICATION_TERMINAL_STATUSES: readonly ApplicationStatus[] = [
+  'withdrawn',
+  'rejected',
+  'position_filled',
+];
 // BR-APP-010: a pair has at most two records; the second one is the last application to that job.
 export const MAX_APPLICATIONS_PER_JOB = 2;
 
 export const APPLICATION_CONFIG = {
   MESSAGE_MAX_LENGTH: 1000,
+  MESSAGE_TO_CANDIDATE_MAX_LENGTH: 1000,
+  REASON_MIN_LENGTH: 5,
+  NOTE_MAX_LENGTH: 2000,
   KEYWORD_MIN_LENGTH: 1,
   KEYWORD_MAX_LENGTH: 100,
   HISTORY_DEFAULT_LIMIT: 20,
@@ -23,6 +37,10 @@ export const APPLICATION_CONFIG = {
   STATUS_FILTER_SEPARATOR: ',',
   MONGO_DUPLICATE_KEY_ERROR_CODE: 11000,
 } as const;
+
+export const APPLICATION_REASON_MIN_LENGTH = APPLICATION_CONFIG.REASON_MIN_LENGTH;
+export const APPLICATION_NOTE_MAX_LENGTH = APPLICATION_CONFIG.NOTE_MAX_LENGTH;
+export const APPLICATION_MESSAGE_TO_CANDIDATE_MAX_LENGTH = APPLICATION_CONFIG.MESSAGE_TO_CANDIDATE_MAX_LENGTH;
 
 export const APPLICATION_MESSAGES = {
   AUTH_REQUIRED: 'Authentication required',

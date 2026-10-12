@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser, authorize } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { APPLICANT_ROLE } from './applications.constants.js';
 import { applicationsController } from './applications.controller.js';
@@ -18,6 +18,7 @@ export const applicationsRouter = Router();
 applicationsRouter.post(
   '/',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateBody(createApplicationBodySchema),
   applicationsController.createApplication,
@@ -55,6 +56,7 @@ applicationsRouter.get(
 applicationsRouter.patch(
   '/:id/withdraw',
   authenticate,
+  authenticateCurrentUser,
   authorize(APPLICANT_ROLE),
   validateParams(applicationIdParamSchema),
   validateBody(withdrawApplicationBodySchema),

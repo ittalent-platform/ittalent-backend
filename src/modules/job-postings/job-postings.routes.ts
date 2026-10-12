@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser, authorize } from '../../middleware/auth.middleware.js';
 import {
   validateBody,
   validateParams,
@@ -43,6 +43,7 @@ jobPostingsRouter.get(
 jobPostingsRouter.post(
   '/job-postings',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateBody(createJobPostingSchema),
   jobPostingsController.create,
@@ -57,6 +58,7 @@ jobPostingsRouter.get(
 jobPostingsRouter.patch(
   '/job-postings/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   validateBody(updateJobPostingSchema),
@@ -65,6 +67,7 @@ jobPostingsRouter.patch(
 jobPostingsRouter.patch(
   '/job-postings/:id/close',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.close,
@@ -72,6 +75,7 @@ jobPostingsRouter.patch(
 jobPostingsRouter.patch(
   '/job-postings/:id/reopen',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.reopen,
@@ -79,6 +83,7 @@ jobPostingsRouter.patch(
 jobPostingsRouter.patch(
   '/job-postings/:id/archive',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.archive,
@@ -86,6 +91,7 @@ jobPostingsRouter.patch(
 jobPostingsRouter.patch(
   '/job-postings/:id/restore',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.restore,
@@ -101,6 +107,7 @@ jobPostingsRouter.get(
 jobPostingsRouter.delete(
   '/job-postings/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize(...JOB_POSTING_MANAGER_ROLES),
   validateParams(jobPostingIdParamSchema),
   jobPostingsController.remove,
