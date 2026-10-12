@@ -77,6 +77,12 @@ export class ApplicationsService {
     }
   }
 
+  // Cross-domain query used by DocumentsService before soft deletion. The repository remains
+  // the only layer that accesses the Application model.
+  async isDocumentReferenced(documentId: string): Promise<boolean> {
+    return this.repository.isDocumentReferenced(documentId);
+  }
+
   async applyToJob(userId: string, input: CreateApplicationBody): Promise<ApplicationDTO> {
     // E1/E2: signed-in user must exist and have a verified (active) account.
     const user = await this.users.findById(userId);

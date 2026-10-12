@@ -94,6 +94,18 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
 
 });
 
+describe('ApplicationsService document references', () => {
+  it('delegates document-reference checks to the applications repository', async () => {
+    const repository = { isDocumentReferenced: vi.fn().mockResolvedValue(true) };
+    const service = new ApplicationsService(
+      repository as unknown as ApplicationsRepository,
+    );
+
+    await expect(service.isDocumentReferenced(cvId)).resolves.toBe(true);
+    expect(repository.isDocumentReferenced).toHaveBeenCalledWith(cvId);
+  });
+});
+
 // ---- UC-MYAPP-01..05: the candidate's own applications ----
 describe('ApplicationsService candidate views', () => {
   const jobSummary = { id: jobId, title: 'Frontend Engineer', companyName: 'Nova Fintech', location: 'Hà Nội', employmentType: 'Full-time', expiresAt: new Date('2099-01-01T00:00:00.000Z'), isOpen: true };
