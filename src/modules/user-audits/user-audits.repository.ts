@@ -14,7 +14,7 @@ export interface CreateUserAuditInput {
 }
 
 export class UserAuditsRepository {
-  async create(data: CreateUserAuditInput, session: ClientSession): Promise<void> {
+  async create(data: CreateUserAuditInput, session?: ClientSession): Promise<void> {
     await UserAudit.create([{
       target_user_id: data.targetUserId,
       actor_user_id: data.actorId,
@@ -24,7 +24,7 @@ export class UserAuditsRepository {
       ...(data.changes ? { changes: data.changes } : {}),
       version: data.version,
       occurred_at: new Date(),
-    }], { session });
+    }], session ? { session } : undefined);
   }
 
   async findPage(targetUserId: string, query: UserAuditHistoryQuery): Promise<{ rows: Record<string, unknown>[]; total: number }> {

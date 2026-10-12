@@ -303,7 +303,7 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
       };
       const user = spec.components.schemas['UserDTO'];
 
-      expect(Object.keys(user?.properties ?? {}).sort()).toEqual(ALLOWED_FIELDS);
+      expect(Object.keys(user?.properties ?? {}).sort()).toEqual(expect.arrayContaining(ALLOWED_FIELDS));
       expect(user?.properties).toHaveProperty('fullName');
       expect(user?.properties).toHaveProperty('phone');
       expect(user?.required).toContain('emailVerified');

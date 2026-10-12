@@ -1,6 +1,13 @@
 import { Types, type ClientSession, type QueryFilter } from 'mongoose';
 
-import { User, type UserData, type UserDoc, type UserRole, type UserStatus } from '../../models/user.model.js';
+import {
+  User,
+  type UserData,
+  type UserDoc,
+  type UserRole,
+  type UserStatus,
+  type UserStatusHistoryEntry,
+} from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.schemas.js';
@@ -8,11 +15,11 @@ import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.sche
 export interface CreateUserData {
   email: string;
   username: string;
-  status?: UserStatus;
-  role?: UserRole;
-  full_name?: string;
-  phone?: string;
-  email_verified?: boolean;
+  full_name?: string | undefined;
+  phone?: string | undefined;
+  role?: UserRole | undefined;
+  status?: UserStatus | undefined;
+  email_verified?: boolean | undefined;
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
@@ -26,7 +33,8 @@ export interface CreateManagedUserInput {
 }
 
 // Allow-list of fields an administrator may read; credentials and tokens live in other collections.
-const ADMIN_USER_FIELDS = 'email username full_name phone role status email_verified enterprise_id version createdAt updatedAt';
+const ADMIN_USER_FIELDS =
+  'email username full_name phone role status email_verified enterprise_id version status_reason status_updated_at status_updated_by status_history createdAt updatedAt';
 const ADMIN_USER_PROJECTION = Object.fromEntries(ADMIN_USER_FIELDS.split(' ').map((field) => [field, 1]));
 // What other modules may read about a person they reference: enough to name, email and authorise them, nothing more.
 const USER_REFERENCE_FIELDS = 'email username full_name role status enterprise_id';
@@ -42,7 +50,7 @@ export class UsersRepository {
     if (result.matchedCount !== 1) throw new Error('Identity request owner was not found');
   }
 
-  async updateProfileVersioned(id: string, expectedVersion: number, patch: UpdateUserBody, session: ClientSession): Promise<UserDoc | null> {
+  async updateProfileVersioned(id: string, expectedVersion: number, patch: UpdateUserBody, session?: ClientSession): Promise<UserDoc | null> {
     const $set: Record<string, unknown> = {};
     const $unset: Record<string, string> = {};
     if (patch.fullName !== undefined) $set.full_name = patch.fullName;
@@ -52,7 +60,7 @@ export class UsersRepository {
     if (Object.keys($set).length) update.$set = $set;
     if (Object.keys($unset).length) update.$unset = $unset;
     const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    return User.findOneAndUpdate({ _id: id, ...versionFilter }, update, { returnDocument: 'after', session, runValidators: true }).exec();
+    return User.findOneAndUpdate({ _id: id, ...versionFilter }, update, { returnDocument: 'after', ...(session ? { session } : {}), runValidators: true }).exec();
   }
 
   async transitionStatus(id: string, expectedVersion: number, status: UserStatus, session: ClientSession): Promise<UserDoc | null> {
@@ -204,7 +212,11 @@ export class UsersRepository {
     if (patch.fullName !== undefined) $set.full_name = patch.fullName;
     if (patch.phone === null) $unset.phone = '';
     else if (patch.phone !== undefined) $set.phone = patch.phone;
-    return User.findByIdAndUpdate(id, { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) }, { returnDocument: 'after' }).exec();
+    return User.findByIdAndUpdate(
+      id,
+      { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) },
+      { returnDocument: 'after' },
+    ).exec();
   }
 
   async findById(id: string): Promise<UserDoc | null> {
@@ -264,10 +276,10 @@ export class UsersRepository {
     const user = new User({
       email: data.email,
       username: data.username,
-      ...(data.status ? { status: data.status } : {}),
-      ...(data.role ? { role: data.role } : {}),
       ...(data.full_name ? { full_name: data.full_name } : {}),
       ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.role ? { role: data.role } : {}),
+      ...(data.status ? { status: data.status } : {}),
       ...(data.email_verified !== undefined ? { email_verified: data.email_verified } : {}),
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
@@ -288,8 +300,36 @@ export class UsersRepository {
     ).exec();
   }
 
-  async updateStatus(id: Types.ObjectId | string, status: UserStatus): Promise<UserDoc | null> {
-    return User.findByIdAndUpdate(id, { $set: { status } }, { returnDocument: 'after' }).exec();
+  async updateStatus(
+    id: Types.ObjectId | string,
+    status: UserStatus,
+    adminId?: string,
+    reason?: string,
+  ): Promise<UserDoc | null> {
+    const now = new Date();
+    const adminObjectId = adminId ? new Types.ObjectId(adminId) : null;
+    const historyEntry: UserStatusHistoryEntry | null = adminObjectId
+      ? {
+          status,
+          changed_at: now,
+          changed_by: adminObjectId,
+          reason: reason ?? null,
+        }
+      : null;
+
+    const $set: Record<string, unknown> = {
+      status,
+      status_updated_at: now,
+      ...(adminObjectId ? { status_updated_by: adminObjectId } : {}),
+      ...(reason !== undefined ? { status_reason: reason } : {}),
+    };
+
+    const updateQuery: Record<string, unknown> = { $set };
+    if (historyEntry) {
+      updateQuery.$push = { status_history: historyEntry };
+    }
+
+    return User.findByIdAndUpdate(id, updateQuery, { returnDocument: 'after' }).exec();
   }
 
   async updateEnterpriseId(

@@ -16,7 +16,7 @@ export class UserAuditsService {
     },
   ) {}
 
-  async record(input: CreateUserAuditInput, session: ClientSession): Promise<void> {
+  async record(input: CreateUserAuditInput, session?: ClientSession): Promise<void> {
     await this.repository.create(input, session);
   }
 
