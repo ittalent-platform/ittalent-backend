@@ -8,21 +8,10 @@ import {
   type InterviewMode,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
-import { User, type UserRole, type UserStatus } from '../../models/user.model.js';
 import { INTERVIEW_INITIAL_STATUS } from './interviews.constants.js';
 
 // Narrow read models: this module only reads these entities (the "shared models" the architecture allows)
-// and never writes to them.
-export interface InterviewUserRow {
-  _id: Types.ObjectId;
-  email: string;
-  username: string;
-  full_name?: string;
-  role?: UserRole;
-  status?: UserStatus;
-  enterprise_id?: Types.ObjectId | null;
-}
-
+// and never writes to them. People are read through UsersService, never through the User model.
 export interface InterviewJobRow {
   _id: Types.ObjectId;
   enterprise_id: Types.ObjectId;
@@ -70,18 +59,6 @@ export class InterviewsRepository {
       .lean<InterviewJobRow>()
       .exec();
     return job ? { application, job } : null;
-  }
-
-  async findUsersByIds(ids: string[]): Promise<InterviewUserRow[]> {
-    if (ids.length === 0) {
-      return [];
-    }
-    return User.find(
-      { _id: { $in: ids } },
-      { email: 1, username: 1, full_name: 1, role: 1, status: 1, enterprise_id: 1 },
-    )
-      .lean<InterviewUserRow[]>()
-      .exec();
   }
 
   async findJobTitles(ids: string[]): Promise<Map<string, string>> {

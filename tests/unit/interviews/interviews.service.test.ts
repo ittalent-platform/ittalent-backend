@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApplicationStatus } from '../../../src/models/application.model.js';
 import type { InterviewDoc, InterviewStatus } from '../../../src/models/interview.model.js';
+import type { UserDoc } from '../../../src/models/user.model.js';
 import { INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
-import type { InterviewsRepository, InterviewUserRow } from '../../../src/modules/interviews/interviews.repository.js';
+import type { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
 import { InterviewsService, type InterviewActor } from '../../../src/modules/interviews/interviews.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
 import { sendInterviewEmail } from '../../../src/shared/services/email.service.js';
@@ -29,7 +30,7 @@ const HOUR_MS = 3_600_000;
 
 const recruiter: InterviewActor = { id: RECRUITER, role: 'recruiter' };
 
-function user(id: string, overrides: Partial<Record<keyof InterviewUserRow, unknown>> = {}): InterviewUserRow {
+function user(id: string, overrides: Record<string, unknown> = {}): UserDoc {
   return {
     _id: id,
     email: `${id}@example.com`,
@@ -39,7 +40,7 @@ function user(id: string, overrides: Partial<Record<keyof InterviewUserRow, unkn
     status: 'active',
     enterprise_id: ENTERPRISE,
     ...overrides,
-  } as unknown as InterviewUserRow;
+  } as unknown as UserDoc;
 }
 
 function interview(overrides: Partial<Record<keyof InterviewDoc, unknown>> = {}): InterviewDoc {
@@ -80,10 +81,9 @@ function makeRepository(): Record<keyof InterviewsRepository, ReturnType<typeof 
       application: { _id: APPLICATION, job_id: JOB, applicant_id: APPLICANT, status: 'under_review' },
       job: { _id: JOB, enterprise_id: ENTERPRISE, title: 'Backend Engineer' },
     }),
-    findUsersByIds: vi.fn().mockImplementation(async (ids: string[]) => ids.map((id) => user(id))),
     findJobTitles: vi.fn().mockResolvedValue(new Map([[JOB, 'Backend Engineer']])),
     findEnterpriseName: vi.fn().mockResolvedValue('Acme'),
-    findSearchMatches: vi.fn().mockResolvedValue({ userIds: [], jobIds: [] }),
+    findJobIdsByTitle: vi.fn().mockResolvedValue([]),
     findConflict: vi.fn().mockResolvedValue(null),
     create: vi.fn().mockImplementation(async () => interview({ interviewer_ids: [INTERVIEWER_A, INTERVIEWER_B] })),
     findById: vi.fn().mockResolvedValue(interview()),
@@ -97,7 +97,12 @@ function makeRepository(): Record<keyof InterviewsRepository, ReturnType<typeof 
 
 describe('InterviewsService', () => {
   let repository: ReturnType<typeof makeRepository>;
-  let users: { getEnterpriseId: ReturnType<typeof vi.fn>; findById: ReturnType<typeof vi.fn> };
+  let users: {
+    getEnterpriseId: ReturnType<typeof vi.fn>;
+    findById: ReturnType<typeof vi.fn>;
+    findByIds: ReturnType<typeof vi.fn>;
+    findIdsByKeyword: ReturnType<typeof vi.fn>;
+  };
   let service: InterviewsService;
   let now: Date;
 
@@ -107,6 +112,8 @@ describe('InterviewsService', () => {
     users = {
       getEnterpriseId: vi.fn().mockResolvedValue(ENTERPRISE),
       findById: vi.fn().mockResolvedValue({ _id: APPLICANT, email: 'applicant@example.com', status: 'active' }),
+      findByIds: vi.fn().mockImplementation(async (ids: string[]) => ids.map((id) => user(id))),
+      findIdsByKeyword: vi.fn().mockResolvedValue([]),
     };
     now = NOW;
     service = new InterviewsService(
@@ -232,7 +239,7 @@ describe('InterviewsService', () => {
       ['an admin', { role: 'admin' }],
       ['a suspended recruiter', { status: 'suspended' }],
     ])('rejects %s', async (_label, overrides) => {
-      repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A), user(INTERVIEWER_B, overrides)]);
+      users.findByIds.mockResolvedValue([user(INTERVIEWER_A), user(INTERVIEWER_B, overrides)]);
       await expect(service.create(recruiter, createBody)).rejects.toMatchObject({
         statusCode: 400,
         code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS,
@@ -240,12 +247,12 @@ describe('InterviewsService', () => {
     });
 
     it('rejects an interviewer that does not exist', async () => {
-      repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A)]);
+      users.findByIds.mockResolvedValue([user(INTERVIEWER_A)]);
       await expect(service.create(recruiter, createBody)).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
     });
 
     it('never stores the same interviewer twice', async () => {
-      repository.findUsersByIds!.mockResolvedValue([user(INTERVIEWER_A)]);
+      users.findByIds.mockResolvedValue([user(INTERVIEWER_A)]);
       await expect(
         service.create(recruiter, { ...createBody, interviewerIds: [INTERVIEWER_A, INTERVIEWER_A] }),
       ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });

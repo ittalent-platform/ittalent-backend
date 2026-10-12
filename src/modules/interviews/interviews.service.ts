@@ -6,6 +6,7 @@ import {
   type InterviewEmailKind,
 } from '../../shared/services/email.service.js';
 import type { InterviewDoc, InterviewMode } from '../../models/interview.model.js';
+import type { UserDoc } from '../../models/user.model.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   INTERVIEW_CONFIG,
@@ -21,7 +22,6 @@ import {
 import {
   interviewsRepository,
   type InterviewsRepository,
-  type InterviewUserRow,
 } from './interviews.repository.js';
 import {
   type CreateInterviewBody,
@@ -40,7 +40,7 @@ interface InterviewScope {
 }
 
 interface InterviewLookups {
-  users: Map<string, InterviewUserRow>;
+  users: Map<string, UserDoc>;
   jobTitles: Map<string, string>;
 }
 
@@ -147,7 +147,7 @@ export class InterviewsService {
   // Every interviewer must be an active recruiter of the same enterprise.
   private async assertInterviewers(enterpriseId: string, interviewerIds: string[]): Promise<void> {
     this.assertDistinctInterviewers(interviewerIds);
-    const rows = await this.repository.findUsersByIds(interviewerIds);
+    const rows = await this.users.findByIds(interviewerIds);
     const valid = rows.filter(
       (row) =>
         row.status === ACTIVE_USER_STATUS &&
@@ -195,7 +195,7 @@ export class InterviewsService {
     );
     const jobIds = unique(interviews.map((interview) => String(interview.job_id)));
     const [users, jobTitles] = await Promise.all([
-      this.repository.findUsersByIds(userIds),
+      this.users.findByIds(userIds),
       this.repository.findJobTitles(jobIds),
     ]);
     return { users: new Map(users.map((user) => [String(user._id), user])), jobTitles };
