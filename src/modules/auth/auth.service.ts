@@ -81,13 +81,14 @@ export class AuthService {
     return this.userService.mapUserDto(user);
   }
 
-  private isUserAllowedToLogin(user: { status?: UserStatus; createdAt?: Date | string }): boolean {
+  private isUserAllowedToLogin(user: { status?: UserStatus; createdAt?: Date | string; verification_started_at?: Date | string | undefined }): boolean {
     if (user.status === 'active') {
       return true;
     }
 
-    if (user.status === 'inactive' && user.createdAt) {
-      const createdTime = new Date(user.createdAt).getTime();
+    const windowStart = user.verification_started_at ?? user.createdAt;
+    if (user.status === 'inactive' && windowStart) {
+      const createdTime = new Date(windowStart).getTime();
       return Date.now() - createdTime <= env.EMAIL_VERIFICATION_WINDOW_MS;
     }
 

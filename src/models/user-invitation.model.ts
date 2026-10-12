@@ -3,7 +3,7 @@ import { Schema, model } from 'mongoose';
 
 export const userInvitationRoles = ['user', 'recruiter', 'enterprise_admin'] as const;
 export type UserInvitationRole = (typeof userInvitationRoles)[number];
-export const userInvitationStatuses = ['pending', 'accepted', 'revoked', 'expired'] as const;
+export const userInvitationStatuses = ['pending', 'accepted', 'revoked', 'cancelled', 'expired'] as const;
 export type UserInvitationStatus = (typeof userInvitationStatuses)[number];
 export const userInvitationKinds = ['new_account', 'enterprise_membership'] as const;
 export type UserInvitationKind = (typeof userInvitationKinds)[number];
@@ -44,6 +44,7 @@ const userInvitationSchema = new Schema<UserInvitationData>(
 );
 
 userInvitationSchema.index({ target_user_id: 1, status: 1 });
+userInvitationSchema.index({ target_user_id: 1, createdAt: -1, _id: -1 });
 userInvitationSchema.index({ expires_at: 1 });
 
 export const UserInvitation = model('UserInvitation', userInvitationSchema);

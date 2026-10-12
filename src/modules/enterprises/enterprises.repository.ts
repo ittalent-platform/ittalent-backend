@@ -56,6 +56,12 @@ export class EnterprisesRepository {
     return Enterprise.findOne({ email: email.toLowerCase(), is_deleted: false }).exec();
   }
 
+  async findNamesByIds(ids: Types.ObjectId[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await Enterprise.find({ _id: { $in: ids }, is_deleted: false }, { name: 1 }).lean().exec();
+    return new Map(rows.map((row) => [String(row._id), row.name]));
+  }
+
   async findByCreatorId(creatorId: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
     return Enterprise.findOne({
       creator_account_id: creatorId,

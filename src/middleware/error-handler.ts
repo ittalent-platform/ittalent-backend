@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ErrorRequestHandler } from 'express';
 import mongoose from 'mongoose';
 import { ZodError } from 'zod';
@@ -36,6 +37,11 @@ function getStatusCode(error: unknown): number {
   return HTTP_STATUS.HTTP_500_INTERNAL_SERVER_ERROR;
 }
 
+// Errors raised through createHttpError carry a deliberate, user-facing message.
+function hasExplicitStatus(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && ('statusCode' in error || 'status' in error);
+}
+
 function getMessage(error: unknown): string {
   if (error instanceof ZodError) {
     return error.issues[0]?.message ?? 'Request validation failed';
@@ -60,8 +66,16 @@ function getErrorCode(error: unknown): string | undefined {
 
 export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   const statusCode = getStatusCode(error);
-  const message = getMessage(error);
   const code = getErrorCode(error);
+
+  // Unhandled failures never leak internal messages; the logged error id lets support find the cause.
+  if (statusCode >= HTTP_STATUS.HTTP_500_INTERNAL_SERVER_ERROR && !hasExplicitStatus(error)) {
+    const errorId = randomUUID();
+    console.error('[error-handler:unhandled]', errorId, error);
+    res.status(statusCode).json({ success: false, message: 'Internal server error', errorId });
+    return;
+  }
+  const message = getMessage(error);
 
   if (error instanceof ZodError) {
     res.status(statusCode).json({

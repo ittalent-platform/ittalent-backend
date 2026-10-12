@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import type { CreateAdminUserBody, UserIdParam } from '../users/users.schemas.js';
 import { userInvitationsService, type UserInvitationsService } from './user-invitations.service.js';
-import type { AcceptExistingAccountInvitationBody, AcceptNewAccountInvitationBody } from './user-invitations.schemas.js';
+import type { AcceptNewAccountInvitationBody, InvitationPreviewQuery } from './user-invitations.schemas.js';
 
 export class UserInvitationsController {
   constructor(private readonly service: UserInvitationsService = userInvitationsService) {}
@@ -13,15 +13,6 @@ export class UserInvitationsController {
       const body = res.locals.validated?.body as CreateAdminUserBody;
       const result = await this.service.createAccount(req.user?.id ?? '', body);
       res.status(HTTP_STATUS.HTTP_201_CREATED).json(result);
-    } catch (error) { next(error); }
-  };
-
-  inviteExisting = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const params = res.locals.validated?.params as UserIdParam;
-      const body = res.locals.validated?.body as { enterpriseId: string };
-      const result = await this.service.inviteExistingUser(req.user?.id ?? '', params.id, body.enterpriseId);
-      res.status(HTTP_STATUS.HTTP_202_ACCEPTED).json(result);
     } catch (error) { next(error); }
   };
 
@@ -41,11 +32,32 @@ export class UserInvitationsController {
     } catch (error) { next(error); }
   };
 
-  acceptExisting = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const body = res.locals.validated?.body as AcceptExistingAccountInvitationBody;
-      const result = await this.service.acceptExistingUser(req.user?.id ?? '', body.token);
+      const query = res.locals.validated?.query as InvitationPreviewQuery;
+      const result = await this.service.preview(query.token);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) { next(error); }
+  };
+
+  status = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const params = res.locals.validated?.params as UserIdParam;
+      const result = await this.service.getStatus(req.user?.id ?? '', params.id);
+      if (!result) {
+        res.status(HTTP_STATUS.HTTP_200_OK).json(null);
+        return;
+      }
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) { next(error); }
+  };
+
+  cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const params = res.locals.validated?.params as UserIdParam;
+      const body = res.locals.validated?.body as { reason: string; expectedVersion: number };
+      await this.service.cancel(req.user?.id ?? '', params.id, body);
+      res.status(HTTP_STATUS.HTTP_200_OK).json({ success: true });
     } catch (error) { next(error); }
   };
 }

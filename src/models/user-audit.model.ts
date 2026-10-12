@@ -1,7 +1,7 @@
 import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
-export const userAuditActions = ['account_invited', 'profile_updated', 'status_suspended', 'status_reopened', 'invitation_accepted', 'email_change_requested', 'email_changed'] as const;
+export const userAuditActions = ['account_invited', 'profile_updated', 'role_changed', 'status_suspended', 'status_reopened', 'invitation_accepted', 'invitation_revoked', 'email_change_requested', 'email_changed'] as const;
 export type UserAuditAction = (typeof userAuditActions)[number];
 
 export interface UserAuditData {
@@ -28,6 +28,13 @@ const userAuditSchema = new Schema<UserAuditData>(
   },
   { versionKey: false, collection: 'user_audits' },
 );
+
+// Append-only: events are inserted once and never modified or removed through the model.
+const APPEND_ONLY_HOOKS = ['updateOne', 'updateMany', 'findOneAndUpdate', 'findOneAndReplace', 'replaceOne', 'deleteOne', 'deleteMany', 'findOneAndDelete'] as const;
+for (const hook of APPEND_ONLY_HOOKS) {
+  userAuditSchema.pre(hook, () => { throw new Error('User audit events are append-only'); });
+}
+userAuditSchema.pre('save', function () { if (!this.isNew) throw new Error('User audit events are append-only'); });
 
 userAuditSchema.index({ target_user_id: 1, occurred_at: -1, _id: -1 });
 

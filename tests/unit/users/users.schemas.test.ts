@@ -23,8 +23,8 @@ describe('userListQuerySchema (UC-USER-01)', () => {
       page: 2,
       limit: 50,
       search: 'Alice',
-      role: 'admin',
-      status: 'active',
+      role: ['admin'],
+      status: ['active'],
       emailVerified: false,
       sortBy: 'email',
       sortOrder: 'asc',
@@ -53,9 +53,17 @@ describe('userListQuerySchema (UC-USER-01)', () => {
   });
 
   it('accepts enterprise_admin as a persisted and filterable role', () => {
-    expect(userListQuerySchema.parse({ role: 'enterprise_admin' }).role).toBe(
-      'enterprise_admin',
-    );
+    expect(userListQuerySchema.parse({ role: 'enterprise_admin' }).role).toEqual(['enterprise_admin']);
+  });
+
+  it('accepts repeated and comma-separated filter values, bounded to 10', () => {
+    expect(userListQuerySchema.parse({ role: 'recruiter,enterprise_admin', status: ['active', 'invited'] })).toMatchObject({ role: ['recruiter', 'enterprise_admin'], status: ['active', 'invited'] });
+    expect(userListQuerySchema.safeParse({ role: 'user,user,user,user,user,user,user,user,user,user,user' }).success).toBe(false);
+    expect(userListQuerySchema.safeParse({ role: 'nope' }).success).toBe(false);
+  });
+
+  it('rejects a malformed company id filter', () => {
+    expect(userListQuerySchema.safeParse({ enterpriseId: 'abc' }).success).toBe(false);
   });
 });
 
@@ -74,6 +82,13 @@ describe('createAdminUserBodySchema', () => {
 describe('updateUserBodySchema', () => {
   it('accepts the editable fields and normalizes the phone number', () => {
     expect(updateUserBodySchema.parse({ fullName: '  Mai Dương ', phone: '0901 234 567', expectedVersion: 2 })).toEqual({ fullName: 'Mai Dương', phone: '0901234567', expectedVersion: 2 });
+  });
+
+  it('accepts only Vietnamese mobile numbers: 10 digits starting with 0', () => {
+    for (const bad of ['+84901234567', 'dddddddddd', '0201234567', '090123456', '09012345678']) {
+      expect(updateUserBodySchema.safeParse({ phone: bad, expectedVersion: 0 }).success, bad).toBe(false);
+    }
+    expect(updateUserBodySchema.safeParse({ phone: '0386 123 456', expectedVersion: 0 }).success).toBe(true);
   });
 
   it('allows null to clear a phone number', () => {

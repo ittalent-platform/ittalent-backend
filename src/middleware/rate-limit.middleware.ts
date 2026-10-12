@@ -231,6 +231,15 @@ export const resetPasswordTokenCheckRateLimit = createRateLimit({
   skipSuccessfulRequests: true,
 });
 
+export const invitationTokenRateLimit = createRateLimit({
+  prefix: 'invitation-token',
+  windowSeconds: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_WINDOW_SECONDS,
+  maxAttempts: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_MAX_ATTEMPTS,
+  message: 'Too many invitation checks. Please try again later.',
+  code: 'RATE_LIMITED',
+  skipSuccessfulRequests: true,
+});
+
 export const resendVerificationEmailRateLimit = createRateLimit({
   prefix: 'resend-verification',
   windowSeconds: env.RESEND_VERIFICATION_EMAIL_RATE_LIMIT_WINDOW_SECONDS,

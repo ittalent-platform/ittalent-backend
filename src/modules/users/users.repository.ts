@@ -4,7 +4,7 @@ import { User, type UserData, type UserDoc, type UserRole, type UserStatus } fro
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { CreateAdminUserBody } from './users.schemas.js';
-import type { UpdateUserBody, UserListQuery } from './users.schemas.js';
+import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
   email: string;
@@ -50,6 +50,7 @@ export class UsersRepository {
     if (status === 'active') {
       return User.findOneAndUpdate({ _id: id, ...versionFilter }, [{ $set: {
         status: { $cond: [{ $eq: ['$email_verified', true] }, 'active', 'inactive'] },
+        verification_started_at: { $cond: [{ $eq: ['$email_verified', true] }, '$verification_started_at', '$$NOW'] },
         auth_version: { $add: [{ $ifNull: ['$auth_version', 0] }, 1] },
         version: { $add: [{ $ifNull: ['$version', 0] }, 1] },
       } }], { returnDocument: 'after', session, runValidators: true, updatePipeline: true }).exec();
@@ -61,6 +62,20 @@ export class UsersRepository {
     const query = User.countDocuments({ role: 'admin', status: 'active' });
     if (session) query.session(session);
     return query.exec();
+  }
+
+  async countActiveEnterpriseAdmins(enterpriseId: Types.ObjectId, session: ClientSession): Promise<number> {
+    return User.countDocuments({ role: 'enterprise_admin', status: 'active', enterprise_id: enterpriseId }).session(session).exec();
+  }
+
+
+  async transitionRole(id: string, body: RoleUpdateBody, session: ClientSession): Promise<UserDoc | null> {
+    const versionFilter = body.expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: body.expectedVersion };
+    return User.findOneAndUpdate(
+      { _id: id, status: 'active', email_verified: true, role: { $in: ['recruiter', 'enterprise_admin'] }, enterprise_id: { $ne: null }, ...versionFilter },
+      { $set: { role: body.role }, $inc: { auth_version: 1, version: 1 } },
+      { returnDocument: 'after', session, runValidators: true },
+    ).exec();
   }
 
   async acquireAdminMutationLock(actorId: Types.ObjectId, session: ClientSession): Promise<void> {
@@ -121,24 +136,12 @@ export class UsersRepository {
     }, { returnDocument: 'after', session, runValidators: true }).exec();
   }
 
-  async promoteVerifiedUserFromInvitation(id: Types.ObjectId, enterpriseId: Types.ObjectId, expectedVersion: number, session: ClientSession): Promise<UserDoc | null> {
-    const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    return User.findOneAndUpdate({ _id: id, role: 'user', status: 'active', email_verified: true, enterprise_id: null, ...versionFilter }, {
-      $set: { role: 'recruiter', enterprise_id: enterpriseId }, $inc: { auth_version: 1, version: 1 },
-    }, { returnDocument: 'after', session, runValidators: true }).exec();
-  }
-
   async findPage(query: UserListQuery): Promise<{ items: UserDoc[]; total: number }> {
     const filter: QueryFilter<UserData> = {};
 
-    if (query.enterpriseId) filter.enterprise_id = new Types.ObjectId(query.enterpriseId);
-
-    if (query.role) {
-      filter.role = query.role;
-    }
-    if (query.status) {
-      filter.status = query.status;
-    }
+    if (query.enterpriseId) filter.enterprise_id = { $in: query.enterpriseId.map((id) => new Types.ObjectId(id)) };
+    if (query.role) filter.role = { $in: query.role };
+    if (query.status) filter.status = { $in: query.status };
     if (query.emailVerified !== undefined) {
       // Accounts created before the field existed have no value and count as not verified.
       filter.email_verified = query.emailVerified ? true : { $ne: true };
@@ -267,7 +270,7 @@ export class UsersRepository {
       {
         status: 'inactive',
         role: { $nin: excludedRoles },
-        createdAt: { $lte: cutoff },
+        $expr: { $lte: [{ $ifNull: ['$verification_started_at', '$createdAt'] }, cutoff] },
       },
       {
         $set: { status: 'blocked' },

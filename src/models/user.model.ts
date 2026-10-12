@@ -26,6 +26,7 @@ export interface UserData {
   version?: number;
   admin_lock_version?: number;
   identity_request_version?: number;
+  verification_started_at?: Date;
   createdAt?: Date;
   updatedAt?: Date;
   enterprise_id?: Types.ObjectId | null | undefined;
@@ -72,6 +73,8 @@ const userSchema = new Schema<UserData>(
     version: { type: Number, default: 0, required: true },
     admin_lock_version: { type: Number, default: 0, required: true },
     identity_request_version: { type: Number, default: 0, required: true },
+    // Restarted when an administrator reopens an unverified account; falls back to createdAt.
+    verification_started_at: { type: Date },
     enterprise_id: {
       type: Schema.Types.ObjectId,
       ref: 'Enterprise',

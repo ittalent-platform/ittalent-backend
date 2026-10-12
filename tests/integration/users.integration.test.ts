@@ -11,7 +11,7 @@ import { Account } from '../../src/models/account.model.js';
 import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
-const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'fullName', 'id', 'phone', 'role', 'status', 'updatedAt', 'username', 'version'];
+const ALLOWED_FIELDS = ['createdAt', 'email', 'emailVerified', 'enterpriseId', 'enterpriseName', 'fullName', 'id', 'invitation', 'phone', 'role', 'status', 'updatedAt', 'username', 'version'];
 const PASSWORD_HASH = 'bcrypt-hash-must-never-leave-the-server';
 
 let server: Server;

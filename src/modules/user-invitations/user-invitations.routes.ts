@@ -1,14 +1,20 @@
 import { Router } from 'express';
-import { authenticate, authenticateCurrentUser, authorizeCurrentSystemAdmin } from '../../middleware/auth.middleware.js';
-import { validateBody, validateParams } from '../../middleware/validate.js';
-import { createAdminUserBodySchema, userIdParamSchema } from '../users/users.schemas.js';
+import { authenticate, authorizeCurrentSystemAdmin } from '../../middleware/auth.middleware.js';
+import { invitationTokenRateLimit } from '../../middleware/rate-limit.middleware.js';
+import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
+import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { createHttpError } from '../../shared/errors/http-error.js';
+import { cancelInvitationBodySchema, createAdminUserBodySchema, userIdParamSchema } from '../users/users.schemas.js';
 import { userInvitationsController } from './user-invitations.controller.js';
-import { acceptExistingAccountInvitationSchema, acceptNewAccountInvitationSchema, existingRecruiterInvitationSchema } from './user-invitations.schemas.js';
+import { acceptNewAccountInvitationSchema, invitationPreviewQuerySchema } from './user-invitations.schemas.js';
+import { USER_INVITATION_MESSAGES } from './user-invitations.constants.js';
 
 export const userInvitationsRouter = Router();
 
 userInvitationsRouter.post('/users', authenticate, authorizeCurrentSystemAdmin, validateBody(createAdminUserBodySchema), userInvitationsController.createAccount);
-userInvitationsRouter.post('/users/:id/invitations', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), validateBody(existingRecruiterInvitationSchema), userInvitationsController.inviteExisting);
+userInvitationsRouter.get('/users/:id/invitation', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), userInvitationsController.status);
 userInvitationsRouter.post('/users/:id/invitation-deliveries', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), userInvitationsController.resend);
-userInvitationsRouter.post('/user-invitations/accept', validateBody(acceptNewAccountInvitationSchema), userInvitationsController.acceptNew);
-userInvitationsRouter.post('/user-invitations/accept-existing', authenticate, authenticateCurrentUser, validateBody(acceptExistingAccountInvitationSchema), userInvitationsController.acceptExisting);
+userInvitationsRouter.patch('/users/:id/invitation', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), validateBody(cancelInvitationBodySchema), userInvitationsController.cancel);
+userInvitationsRouter.get('/user-invitations/preview', invitationTokenRateLimit, validateQuery(invitationPreviewQuerySchema), userInvitationsController.preview);
+userInvitationsRouter.post('/user-invitations/accept', invitationTokenRateLimit, validateBody(acceptNewAccountInvitationSchema), userInvitationsController.acceptNew);
+userInvitationsRouter.post('/user-invitations/accept-existing', (_req, _res, next) => next(createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID)));

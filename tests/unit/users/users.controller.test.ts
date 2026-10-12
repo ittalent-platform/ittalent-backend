@@ -14,7 +14,7 @@ describe('UsersController', () => {
       listUsers: vi.fn(),
       updateUser: vi.fn(),
     };
-    controller = new UsersController(mockService as UsersService);
+    controller = new UsersController(mockService as UsersService, vi.fn().mockResolvedValue(new Map()), vi.fn().mockResolvedValue(new Map()));
   });
 
   describe('updateUser', () => {
@@ -60,7 +60,7 @@ describe('UsersController', () => {
       await controller.getUserById(req, res, next);
 
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
-      expect(json).toHaveBeenCalledWith(mockResult);
+      expect(json).toHaveBeenCalledWith({ ...mockResult, enterpriseName: null, invitation: null });
     });
 
     it('forwards error to next when service throws', async () => {

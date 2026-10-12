@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import { Enterprise } from '../../models/enterprise.model.js';
 import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -7,9 +8,25 @@ import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
 import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
 import { usersRepository, type UsersRepository, type CreateManagedUserInput, type CreateUserData } from './users.repository.js';
-import { strictUserDtoSchema, type UpdateUserBody, type UserDTO, type UserListQuery, type StatusUpdateBody } from './users.schemas.js';
+import { strictUserDtoSchema, type EmergencySuspensionBody, type RoleUpdateBody, type UpdateUserBody, type UserDTO, type UserListQuery, type StatusUpdateBody } from './users.schemas.js';
+
+// History keeps who/what changed without storing raw personal values: first and last character only.
+const MASK_EDGE_CHARS = 1;
+function maskText(value: string): string {
+  const hidden = value.length - MASK_EDGE_CHARS - MASK_EDGE_CHARS;
+  return hidden <= 0 ? '*'.repeat(value.length) : `${value.slice(0, MASK_EDGE_CHARS)}${'*'.repeat(hidden)}${value.slice(-MASK_EDGE_CHARS)}`;
+}
 
 export class UsersService {
+  async lockEnterpriseAdminChanges(enterpriseId: Types.ObjectId, session: mongoose.ClientSession): Promise<boolean> {
+    const result = await Enterprise.updateOne(
+      { _id: enterpriseId, is_deleted: false, status: 'active' },
+      { $inc: { admin_mutation_version: 1 } },
+      { session, timestamps: false },
+    ).exec();
+    return result.matchedCount === 1;
+  }
+
   async serializeIdentityRequests(id: Types.ObjectId, session: mongoose.ClientSession): Promise<void> {
     await this.repository.serializeIdentityRequests(id, session);
   }
@@ -39,15 +56,6 @@ export class UsersService {
     session: mongoose.ClientSession,
   ): Promise<UserDoc | null> {
     return this.repository.updateNewAccountFromInvitation(id, role, enterpriseId, expectedVersion, session);
-  }
-
-  async promoteVerifiedUserFromInvitation(
-    id: Types.ObjectId,
-    enterpriseId: Types.ObjectId,
-    expectedVersion: number,
-    session: mongoose.ClientSession,
-  ): Promise<UserDoc | null> {
-    return this.repository.promoteVerifiedUserFromInvitation(id, enterpriseId, expectedVersion, session);
   }
 
   async emailExists(email: string, exceptId?: Types.ObjectId): Promise<boolean> {
@@ -106,47 +114,104 @@ export class UsersService {
   }
 
   async updateUser(actorId: string, id: string, patch: UpdateUserBody): Promise<UserDTO> {
-    const current = await this.guardStore(() => this.repository.findById(id));
-    if (!current) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    if (!Object.keys(patch).some((key) => key !== 'expectedVersion')) return this.mapUserDto(current);
+    const session = await mongoose.startSession();
+    let result: UserDoc | null = null;
+    try {
+      await this.guardStore(() => session.withTransaction(async () => {
+        const actor = await this.repository.findByIdWithSession(new Types.ObjectId(actorId), session);
+        if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+        const current = await this.repository.findByIdWithSession(new Types.ObjectId(id), session);
+        if (!current) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+        if ((current.version ?? 0) !== patch.expectedVersion) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+        // Only fields whose value really differs are written; a no-op leaves version and audit untouched.
+        const changes: UpdateUserBody = { expectedVersion: patch.expectedVersion };
+        if (patch.fullName !== undefined && patch.fullName !== (current.full_name ?? null)) changes.fullName = patch.fullName;
+        if (patch.phone !== undefined && patch.phone !== (current.phone ?? null)) changes.phone = patch.phone;
+        if (Object.keys(changes).length === 1) {
+          result = current;
+          return;
+        }
+        const updated = await this.repository.updateProfileVersioned(id, patch.expectedVersion, changes, session);
+        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: 'profile_updated', version: updated.version ?? 0, changes: {
+          ...(changes.fullName !== undefined ? { fullName: maskText(changes.fullName) } : {}),
+          ...(changes.phone !== undefined ? { phone: changes.phone === null ? '' : maskText(changes.phone) } : {}),
+        } }, session);
+        result = updated;
+      }));
+    } finally { await session.endSession(); }
+    if (!result) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    return this.mapUserDto(result);
+  }
+
+  async updateStatus(actorId: string, id: string, body: StatusUpdateBody, emergency = false): Promise<UserDTO> {
+    if (actorId.toLowerCase() === id.toLowerCase() && body.status === 'suspended') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
     const session = await mongoose.startSession();
     let updated: UserDoc | null = null;
     try {
-      await session.withTransaction(async () => {
+      await this.guardStore(() => session.withTransaction(async () => {
         const actor = await this.repository.findByIdWithSession(new Types.ObjectId(actorId), session);
         if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-        updated = await this.repository.updateProfileVersioned(id, patch.expectedVersion, patch, session);
-        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT);
-        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: 'profile_updated', version: updated.version ?? 0, changes: {
-          ...(patch.fullName !== undefined ? { fullName: patch.fullName } : {}),
-          ...(patch.phone !== undefined ? { phone: patch.phone } : {}),
-        } }, session);
-      });
+        const latest = await this.repository.findByIdWithSession(new Types.ObjectId(id), session);
+        if (!latest) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+        if ((latest.version ?? 0) !== body.expectedVersion) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+        const reopening = body.status === 'active' && (latest.status === 'suspended' || latest.status === 'blocked');
+        const suspending = body.status === 'suspended' && latest.status === 'active';
+        if (!reopening && !suspending) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+        if (emergency && latest.role !== 'enterprise_admin') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+        if (body.status === 'suspended' && latest.role === 'admin') {
+          await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorId), session);
+          if (await this.repository.countActiveAdmins(session) <= 1) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ADMIN, 'LAST_ADMIN');
+        }
+        if (body.status === 'suspended' && latest.role === 'enterprise_admin' && latest.enterprise_id) {
+          const enterpriseId = latest.enterprise_id as Types.ObjectId;
+        if (!await this.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+          if (await this.repository.countActiveEnterpriseAdmins(enterpriseId, session) <= 1 && !emergency) {
+            throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ENTERPRISE_ADMIN, 'LAST_ENTERPRISE_ADMIN');
+          }
+        }
+        updated = await this.repository.transitionStatus(id, body.expectedVersion, body.status as UserStatus, session);
+        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, ...(emergency ? { changes: { emergency: 'true' } } : {}), version: updated.version ?? 0 }, session);
+      }));
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
     return this.mapUserDto(updated);
   }
 
-  async updateStatus(actorId: string, id: string, body: StatusUpdateBody): Promise<UserDTO> {
-    const current = await this.guardStore(() => this.repository.findById(id));
-    if (!current) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    if (current.status === body.status) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION);
-    if (body.status === 'suspended' && current.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION);
-    if (body.status === 'active' && current.status !== 'suspended' && current.status !== 'blocked') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION);
-    if (actorId.toLowerCase() === String(current._id) && body.status === 'suspended') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
+  async emergencySuspend(actorId: string, id: string, body: EmergencySuspensionBody): Promise<UserDTO> {
+    const target = await this.guardStore(() => this.repository.findById(id));
+    if (!target || target.role !== 'enterprise_admin') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+    return this.updateStatus(actorId, id, { ...body, status: 'suspended' }, true);
+  }
+
+  async updateRole(actorId: string, id: string, body: RoleUpdateBody): Promise<UserDTO> {
     const session = await mongoose.startSession();
     let updated: UserDoc | null = null;
     try {
       await session.withTransaction(async () => {
         const actor = await this.repository.findByIdWithSession(new Types.ObjectId(actorId), session);
         if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-        if (body.status === 'suspended' && current.role === 'admin') {
-          await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorId), session);
-          if (await this.repository.countActiveAdmins(session) <= 1) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ADMIN);
+        const current = await this.repository.findByIdWithSession(new Types.ObjectId(id), session);
+        if (!current) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+        if (current.role === body.role || (current.role !== 'recruiter' && current.role !== 'enterprise_admin') || !current.enterprise_id) {
+          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
         }
-        updated = await this.repository.transitionStatus(id, body.expectedVersion, body.status as UserStatus, session);
-        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT);
-        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, version: updated.version ?? 0 }, session);
+        const enterpriseId = current.enterprise_id as Types.ObjectId;
+        if (!await this.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+        if (current.role === 'enterprise_admin' && await this.repository.countActiveEnterpriseAdmins(enterpriseId, session) <= 1) {
+          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ENTERPRISE_ADMIN, 'LAST_ENTERPRISE_ADMIN');
+        }
+        updated = await this.repository.transitionRole(id, body, session);
+        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+        await this.audits.record({
+          targetUserId: current._id,
+          actorId: new Types.ObjectId(actorId),
+          action: 'role_changed',
+          reason: body.reason,
+          changes: { previousRole: current.role, role: body.role },
+          version: updated.version ?? 0,
+        }, session);
       });
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);

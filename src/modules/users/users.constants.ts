@@ -15,13 +15,18 @@ export const USER_SORT_COLUMNS: Record<UserSortField, string> = {
 };
 
 export const USER_FULL_NAME_LENGTH = { min: 2, max: 100 } as const;
-export const USER_PHONE_PATTERN = /^\+?\d{9,15}$/;
+export const USER_INVITATION_TOKEN_LENGTH = 64;
+export const USER_STATUS_REASON_MIN_LENGTH = 10;
+export const USER_STATUS_REASON_MAX_LENGTH = 500;
+export const USER_FILTER_MAX_VALUES = 10;
+// Vietnamese mobile number: 10 digits, starts with 0 and a valid carrier prefix (03, 05, 07, 08, 09).
+export const USER_PHONE_PATTERN = /^0[35789]\d{8}$/;
 export const USER_PHONE_NOISE = /[\s().-]/g;
-export const USER_EDITABLE_ROLES = ['user', 'recruiter'] as const;
+export const USER_MANAGED_ROLES = ['recruiter', 'enterprise_admin'] as const;
 
 export const USER_MESSAGES = {
   NO_CHANGES: 'Provide at least one field to update',
-  INVALID_PHONE: 'Enter a valid mobile number (9–15 digits, optional leading +)',
+  INVALID_PHONE: 'Enter a valid Vietnamese mobile number (10 digits, starting with 0)',
   SELF_ROLE_CHANGE: "You can't change your own role",
   NOT_FOUND: 'User not found',
   STORE_UNAVAILABLE: 'Unable to load user accounts right now. Please try again later.',
@@ -29,6 +34,7 @@ export const USER_MESSAGES = {
   INVALID_TRANSITION: 'Unsupported account status transition',
   SELF_SUSPENSION: 'An administrator cannot suspend their own account',
   LAST_ADMIN: 'The final active System Administrator cannot be suspended',
+  LAST_ENTERPRISE_ADMIN: 'Activate another Enterprise Administrator before changing this account',
   REASON_REQUIRED: 'A reason is required to suspend or reopen an account',
   VERSION_CONFLICT: 'The account changed. Reload and try again.',
 } as const;

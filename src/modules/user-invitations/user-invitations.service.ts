@@ -11,7 +11,7 @@ import { AUTH_CONFIG } from '../auth/auth.constants.js';
 import { authRepository, type AuthRepository } from '../auth/auth.repository.js';
 import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
-import type { CreateAdminUserBody } from '../users/users.schemas.js';
+import type { CancelInvitationBody, CreateAdminUserBody } from '../users/users.schemas.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { USER_INVITATION_MESSAGES, USER_INVITATION_TTL_MS } from './user-invitations.constants.js';
 import { userInvitationsRepository, type UserInvitationsRepository } from './user-invitations.repository.js';
@@ -19,6 +19,7 @@ import type { AcceptNewAccountInvitationBody } from './user-invitations.schemas.
 
 export type AdminCreateUserInput = CreateAdminUserBody;
 export interface CreatedManagedUser { user: Record<string, unknown>; invitation: { expiresAt: string; deliveryStatus: 'sent' | 'failed' } }
+export interface InvitationStatus { status: string; kind: string; role: string; expiresAt: string; sentAt: string | null; deliveryStatus: string; deliveryAttempts: number }
 
 export class UserInvitationsService {
   constructor(
@@ -36,12 +37,14 @@ export class UserInvitationsService {
   }
 
   async createAccount(actorId: string, input: AdminCreateUserInput): Promise<CreatedManagedUser> {
-    if (input.role !== 'user' && !input.enterpriseId) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+    const isCompanyAccount = input.role === 'recruiter' || input.role === 'enterprise_admin';
+    if (isCompanyAccount && !input.enterpriseId) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
     }
-    const enterpriseId = input.role !== 'user' ? new Types.ObjectId(input.enterpriseId) : null;
+    if (!isCompanyAccount && input.enterpriseId) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+    const enterpriseId = isCompanyAccount ? new Types.ObjectId(input.enterpriseId) : null;
     if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId)))) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
     }
     const actor = await this.users.findById(actorId);
     if (!actor || actor.role !== 'admin' || actor.status !== 'active') {
@@ -56,9 +59,10 @@ export class UserInvitationsService {
       await session.withTransaction(async () => {
         const currentActor = await this.users.findByIdWithSession(new Types.ObjectId(actorId), session);
         if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-        if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+        if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+        if (enterpriseId && !await this.users.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
         if (await this.users.existsByEmailOrUsername(input.email, input.username, session)) {
-          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT);
+          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT, 'ACCOUNT_CONFLICT');
         }
         created = await this.users.createManagedUser({ ...input, enterprise_id: enterpriseId }, session);
         await this.auth.createLocalAccount({ userId: created._id, provider: 'local' }, session);
@@ -87,36 +91,6 @@ export class UserInvitationsService {
     };
   }
 
-  async inviteExistingUser(actorId: string, targetId: string, enterpriseIdInput: string): Promise<{ deliveryStatus: 'sent' | 'failed'; expiresAt: string }> {
-    const actor = await this.users.findById(actorId);
-    if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-    if (!(await this.enterprises.isActiveEnterprise(enterpriseIdInput))) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
-    const target = await this.users.findById(targetId);
-    if (!target) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'User not found');
-    if (target.role !== 'user' || target.status !== 'active' || target.email_verified !== true || target.enterprise_id) {
-      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-    }
-    const token = randomBytes(AUTH_CONFIG.TOKEN_BYTES).toString('hex');
-    const tokenHash = this.hashToken(token);
-    const expiresAt = new Date(Date.now() + USER_INVITATION_TTL_MS);
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        const currentActor = await this.users.findByIdWithSession(new Types.ObjectId(actorId), session);
-        const latest = await this.users.findByIdWithSession(target._id, session);
-        if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-        if (!latest || latest.version !== target.version || latest.role !== 'user' || latest.status !== 'active' || latest.email_verified !== true || latest.enterprise_id) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        await this.users.serializeIdentityRequests(target._id, session);
-        await this.invitations.create({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), kind: 'enterprise_membership', role: 'recruiter', enterpriseId: new Types.ObjectId(enterpriseIdInput), tokenHash, expiresAt }, session);
-        await this.audits.record({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), action: 'account_invited', version: target.version ?? 0, changes: { role: 'recruiter', enterpriseId: enterpriseIdInput } }, session);
-      });
-    } finally { await session.endSession(); }
-    let sent = false;
-    try { sent = await sendUserInvitationEmail(target.email, this.invitationUrl(token), 'recruiter'); } catch { sent = false; }
-    await this.invitations.markDelivery(tokenHash, sent);
-    return { deliveryStatus: sent ? 'sent' : 'failed', expiresAt: expiresAt.toISOString() };
-  }
-
   async acceptNewAccount(input: AcceptNewAccountInvitationBody): Promise<{ id: string; email: string; role: string; status: string }> {
     const tokenHash = this.hashToken(input.token);
     const invitation = await this.invitations.findPendingByHash(tokenHash);
@@ -124,18 +98,24 @@ export class UserInvitationsService {
     const passwordHash = await bcrypt.hash(input.password, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
     const userId = invitation.target_user_id as Types.ObjectId;
     if (invitation.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id)))) {
-      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
     }
     const session = await mongoose.startSession();
     let accepted: Awaited<ReturnType<UsersService['findById']>> = null;
     try {
       await session.withTransaction(async () => {
+        const companyRole = invitation.role === 'recruiter' || invitation.role === 'enterprise_admin';
         if (!userInvitationRoles.includes(invitation.role as UserInvitationRole)
-          || (invitation.role !== 'user' && !invitation.enterprise_id)
-          || (invitation.role === 'user' && invitation.enterprise_id)) {
+          || (companyRole && !invitation.enterprise_id)
+          || (!companyRole && invitation.enterprise_id)) {
           throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
         }
-        if (invitation.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
+        if (invitation.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+        if (companyRole && invitation.enterprise_id) {
+          if (!await this.users.lockEnterpriseAdminChanges(invitation.enterprise_id as Types.ObjectId, session)) {
+            throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+          }
+        }
         const consumed = await this.invitations.accept(invitation._id as Types.ObjectId, userId, session);
         if (!consumed) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
         const target = await this.users.findByIdWithSession(userId, session);
@@ -150,27 +130,74 @@ export class UserInvitationsService {
     return { id: String(accepted._id), email: accepted.email, role: accepted.role, status: accepted.status };
   }
 
-  async acceptExistingUser(actorId: string, token: string): Promise<{ id: string; role: string; enterpriseId: string | null }> {
+  async preview(token: string): Promise<{ email: string; role: string; enterpriseName: string | null; expiresAt: string }> {
     const tokenHash = this.hashToken(token);
     const invitation = await this.invitations.findPendingByHash(tokenHash);
-    if (!invitation || invitation.kind !== 'enterprise_membership') throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
-    const targetId = invitation.target_user_id as Types.ObjectId;
-    if (String(targetId) !== actorId || !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id)))) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
+    if (!invitation || invitation.kind !== 'new_account' || !userInvitationRoles.includes(invitation.role as UserInvitationRole)) {
+      throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
+    }
+    const target = await this.users.findById(String(invitation.target_user_id));
+    if (!target || target.status !== 'invited') {
+      throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
+    }
+    let enterpriseName: string | null = null;
+    if (invitation.enterprise_id) {
+      enterpriseName = await this.enterprises.getActiveEnterpriseName(String(invitation.enterprise_id));
+      if (!enterpriseName) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+    }
+    return { email: target.email, role: String(invitation.role), enterpriseName, expiresAt: new Date(String(invitation.expires_at)).toISOString() };
+  }
+
+  async getStatus(actorId: string, targetId: string): Promise<InvitationStatus | null> {
+    const actor = await this.users.findById(actorId);
+    if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+    const target = await this.users.findById(targetId);
+    if (!target) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, 'User not found');
+    const invitation = await this.invitations.findLatestForTargetUser(target._id);
+    if (!invitation) return null;
+    return {
+      status: String(invitation.status),
+      kind: String(invitation.kind),
+      role: String(invitation.role),
+      expiresAt: new Date(String(invitation.expires_at)).toISOString(),
+      sentAt: invitation.createdAt ? new Date(String(invitation.createdAt)).toISOString() : null,
+      deliveryStatus: String(invitation.delivery_status),
+      deliveryAttempts: Number(invitation.delivery_attempts ?? 0),
+    };
+  }
+
+  async getStatuses(targetIds: string[]): Promise<Map<string, InvitationStatus>> {
+    const invitations = await this.invitations.findLatestForTargets(targetIds.map((id) => new Types.ObjectId(id)));
+    const now = Date.now();
+    return new Map([...invitations].map(([id, invitation]) => {
+      const rawStatus = String(invitation.status);
+      const expired = rawStatus === 'pending' && new Date(String(invitation.expires_at)).getTime() <= now;
+      return [id, {
+        status: expired ? 'expired' : rawStatus,
+        kind: String(invitation.kind),
+        role: String(invitation.role),
+        expiresAt: new Date(String(invitation.expires_at)).toISOString(),
+        sentAt: invitation.createdAt ? new Date(String(invitation.createdAt)).toISOString() : null,
+        deliveryStatus: String(invitation.delivery_status),
+        deliveryAttempts: Number(invitation.delivery_attempts ?? 0),
+      }];
+    }));
+  }
+
+  async cancel(actorId: string, targetId: string, body: CancelInvitationBody): Promise<void> {
     const session = await mongoose.startSession();
-    let updated: Awaited<ReturnType<UsersService['findById']>> = null;
     try {
       await session.withTransaction(async () => {
-        if (!(await this.invitations.accept(invitation._id as Types.ObjectId, targetId, session))) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
-        const target = await this.users.findByIdWithSession(targetId, session);
-        if (!target) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        updated = await this.users.promoteVerifiedUserFromInvitation(targetId, invitation.enterprise_id as Types.ObjectId, target.version ?? 0, session);
-        if (updated && (target.role !== 'user' || target.status !== 'active' || target.email_verified !== true || target.enterprise_id)) updated = null;
-        if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        await this.audits.record({ targetUserId: targetId, actorId: invitation.invited_by as Types.ObjectId, action: 'invitation_accepted', version: updated.version ?? 0, changes: { role: 'recruiter', enterpriseId: String(invitation.enterprise_id) } }, session);
+        const actor = await this.users.findByIdWithSession(new Types.ObjectId(actorId), session);
+        const target = await this.users.findByIdWithSession(new Types.ObjectId(targetId), session);
+        if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+        if (!target || target.status !== 'invited') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
+        if ((target.version ?? 0) !== body.expectedVersion) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, 'The account changed. Reload and try again.');
+        await this.users.serializeIdentityRequests(target._id, session);
+        if (!await this.invitations.cancelPending(target._id, session)) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
+        await this.audits.record({ targetUserId: target._id, actorId: actor._id, action: 'invitation_revoked', reason: body.reason, version: target.version ?? 0 }, session);
       });
     } finally { await session.endSession(); }
-    if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-    return { id: String(updated._id), role: updated.role, enterpriseId: updated.enterprise_id ? String(updated.enterprise_id) : null };
   }
 
   async resendInvitation(actorId: string, targetId: string): Promise<{ deliveryStatus: 'sent' | 'failed'; expiresAt: string }> {
@@ -178,27 +205,35 @@ export class UserInvitationsService {
     if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
     const target = await this.users.findById(targetId);
     if (!target || target.status !== 'invited') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-    const prior = await this.invitations.findLatestPending(target._id);
-    if (!prior) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
-    if (prior.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(prior.enterprise_id)))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
     const token = randomBytes(AUTH_CONFIG.TOKEN_BYTES).toString('hex');
     const tokenHash = this.hashToken(token);
     const expiresAt = new Date(Date.now() + USER_INVITATION_TTL_MS);
     const session = await mongoose.startSession();
+    let role: UserInvitationRole | undefined;
+    let enterpriseId: Types.ObjectId | null = null;
     try {
       await session.withTransaction(async () => {
         const currentActor = await this.users.findByIdWithSession(new Types.ObjectId(actorId), session);
         const currentTarget = await this.users.findByIdWithSession(target._id, session);
         if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
         if (!currentTarget || currentTarget.status !== 'invited' || currentTarget.version !== target.version) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        if (prior.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(prior.enterprise_id), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE);
         await this.users.serializeIdentityRequests(target._id, session);
-        await this.invitations.create({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), kind: prior.kind as 'new_account' | 'enterprise_membership', role: prior.role as UserInvitationRole, enterpriseId: (prior.enterprise_id as Types.ObjectId | null) ?? null, tokenHash, expiresAt }, session);
+        const latest = await this.invitations.findLatestForTargetUser(target._id, session);
+        const resendable = latest && ['pending', 'revoked', 'cancelled', 'expired'].includes(String(latest.status))
+          && latest.kind === 'new_account' && latest.role === currentTarget.role;
+        if (!resendable) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
+        role = latest.role as UserInvitationRole;
+        enterpriseId = (latest.enterprise_id as Types.ObjectId | null) ?? null;
+        if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+        if (enterpriseId && !await this.users.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+        if (latest.status === 'pending') await this.audits.record({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), action: 'invitation_revoked', reason: 'Superseded by a resent invitation', version: target.version ?? 0 }, session);
+        await this.invitations.create({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), kind: 'new_account', role, enterpriseId, tokenHash, expiresAt }, session);
         await this.audits.record({ targetUserId: target._id, actorId: new Types.ObjectId(actorId), action: 'account_invited', version: target.version ?? 0, changes: { invitationResent: 'true' } }, session);
       });
     } finally { await session.endSession(); }
+    if (!role) throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
     let sent = false;
-    try { sent = await sendUserInvitationEmail(target.email, this.invitationUrl(token), prior.role as string); } catch { sent = false; }
+    try { sent = await sendUserInvitationEmail(target.email, this.invitationUrl(token), role); } catch { sent = false; }
     await this.invitations.markDelivery(tokenHash, sent);
     return { deliveryStatus: sent ? 'sent' : 'failed', expiresAt: expiresAt.toISOString() };
   }

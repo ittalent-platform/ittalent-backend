@@ -64,11 +64,12 @@ export const authenticateOptional: RequestHandler = async (req: Request, _res: R
 };
 
 function isCurrentSession(
-  user: Pick<UserData, 'role' | 'status' | 'auth_version' | 'createdAt'>,
+  user: Pick<UserData, 'role' | 'status' | 'auth_version' | 'createdAt' | 'verification_started_at'>,
   token: { role: string; av?: number | undefined },
 ): boolean {
-  const grace = user.status === 'inactive' && user.createdAt !== undefined
-    && Date.now() - new Date(user.createdAt).getTime() <= env.EMAIL_VERIFICATION_WINDOW_MS;
+  const windowStart = user.verification_started_at ?? user.createdAt;
+  const grace = user.status === 'inactive' && windowStart !== undefined
+    && Date.now() - new Date(windowStart).getTime() <= env.EMAIL_VERIFICATION_WINDOW_MS;
   return (user.status === 'active' || grace) && user.role === token.role && (user.auth_version ?? 0) === (token.av ?? 0);
 }
 
@@ -95,14 +96,22 @@ export const authorizeCurrentSystemAdmin: RequestHandler = async (req: Request, 
     return;
   }
   try {
+    if (req.user.role !== 'admin') {
+      next(createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required'));
+      return;
+    }
     const user = await User.findById(req.user.id).select('role status auth_version').lean().exec();
-    if (!user || user.role !== 'admin' || req.user.role !== user.role || user.status !== 'active' || (user.auth_version ?? 0) !== (req.user.authVersion ?? 0)) {
+    if (!user || req.user.role !== user.role || user.status !== 'active' || (user.auth_version ?? 0) !== (req.user.authVersion ?? 0)) {
+      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Account is inactive or the session has been revoked'));
+      return;
+    }
+    if (user.role !== 'admin') {
       next(createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required'));
       return;
     }
     next();
-  } catch (error) {
-    next(error);
+  } catch {
+    next(createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Unable to validate the current account state'));
   }
 };
 
@@ -113,7 +122,7 @@ export const authenticateCurrentUser: RequestHandler = async (req: Request, _res
     return;
   }
   try {
-    const user = await User.findById(req.user.id).select('role status auth_version createdAt').lean().exec();
+    const user = await User.findById(req.user.id).select('role status auth_version createdAt verification_started_at').lean().exec();
     if (!user || !isCurrentSession(user, { role: req.user.role, av: req.user.authVersion })) {
       next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Account is inactive or the session has been revoked'));
       return;

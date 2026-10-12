@@ -33,6 +33,17 @@ export class EnterprisesService {
     return Boolean(enterprise && enterprise.status === 'active');
   }
 
+  async getActiveEnterpriseName(id: string): Promise<string | null> {
+    const enterprise = await this.repository.findById(id);
+    return enterprise?.status === 'active' ? enterprise.name : null;
+  }
+
+  async getNamesByIds(ids: string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await this.repository.findNamesByIds(ids.map((id) => new mongoose.Types.ObjectId(id)));
+    return rows;
+  }
+
   private mapSummary(enterprise: EnterpriseDoc, openRoleCount = 0): EnterpriseSummaryDTO {
     return {
       id: String(enterprise._id),

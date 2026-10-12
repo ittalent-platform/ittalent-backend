@@ -93,7 +93,7 @@ export async function sendVerificationEmail(to: string, url: string): Promise<vo
 
 export async function sendUserInvitationEmail(to: string, url: string, accountRole: string): Promise<boolean> {
   const safeUrl = escapeHtml(url);
-  const roleLabel = accountRole === 'enterprise_admin' ? 'Enterprise Administrator account' : accountRole === 'recruiter' ? 'HR account' : 'user account';
+  const roleLabel = accountRole === 'enterprise_admin' ? 'Enterprise Administrator account' : accountRole === 'recruiter' ? 'HR account' : 'Candidate account';
   return sendEmail({
     to,
     subject: 'Your ITTalent account invitation',
