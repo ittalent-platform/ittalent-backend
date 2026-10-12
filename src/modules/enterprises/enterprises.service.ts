@@ -317,6 +317,24 @@ export class EnterprisesService {
     const activeJobsCount = await this.repository.countActiveJobs(id);
     return this.mapDetail(enterprise, activeJobsCount);
   }
+
+  /** UC 17: View current user's enterprise profile */
+  async getMyEnterpriseProfile(userId: string, role: string): Promise<EnterpriseDetailDTO> {
+    let enterpriseId: string | null = null;
+    if (role === 'recruiter') {
+      enterpriseId = await this.getRecruiterEnterpriseId(userId);
+    }
+    if (!enterpriseId) {
+      const owned = await this.repository.findByCreatorId(userId);
+      if (owned) {
+        enterpriseId = String(owned._id);
+      }
+    }
+    if (!enterpriseId) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, ENTERPRISE_MESSAGES.NOT_FOUND);
+    }
+    return this.getEnterpriseById(enterpriseId, role, userId);
+  }
 }
 
 export const enterprisesService = new EnterprisesService();
