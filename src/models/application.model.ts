@@ -31,6 +31,15 @@ export interface ApplicationStatusHistoryEntry {
   rejection_reason?: string;
 }
 
+export const APPLICATION_NOTE_MAX_LENGTH = 2000;
+
+export interface ApplicationNoteEntry {
+  author_id: Types.ObjectId;
+  author_name: string;
+  content: string;
+  created_at: Date;
+}
+
 export interface ApplicationData {
   job_id: Types.ObjectId;
   // User id of the applicant. Documents (cv_id / cover_letter_id) are also owned by the User (Document.owner_id).
@@ -46,6 +55,8 @@ export interface ApplicationData {
   reapplied_as?: Types.ObjectId;
   // Append-only: one entry per accepted status change.
   status_history: ApplicationStatusHistoryEntry[];
+  // Append-only internal notes recorded by recruiters for team evaluation.
+  notes: ApplicationNoteEntry[];
 }
 
 const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
@@ -57,6 +68,16 @@ const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
     note: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
     message_to_candidate: { type: String, trim: true, maxlength: 1000 },
     rejection_reason: { type: String, trim: true, maxlength: APPLICATION_REASON_MAX_LENGTH },
+  },
+  { _id: false },
+);
+
+const noteSchema = new Schema<ApplicationNoteEntry>(
+  {
+    author_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    author_name: { type: String, required: true, trim: true },
+    content: { type: String, required: true, trim: true, maxlength: APPLICATION_NOTE_MAX_LENGTH },
+    created_at: { type: Date, default: Date.now, required: true },
   },
   { _id: false },
 );
@@ -73,6 +94,7 @@ const applicationSchema = new Schema<ApplicationData>(
     reapplied_from: { type: Schema.Types.ObjectId, ref: 'Application' },
     reapplied_as: { type: Schema.Types.ObjectId, ref: 'Application' },
     status_history: { type: [statusHistorySchema], default: [] },
+    notes: { type: [noteSchema], default: [] },
   },
   {
     timestamps: true,
