@@ -18,7 +18,8 @@ export interface CreateUserData {
   phone?: string | undefined;
   role?: UserRole | undefined;
   status?: UserStatus | undefined;
-  enterprise_id?: Types.ObjectId | null | undefined;
+  email_verified?: boolean | undefined;
+  enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
 // Allow-list of fields an administrator may read; credentials and tokens live in other collections.
@@ -136,6 +137,7 @@ export class UsersRepository {
       ...(data.phone ? { phone: data.phone } : {}),
       ...(data.role ? { role: data.role } : {}),
       ...(data.status ? { status: data.status } : {}),
+      ...(data.email_verified !== undefined ? { email_verified: data.email_verified } : {}),
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
     return user.save();
@@ -189,6 +191,17 @@ export class UsersRepository {
     return User.findByIdAndUpdate(
       id,
       { $set: { enterprise_id: enterpriseId } },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async updateRole(
+    id: Types.ObjectId | string,
+    role: UserRole,
+  ): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: { role } },
       { returnDocument: 'after' },
     ).exec();
   }

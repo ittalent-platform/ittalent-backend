@@ -78,6 +78,7 @@ export const createEnterpriseBodySchema = z.object({
     .max(new Date().getFullYear(), 'Founded year cannot be in the future')
     .optional(),
   address: enterpriseAddressSchema,
+  branches: z.array(enterpriseAddressSchema).optional(),
   logo_url: z
     .string()
     .refine(

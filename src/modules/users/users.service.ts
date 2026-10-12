@@ -372,6 +372,10 @@ export class UsersService {
     return this.repository.updateEnterpriseId(id, enterpriseId);
   }
 
+  async updateRole(id: string, role: UserRole): Promise<UserDoc | null> {
+    return this.repository.updateRole(id, role);
+  }
+
   async findRecruitersByEnterpriseId(enterpriseId: string): Promise<UserDoc[]> {
     return this.repository.findRecruitersByEnterpriseId(enterpriseId);
   }

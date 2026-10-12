@@ -8,15 +8,15 @@ import type { UserDoc } from '../../../src/models/user.model.js';
 import { EnterpriseRegistrationsController } from '../../../src/modules/enterprise-registrations/enterprise-registrations.controller.js';
 import type { EnterpriseRegistrationsRepository } from '../../../src/modules/enterprise-registrations/enterprise-registrations.repository.js';
 import { EnterpriseRegistrationsService } from '../../../src/modules/enterprise-registrations/enterprise-registrations.service.js';
-import type { EnterprisesRepository } from '../../../src/modules/enterprises/enterprises.repository.js';
-import type { UsersRepository } from '../../../src/modules/users/users.repository.js';
+import type { EnterprisesService } from '../../../src/modules/enterprises/enterprises.service.js';
+import type { UsersService } from '../../../src/modules/users/users.service.js';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 import * as emailService from '../../../src/shared/services/email.service.js';
 
 describe('Enterprise Registrations Intake & Verification', () => {
   let mockRepo: Partial<EnterpriseRegistrationsRepository>;
-  let mockEnterpriseRepo: Partial<EnterprisesRepository>;
-  let mockUserRepo: Partial<UsersRepository>;
+  let mockEnterpriseService: Partial<EnterprisesService>;
+  let mockUserService: Partial<UsersService>;
   let service: EnterpriseRegistrationsService;
   let controller: EnterpriseRegistrationsController;
 
@@ -33,11 +33,11 @@ describe('Enterprise Registrations Intake & Verification', () => {
       hasPendingRegistrationByEmail: vi.fn().mockResolvedValue(false),
     };
 
-    mockEnterpriseRepo = {
+    mockEnterpriseService = {
       findByEmail: vi.fn().mockResolvedValue(null),
     };
 
-    mockUserRepo = {
+    mockUserService = {
       findByEmail: vi.fn().mockResolvedValue(null),
     };
 
@@ -45,8 +45,8 @@ describe('Enterprise Registrations Intake & Verification', () => {
 
     service = new EnterpriseRegistrationsService(
       mockRepo as EnterpriseRegistrationsRepository,
-      mockEnterpriseRepo as EnterprisesRepository,
-      mockUserRepo as UsersRepository,
+      mockEnterpriseService as EnterprisesService,
+      mockUserService as UsersService,
     );
 
     controller = new EnterpriseRegistrationsController(service);
@@ -71,7 +71,7 @@ describe('Enterprise Registrations Intake & Verification', () => {
     });
 
     it('rejects email associated with an applicant candidate account', async () => {
-      mockUserRepo.findByEmail = vi.fn().mockResolvedValue({
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
         _id: new mongoose.Types.ObjectId(),
         email: validInput.corporate_email,
         role: 'applicant',
@@ -83,7 +83,7 @@ describe('Enterprise Registrations Intake & Verification', () => {
     });
 
     it('rejects email associated with a user already belonging to an enterprise', async () => {
-      mockUserRepo.findByEmail = vi.fn().mockResolvedValue({
+      mockUserService.findByEmail = vi.fn().mockResolvedValue({
         _id: new mongoose.Types.ObjectId(),
         email: validInput.corporate_email,
         role: 'recruiter',
@@ -96,7 +96,7 @@ describe('Enterprise Registrations Intake & Verification', () => {
     });
 
     it('rejects email already claimed by an active enterprise profile', async () => {
-      mockEnterpriseRepo.findByEmail = vi.fn().mockResolvedValue({
+      mockEnterpriseService.findByEmail = vi.fn().mockResolvedValue({
         _id: new mongoose.Types.ObjectId(),
         email: validInput.corporate_email,
       } as unknown as EnterpriseDoc);
