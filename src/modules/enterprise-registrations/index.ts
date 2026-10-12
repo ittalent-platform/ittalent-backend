@@ -4,3 +4,4 @@ export * from './enterprise-registrations.repository.js';
 export * from './enterprise-registrations.service.js';
 export * from './enterprise-registrations.controller.js';
 export * from './enterprise-registrations.routes.js';
+export * from './enterprise-registrations.openapi.js';

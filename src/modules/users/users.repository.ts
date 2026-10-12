@@ -10,6 +10,10 @@ export interface CreateUserData {
   email: string;
   username: string;
   status?: UserStatus;
+  role?: UserRole;
+  full_name?: string;
+  phone?: string;
+  email_verified?: boolean;
   enterprise_id?: Types.ObjectId | string | null | undefined;
 }
 
@@ -20,6 +24,8 @@ export interface CreateManagedUserInput extends CreateAdminUserBody {
 // Allow-list of fields an administrator may read; credentials and tokens live in other collections.
 const ADMIN_USER_FIELDS = 'email username full_name phone role status email_verified enterprise_id version createdAt updatedAt';
 const ADMIN_USER_PROJECTION = Object.fromEntries(ADMIN_USER_FIELDS.split(' ').map((field) => [field, 1]));
+// What other modules may read about a person they reference: enough to name, email and authorise them, nothing more.
+const USER_REFERENCE_FIELDS = 'email username full_name role status enterprise_id';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -198,6 +204,25 @@ export class UsersRepository {
     return User.findById(id).exec();
   }
 
+  async findByIds(ids: string[]): Promise<UserDoc[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    return User.find({ _id: { $in: ids } })
+      .select(USER_REFERENCE_FIELDS)
+      .exec();
+  }
+
+  // Ids of the users whose name, email or username contains the keyword (plain text, not a pattern), at most `limit`.
+  async findIdsByKeyword(keyword: string, limit: number): Promise<string[]> {
+    const pattern = new RegExp(escapeRegex(keyword), 'i');
+    const rows = await User.find({ $or: [{ full_name: pattern }, { email: pattern }, { username: pattern }] }, { _id: 1 })
+      .limit(limit)
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    return rows.map((row) => String(row._id));
+  }
+
   async findByEmail(email: string): Promise<UserDoc | null> {
     return User.findOne({ email }).exec();
   }
@@ -227,6 +252,10 @@ export class UsersRepository {
       email: data.email,
       username: data.username,
       ...(data.status ? { status: data.status } : {}),
+      ...(data.role ? { role: data.role } : {}),
+      ...(data.full_name ? { full_name: data.full_name } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.email_verified !== undefined ? { email_verified: data.email_verified } : {}),
       ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
     });
     return user.save();
@@ -257,6 +286,17 @@ export class UsersRepository {
     return User.findByIdAndUpdate(
       id,
       { $set: { enterprise_id: enterpriseId } },
+      { returnDocument: 'after' },
+    ).exec();
+  }
+
+  async updateRole(
+    id: Types.ObjectId | string,
+    role: UserRole,
+  ): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $set: { role } },
       { returnDocument: 'after' },
     ).exec();
   }

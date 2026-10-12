@@ -7,7 +7,6 @@ export const userRoles = [
   'recruiter',
   'enterprise_admin',
   'applicant',
-  'interviewer',
 ] as const;
 export type UserRole = (typeof userRoles)[number];
 

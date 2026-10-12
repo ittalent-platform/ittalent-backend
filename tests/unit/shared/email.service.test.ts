@@ -4,7 +4,9 @@ import {
   consumeEmailDeliveryStatus,
   escapeHtml,
   sendEmail,
+  sendEnterpriseAdminInvitationEmail,
   sendEnterpriseRegistrationMagicLink,
+  sendEnterpriseRejectionEmail,
   sendResetPasswordEmail,
   sendVerificationEmail,
 } from '../../../src/shared/services/email.service.js';
@@ -100,6 +102,49 @@ describe('EmailService', () => {
         expect.objectContaining({
           to: 'rep@company.com',
           subject: 'Complete your ITTalent enterprise registration',
+        }),
+      );
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
+    });
+  });
+
+  describe('sendEnterpriseRejectionEmail', () => {
+    it('sends enterprise rejection email with escaped company name and rationale', async () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      await sendEnterpriseRejectionEmail(
+        'rep@company.com',
+        'Acme <Corp>',
+        'Business license expired & invalid',
+      );
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[email:dev]',
+        expect.objectContaining({
+          to: 'rep@company.com',
+          subject: 'Update on your ITTalent enterprise registration for Acme &lt;Corp&gt;',
+        }),
+      );
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
+    });
+  });
+
+  describe('sendEnterpriseAdminInvitationEmail', () => {
+    it('sends enterprise admin onboarding invitation email with escaped parameters', async () => {
+      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      await sendEnterpriseAdminInvitationEmail(
+        'rep@company.com',
+        'John <Doe>',
+        'Acme <Corp>',
+        'http://localhost:5173/enterprise-registration/invitation?token=token123',
+      );
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[email:dev]',
+        expect.objectContaining({
+          to: 'rep@company.com',
+          subject: 'Welcome to ITTalent: Activate your enterprise account for Acme &lt;Corp&gt;',
         }),
       );
       expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);

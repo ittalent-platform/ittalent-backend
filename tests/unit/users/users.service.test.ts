@@ -30,6 +30,8 @@ describe('UsersService', () => {
       findPage: vi.fn(),
       updateProfile: vi.fn(),
       updateProfileVersioned: vi.fn(),
+      findByIds: vi.fn(),
+      findIdsByKeyword: vi.fn(),
     };
     mockAudits = { record: vi.fn() };
     usersService = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService);
@@ -235,6 +237,23 @@ describe('UsersService', () => {
       mockRepo.findById = vi.fn().mockRejectedValue(createHttpError(418, 'teapot'));
 
       await expect(usersService.getUserById('507f1f77bcf86cd799439011')).rejects.toMatchObject({ statusCode: 418 });
+    });
+  });
+
+  describe('lookups for other modules', () => {
+    it('reads several users by id through the repository', async () => {
+      const rows = [{ _id: 'u1' }, { _id: 'u2' }];
+      mockRepo.findByIds = vi.fn().mockResolvedValue(rows);
+
+      await expect(usersService.findByIds(['u1', 'u2'])).resolves.toBe(rows);
+      expect(mockRepo.findByIds).toHaveBeenCalledWith(['u1', 'u2']);
+    });
+
+    it('finds user ids by keyword through the repository', async () => {
+      mockRepo.findIdsByKeyword = vi.fn().mockResolvedValue(['u1']);
+
+      await expect(usersService.findIdsByKeyword('mai', 50)).resolves.toEqual(['u1']);
+      expect(mockRepo.findIdsByKeyword).toHaveBeenCalledWith('mai', 50);
     });
   });
 

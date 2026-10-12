@@ -8,21 +8,13 @@ import {
   type InterviewMode,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
-import { User, type UserRole, type UserStatus } from '../../models/user.model.js';
-import { INTERVIEW_INITIAL_STATUS } from './interviews.constants.js';
+import {
+  INTERVIEW_COMPLETED_STATUS,
+  INTERVIEW_INITIAL_STATUS,
+} from './interviews.constants.js';
 
 // Narrow read models: this module only reads these entities (the "shared models" the architecture allows)
-// and never writes to them.
-export interface InterviewUserRow {
-  _id: Types.ObjectId;
-  email: string;
-  username: string;
-  full_name?: string;
-  role?: UserRole;
-  status?: UserStatus;
-  enterprise_id?: Types.ObjectId | null;
-}
-
+// and never writes to them. People are read through UsersService, never through the User model.
 export interface InterviewJobRow {
   _id: Types.ObjectId;
   enterprise_id: Types.ObjectId;
@@ -72,18 +64,6 @@ export class InterviewsRepository {
     return job ? { application, job } : null;
   }
 
-  async findUsersByIds(ids: string[]): Promise<InterviewUserRow[]> {
-    if (ids.length === 0) {
-      return [];
-    }
-    return User.find(
-      { _id: { $in: ids } },
-      { email: 1, username: 1, full_name: 1, role: 1, status: 1, enterprise_id: 1 },
-    )
-      .lean<InterviewUserRow[]>()
-      .exec();
-  }
-
   async findJobTitles(ids: string[]): Promise<Map<string, string>> {
     if (ids.length === 0) {
       return new Map();
@@ -97,8 +77,6 @@ export class InterviewsRepository {
     return enterprise?.name ?? null;
   }
 
-  // Resolves a search keyword to the users (applicant or interviewer) and the enterprise's jobs it matches.
-  // Each side is capped, so a very short keyword on a large user base can miss some matches.
   // ---- interviews ----
 
   // An active interview that overlaps the window and involves one of the interviewers or the applicant.
@@ -137,6 +115,17 @@ export class InterviewsRepository {
     return created.toObject() as unknown as InterviewDoc;
   }
 
+  async findById(id: string): Promise<InterviewDoc | null> {
+    return Interview.findById(id).lean<InterviewDoc>().exec();
   }
+
+  // Deletes unless the interview was completed meanwhile; returns the deleted record.
+  async deleteNotCompleted(id: string): Promise<InterviewDoc | null> {
+    return Interview.findOneAndDelete({ _id: id, status: { $ne: INTERVIEW_COMPLETED_STATUS } })
+      .lean<InterviewDoc>()
+      .exec();
+  }
+
+}
 
 export const interviewsRepository = new InterviewsRepository();

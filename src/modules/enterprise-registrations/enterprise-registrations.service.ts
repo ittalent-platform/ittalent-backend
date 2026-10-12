@@ -1,14 +1,31 @@
 import { createHash, randomBytes } from 'node:crypto';
+import mongoose from 'mongoose';
 
 import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { sendEnterpriseRegistrationMagicLink } from '../../shared/services/email.service.js';
-import { enterprisesRepository, type EnterprisesRepository } from '../enterprises/enterprises.repository.js';
-import { usersRepository, type UsersRepository } from '../users/users.repository.js';
+import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
+import {
+  sendEnterpriseAdminInvitationEmail,
+  sendEnterpriseRegistrationMagicLink,
+  sendEnterpriseRejectionEmail,
+} from '../../shared/services/email.service.js';
+import type { CreateEnterpriseDTO } from '../enterprises/enterprises.schemas.js';
+import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
+import { usersService, type UsersService } from '../users/users.service.js';
+import { authService as defaultAuthService, type AuthService } from '../auth/auth.service.js';
+import { AUTH_MESSAGES } from '../auth/auth.constants.js';
+import { isValidPdf, storageService } from '../../shared/services/storage.service.js';
+import type { UserDoc } from '../../models/user.model.js';
+import type {
+  EnterpriseRegistrationDoc,
+  LegalDocumentData,
+  RegistrationCompanyData,
+} from '../../models/enterprise-registration.model.js';
 import {
   BLOCKED_EMAIL_DOMAINS,
+  type LegalDocumentType,
   REGISTRATION_CONFIG,
   REGISTRATION_MESSAGES,
 } from './enterprise-registrations.constants.js';
@@ -17,12 +34,27 @@ import {
   type EnterpriseRegistrationsRepository,
 } from './enterprise-registrations.repository.js';
 import type {
+  AcceptInvitationDTO,
+  AcceptInvitationResult,
+  AdminDecisionDTO,
+  EnterpriseRegistrationSummaryDTO,
+  RegistrationListQuery,
+  SaveDraftDTO,
   StartRegistrationDTO,
+  SubmitRegistrationDTO,
 } from './enterprise-registrations.schemas.js';
 
 export interface StartRegistrationResult {
   message: string;
   email: string;
+}
+
+export interface AdminDecisionResult {
+  message: string;
+  registration_code: string;
+  status: string;
+  version: number;
+  enterprise_id?: string | undefined;
 }
 
 export interface VerifyEmailResult {
@@ -39,11 +71,20 @@ export interface VerifyEmailResult {
   };
 }
 
+export interface SubmissionReceiptResult {
+  registration_code: string;
+  status: string;
+  version: number;
+  submitted_at: string;
+  estimated_sla_days: number;
+}
+
 export class EnterpriseRegistrationsService {
   constructor(
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
-    private readonly enterpriseRepo: EnterprisesRepository = enterprisesRepository,
-    private readonly userRepo: UsersRepository = usersRepository,
+    private readonly enterpriseService: EnterprisesService = enterprisesService,
+    private readonly userService: UsersService = usersService,
+    private readonly authService: AuthService = defaultAuthService,
   ) {}
 
   generateRegistrationCode(date = new Date()): string {
@@ -71,7 +112,7 @@ export class EnterpriseRegistrationsService {
       );
     }
 
-    const existingUser = await this.userRepo.findByEmail(corporateEmail);
+    const existingUser = await this.userService.findByEmail(corporateEmail);
     if (existingUser) {
       // [PRE-2 / BR-40 / EX1]: Candidate role conflict.
       // Users with active candidate/applicant accounts cannot request an enterprise.
@@ -93,7 +134,7 @@ export class EnterpriseRegistrationsService {
 
     // [PRE-2 / EX2]: Active organization conflict.
     // Email already belongs to an existing, verified enterprise entity.
-    const existingEnterprise = await this.enterpriseRepo.findByEmail(corporateEmail);
+    const existingEnterprise = await this.enterpriseService.findByEmail(corporateEmail);
     if (existingEnterprise) {
       throw createHttpError(
         HTTP_STATUS.HTTP_409_CONFLICT,
@@ -210,6 +251,538 @@ export class EnterpriseRegistrationsService {
         phone: registration.representative.phone,
         position: registration.representative.position,
       },
+    };
+  }
+
+  async getRegistration(idOrCode: string): Promise<EnterpriseRegistrationDoc> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+    return registration;
+  }
+
+  async saveDraft(idOrCode: string, payload: SaveDraftDTO): Promise<EnterpriseRegistrationDoc> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft mutation guard.
+    // Modifications are strictly permitted only while the case remains in 'draft' status.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== undefined && payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    if (payload.representative) {
+      registration.representative = {
+        full_name: payload.representative.full_name ?? registration.representative.full_name,
+        phone: payload.representative.phone ?? registration.representative.phone,
+        position: payload.representative.position ?? registration.representative.position,
+      };
+    }
+
+    if (payload.company_data) {
+      registration.company_data = {
+        name: payload.company_data.name ?? registration.company_data?.name ?? '',
+        legal_name: payload.company_data.legal_name ?? registration.company_data?.legal_name,
+        tax_code: payload.company_data.tax_code ?? registration.company_data?.tax_code ?? '',
+        registration_number: payload.company_data.registration_number ?? registration.company_data?.registration_number,
+        website: payload.company_data.website ?? registration.company_data?.website,
+        industry: payload.company_data.industry ?? registration.company_data?.industry ?? '',
+        sub_industries: payload.company_data.sub_industries ?? registration.company_data?.sub_industries,
+        company_size: payload.company_data.company_size ?? registration.company_data?.company_size ?? '1-10',
+        company_type: payload.company_data.company_type ?? registration.company_data?.company_type,
+        founded_year: payload.company_data.founded_year ?? registration.company_data?.founded_year,
+        address: {
+          street: payload.company_data.address?.street ?? registration.company_data?.address?.street ?? '',
+          city: payload.company_data.address?.city ?? registration.company_data?.address?.city ?? '',
+          district: payload.company_data.address?.district ?? registration.company_data?.address?.district,
+          state_province: payload.company_data.address?.state_province ?? registration.company_data?.address?.state_province,
+          country: payload.company_data.address?.country ?? registration.company_data?.address?.country ?? '',
+          postal_code: payload.company_data.address?.postal_code ?? registration.company_data?.address?.postal_code,
+        },
+        short_description: payload.company_data.short_description ?? registration.company_data?.short_description,
+        description: payload.company_data.description ?? registration.company_data?.description,
+      };
+    }
+
+    if (payload.legal_documents) {
+      registration.legal_documents = payload.legal_documents.map((doc) => ({
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        file_url: doc.file_url,
+        file_size: doc.file_size,
+        uploaded_at: new Date(),
+      }));
+    }
+
+    registration.version += 1;
+    await registration.save();
+    return registration;
+  }
+
+  async uploadLegalDocument(
+    idOrCode: string,
+    file: Express.Multer.File | undefined,
+    documentType: LegalDocumentType,
+  ): Promise<LegalDocumentData> {
+    if (!file) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.DOCUMENT_FILE_REQUIRED);
+    }
+
+    if (file.size <= 0) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.DOCUMENT_FILE_EMPTY);
+    }
+
+    // [BR-41 / EX4]: Mandatory PDF format integrity.
+    // Pure magic byte verification ensures file matches %PDF- specification.
+    if (!isValidPdf(file.buffer)) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.PDF_DOCUMENT_REQUIRED);
+    }
+
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft mutation guard.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    const uploadResult = await storageService.uploadFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      folder: 'italent/enterprise-legal-documents',
+      prefix: `legal-${documentType}`,
+      resourceType: 'raw',
+      mimeType: 'application/pdf',
+    });
+
+    const docEntry: LegalDocumentData = {
+      document_type: documentType,
+      file_name: file.originalname,
+      file_url: uploadResult.fileUrl,
+      file_size: file.size,
+      uploaded_at: new Date(),
+    };
+
+    const currentDocs = registration.legal_documents ?? [];
+    const existingIndex = currentDocs.findIndex((d) => d.document_type === documentType);
+    if (existingIndex >= 0) {
+      currentDocs[existingIndex] = docEntry;
+    } else {
+      currentDocs.push(docEntry);
+    }
+    registration.legal_documents = currentDocs;
+    registration.version += 1;
+    await registration.save();
+
+    return docEntry;
+  }
+
+  async submitRegistration(
+    idOrCode: string,
+    payload: SubmitRegistrationDTO,
+  ): Promise<SubmissionReceiptResult> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft status enforcement.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    // [BR-41 / EX4]: Mandatory business registration certificate check.
+    const allLegalDocs = [
+      ...(registration.legal_documents ?? []),
+      ...payload.legal_documents,
+    ];
+    const hasBusinessLicense = allLegalDocs.some((d) => d.document_type === 'business_license');
+    if (!hasBusinessLicense) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.MISSING_LEGAL_DOCUMENTS);
+    }
+
+    // [BR-39]: Tax identification code uniqueness check against active registered enterprises.
+    const taxCode = payload.company_data.tax_code.trim();
+    const existingEnterprise = await this.enterpriseService.findByTaxCode(taxCode);
+    if (existingEnterprise) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.TAX_CODE_ALREADY_CLAIMED);
+    }
+
+    // [BR-42 / EX3]: Exclusive claim collision check against pending or under-review registrations.
+    const hasActiveConflict = await this.repository.hasActiveClaim(
+      registration.corporate_email,
+      taxCode,
+      registration._id,
+    );
+    if (hasActiveConflict) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.TAX_CODE_ALREADY_CLAIMED);
+    }
+
+    // Corporate email uniqueness check against registered enterprises.
+    const existingEmailEnterprise = await this.enterpriseService.findByEmail(registration.corporate_email);
+    if (existingEmailEnterprise) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.EMAIL_ALREADY_EXISTS);
+    }
+
+    // Merge finalized submission payload.
+    registration.representative = {
+      full_name: payload.representative.full_name,
+      phone: payload.representative.phone,
+      position: payload.representative.position,
+    };
+    registration.company_data = payload.company_data as RegistrationCompanyData;
+
+    // Merge legal documents if provided in payload.
+    if (payload.legal_documents && payload.legal_documents.length > 0) {
+      const mergedMap = new Map<string, LegalDocumentData>();
+      for (const doc of registration.legal_documents ?? []) {
+        mergedMap.set(doc.document_type, doc);
+      }
+      for (const doc of payload.legal_documents) {
+        mergedMap.set(doc.document_type, {
+          document_type: doc.document_type,
+          file_name: doc.file_name,
+          file_url: doc.file_url,
+          file_size: doc.file_size,
+          uploaded_at: new Date(),
+        });
+      }
+      registration.legal_documents = Array.from(mergedMap.values());
+    }
+
+    // [BR-42 / EX3]: Acquire exclusive claim locks.
+    const submittedAt = new Date();
+    registration.claim_locks = {
+      tax_code: taxCode,
+      corporate_email: registration.corporate_email,
+      locked_at: submittedAt,
+    };
+    registration.status = 'pending_review';
+    registration.version += 1;
+    await registration.save();
+
+    return {
+      registration_code: registration.registration_code,
+      status: registration.status,
+      version: registration.version,
+      submitted_at: submittedAt.toISOString(),
+      estimated_sla_days: 2,
+    };
+  }
+
+  async listRegistrations(
+    query: Partial<RegistrationListQuery> = {},
+  ): Promise<PaginatedResult<EnterpriseRegistrationSummaryDTO>> {
+    const page = query.page ?? REGISTRATION_CONFIG.DEFAULT_PAGE;
+    const limit = query.limit ?? REGISTRATION_CONFIG.DEFAULT_LIMIT;
+
+    const { items, total } = await this.repository.findPage(query);
+
+    return {
+      items: items.map((doc) => ({
+        id: String(doc._id),
+        registration_code: doc.registration_code,
+        corporate_email: doc.corporate_email,
+        company_name: doc.company_data?.name ?? null,
+        tax_code: doc.company_data?.tax_code ?? doc.claim_locks?.tax_code ?? null,
+        representative_name: doc.representative.full_name,
+        representative_phone: doc.representative.phone,
+        status: doc.status,
+        version: doc.version,
+        created_at: doc.createdAt ? doc.createdAt.toISOString() : null,
+        submitted_at: doc.claim_locks?.locked_at ? doc.claim_locks.locked_at.toISOString() : null,
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async processAdminDecision(
+    idOrCode: string,
+    payload: AdminDecisionDTO,
+    adminId: string,
+  ): Promise<AdminDecisionResult> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Verify case is currently awaiting administrative decision.
+    if (registration.status !== 'pending_review' && registration.status !== 'under_review') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.NOT_PENDING_REVIEW);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    const reviewedAt = new Date();
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
+
+    // Decision Branch 1: REJECTION
+    if (payload.decision === 'rejected') {
+      const reason = payload.rejection_reason?.trim();
+      if (!reason || reason.length < REGISTRATION_CONFIG.REJECTION_REASON_MIN_LENGTH) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          REGISTRATION_MESSAGES.REJECTION_REASON_REQUIRED,
+        );
+      }
+
+      // [BR-42 / EX3]: Release exclusive claim locks.
+      registration.claim_locks = undefined;
+      registration.status = 'rejected';
+      registration.version += 1;
+      registration.review = {
+        reviewed_by: adminObjectId,
+        reviewed_at: reviewedAt,
+        decision: 'rejected',
+        rejection_reason: reason,
+        checklist: payload.checklist,
+      };
+      await registration.save();
+
+      const companyName = registration.company_data?.name ?? 'your organization';
+      await sendEnterpriseRejectionEmail(registration.corporate_email, companyName, reason);
+
+      return {
+        message: 'Enterprise registration rejected',
+        registration_code: registration.registration_code,
+        status: registration.status,
+        version: registration.version,
+      };
+    }
+
+    // Decision Branch 2: APPROVAL
+    if (
+      !payload.checklist ||
+      !payload.checklist.tax_code_verified ||
+      !payload.checklist.legal_representative_verified ||
+      !payload.checklist.documents_verified
+    ) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.CHECKLIST_INCOMPLETE,
+      );
+    }
+
+    if (!registration.company_data) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        'Registration company data is incomplete',
+      );
+    }
+
+    // Verify claim locks are intact before permanent instantiation.
+    if (!registration.claim_locks?.tax_code || !registration.claim_locks?.corporate_email) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        'Claim mismatch: claim lock is not currently held',
+      );
+    }
+
+    // Instantiate active Enterprise via decoupled EnterprisesService.
+    const createEnterprisePayload: CreateEnterpriseDTO = {
+      name: registration.company_data.name,
+      legal_name: registration.company_data.legal_name,
+      tax_code: registration.company_data.tax_code,
+      registration_number: registration.company_data.registration_number,
+      email: registration.corporate_email,
+      phone: registration.representative.phone,
+      website: registration.company_data.website,
+      industry: registration.company_data.industry,
+      sub_industries: registration.company_data.sub_industries,
+      company_size: registration.company_data.company_size,
+      company_type: registration.company_data.company_type,
+      founded_year: registration.company_data.founded_year,
+      address: registration.company_data.address,
+      short_description: registration.company_data.short_description,
+      description: registration.company_data.description,
+    };
+
+    const createdEnterprise = await this.enterpriseService.createEnterprise(
+      createEnterprisePayload,
+      adminId,
+      'admin',
+    );
+
+    // [BR-43]: Generate single-use 7-day onboarding invitation token.
+    const rawInviteToken = randomBytes(REGISTRATION_CONFIG.TOKEN_BYTES).toString('hex');
+    const inviteTokenHash = this.hashToken(rawInviteToken);
+    const inviteExpiresAt = new Date(
+      Date.now() + REGISTRATION_CONFIG.INVITATION_TOKEN_TTL_DAYS * TIME_MS.ONE_DAY,
+    );
+
+    registration.status = 'approved';
+    registration.version += 1;
+    registration.created_enterprise_id = new mongoose.Types.ObjectId(createdEnterprise.id);
+    registration.invitation_token = {
+      token_hash: inviteTokenHash,
+      expires_at: inviteExpiresAt,
+    };
+    registration.review = {
+      reviewed_by: adminObjectId,
+      reviewed_at: reviewedAt,
+      decision: 'approved',
+      checklist: payload.checklist,
+    };
+    await registration.save();
+
+    const baseUrl = env.APP_BASE_URL.replace(/\/$/, '');
+    const invitationUrl = `${baseUrl}/enterprise-registration/invitation?token=${rawInviteToken}`;
+
+    await sendEnterpriseAdminInvitationEmail(
+      registration.corporate_email,
+      registration.representative.full_name,
+      registration.company_data.name,
+      invitationUrl,
+    );
+
+    return {
+      message: 'Enterprise registration approved and enterprise created',
+      registration_code: registration.registration_code,
+      status: registration.status,
+      version: registration.version,
+      enterprise_id: createdEnterprise.id,
+    };
+  }
+
+  async acceptInvitation(payload: AcceptInvitationDTO): Promise<AcceptInvitationResult> {
+    const tokenHash = this.hashToken(payload.token);
+    const registration = await this.repository.findByInvitationTokenHash(tokenHash);
+
+    // [BR-43 / EX5]: Validate invitation existence and case status
+    if (!registration || registration.status !== 'approved') {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_INVALID_OR_EXPIRED,
+      );
+    }
+
+    if (!registration.created_enterprise_id) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.ENTERPRISE_NOT_LINKED,
+      );
+    }
+
+    if (registration.invitation_token?.accepted_at) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_ALREADY_ACCEPTED,
+      );
+    }
+
+    const expiresAt = registration.invitation_token?.expires_at;
+    if (!expiresAt || expiresAt.getTime() < Date.now()) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.INVITATION_INVALID_OR_EXPIRED,
+      );
+    }
+
+    const corporateEmail = registration.corporate_email.toLowerCase();
+    const existingUser = await this.userService.findByEmail(corporateEmail);
+    let user: UserDoc;
+
+    if (existingUser) {
+      // [AC.4]: Existing user path
+      const hasLocal = await this.authService.hasLocalAccount(existingUser._id);
+      if (hasLocal) {
+        const isPasswordValid = await this.authService.verifyLocalPassword(
+          existingUser._id,
+          payload.password,
+        );
+        if (!isPasswordValid) {
+          throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, AUTH_MESSAGES.INVALID_CREDENTIALS);
+        }
+      } else {
+        await this.authService.createLocalAccount(existingUser._id, payload.password);
+      }
+
+      // Elevate role to 'enterprise_admin' if user was applicant / regular user
+      if (existingUser.role === 'user' || existingUser.role === 'applicant') {
+        await this.userService.assignRole(String(existingUser._id), 'enterprise_admin');
+        existingUser.role = 'enterprise_admin';
+      }
+
+      // Assign approved enterprise
+      await this.userService.assignEnterprise(
+        String(existingUser._id),
+        String(registration.created_enterprise_id),
+      );
+      existingUser.enterprise_id = registration.created_enterprise_id;
+      user = existingUser;
+    } else {
+      // [AC.3]: New user path
+      let username = payload.username?.trim().toLowerCase();
+      if (username) {
+        const usernameExists = await this.userService.existsByUsername(username);
+        if (usernameExists) {
+          throw createHttpError(
+            HTTP_STATUS.HTTP_409_CONFLICT,
+            REGISTRATION_MESSAGES.USERNAME_ALREADY_EXISTS,
+          );
+        }
+      } else {
+        const emailPrefix = corporateEmail.split('@')[0] ?? '';
+        const baseUsername =
+          emailPrefix.replace(/[^a-zA-Z0-9_]/g, '') || 'recruiter';
+        username = baseUsername;
+        let counter = 1;
+        while (await this.userService.existsByUsername(username)) {
+          username = `${baseUsername}${counter}`;
+          counter += 1;
+        }
+      }
+
+      user = await this.userService.createUser({
+        email: corporateEmail,
+        username,
+        role: 'enterprise_admin',
+        status: 'active',
+        email_verified: true,
+        full_name: registration.representative.full_name,
+        phone: registration.representative.phone,
+        enterprise_id: registration.created_enterprise_id,
+      });
+
+      await this.authService.createLocalAccount(user._id, payload.password);
+    }
+
+    // [POST-3 / BR-43]: Mark invitation token redeemed
+    registration.invitation_token = {
+      token_hash: registration.invitation_token?.token_hash,
+      expires_at: expiresAt,
+      accepted_at: new Date(),
+    };
+    registration.version += 1;
+    await registration.save();
+
+    const tokens = this.authService.issueTokens(user);
+
+    return {
+      message: REGISTRATION_MESSAGES.INVITATION_ACCEPTED,
+      user: this.userService.mapUserDto(user),
+      tokens,
     };
   }
 }
