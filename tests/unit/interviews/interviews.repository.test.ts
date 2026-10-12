@@ -32,6 +32,45 @@ describe('InterviewsRepository', () => {
       return vi.spyOn(Interview, 'find').mockReturnValue(query([]) as never);
     }
 
+    it('always scopes the query to the enterprise', async () => {
+      const find = spyOnFind();
+      await repository.findPage({ enterpriseId: ENTERPRISE }, { page: 1, limit: 20, sortBy: 'scheduledAt', sortOrder: 'asc' });
+      expect(find).toHaveBeenCalledWith({ $and: [{ enterprise_id: ENTERPRISE }] });
+    });
+
+    it('turns every list filter into a condition and filters by start time for the List view', async () => {
+      const find = spyOnFind();
+      const from = new Date('2026-10-01T00:00:00.000Z');
+      const to = new Date('2026-10-31T00:00:00.000Z');
+      await repository.findPage(
+        {
+          enterpriseId: ENTERPRISE,
+          interviewerId: INTERVIEWER,
+          statuses: ['scheduled', 'completed'],
+          mode: 'online',
+          jobId: JOB,
+          applicationId: 'b00000000000000000000001',
+          from,
+          to,
+          overlapRange: false,
+          search: { userIds: [APPLICANT], jobIds: [JOB] },
+        },
+        { page: 1, limit: 20, sortBy: 'scheduledAt', sortOrder: 'asc' },
+      );
+      expect(find).toHaveBeenCalledWith({
+        $and: [
+          { enterprise_id: ENTERPRISE },
+          { interviewer_ids: INTERVIEWER },
+          { status: { $in: ['scheduled', 'completed'] } },
+          { mode: 'online' },
+          { job_id: JOB },
+          { application_id: 'b00000000000000000000001' },
+          { scheduled_at: { $gte: from, $lte: to } },
+          { $or: [{ applicant_id: { $in: [APPLICANT] } }, { interviewer_ids: { $in: [APPLICANT] } }, { job_id: { $in: [JOB] } }] },
+        ],
+      });
+    });
+
     it('selects every interview overlapping the window for the Calendar view', async () => {
       const find = spyOnFind();
       const from = new Date('2026-10-01T00:00:00.000Z');
@@ -41,6 +80,22 @@ describe('InterviewsRepository', () => {
       expect(find).toHaveBeenCalledWith({
         $and: [{ enterprise_id: ENTERPRISE }, { scheduled_at: { $lt: to } }, { ends_at: { $gt: from } }],
       });
+    });
+
+    it('sorts with the id as a tie-breaker and pages with skip and limit', async () => {
+      vi.spyOn(Interview, 'countDocuments').mockReturnValue(query(45) as never);
+      const chain = query([]);
+      vi.spyOn(Interview, 'find').mockReturnValue(chain as never);
+
+      const result = await repository.findPage(
+        { enterpriseId: ENTERPRISE },
+        { page: 3, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' },
+      );
+
+      expect(chain.sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+      expect(chain.skip).toHaveBeenCalledWith(40);
+      expect(chain.limit).toHaveBeenCalledWith(20);
+      expect(result.total).toBe(45);
     });
 
     it('lists the calendar earliest first and caps the result', async () => {

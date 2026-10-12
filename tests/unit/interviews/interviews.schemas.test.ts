@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createInterviewBodyValidator,
   interviewCalendarQueryValidator,
+  interviewListQueryValidator,
+  parseInterviewStatusFilter,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
 } from '../../../src/modules/interviews/interviews.schemas.js';
@@ -80,6 +82,46 @@ describe('updateInterviewStatusBodySchema', () => {
   it('limits the note', () => {
     expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'x'.repeat(501) }).success).toBe(false);
     expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'Role closed' }).success).toBe(true);
+  });
+});
+
+describe('interviewListQueryValidator', () => {
+  it('applies the defaults', () => {
+    expect(interviewListQueryValidator.parse({})).toEqual({ page: 1, limit: 20, sortBy: 'scheduledAt', sortOrder: 'asc' });
+  });
+
+  it('parses the filters from a query string', () => {
+    const parsed = interviewListQueryValidator.parse({
+      page: '2',
+      limit: '5',
+      status: 'scheduled,completed',
+      mode: 'online',
+      search: '  nguyen ',
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-31T00:00:00.000Z',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    });
+    expect(parsed).toMatchObject({ page: 2, limit: 5, search: 'nguyen', sortBy: 'createdAt', sortOrder: 'desc' });
+    expect(parsed.from).toBeInstanceOf(Date);
+    expect(parseInterviewStatusFilter(parsed.status ?? '')).toEqual(['scheduled', 'completed']);
+  });
+
+  it.each([
+    ['an unsupported status', { status: 'archived' }],
+    ['a status list with an unsupported item', { status: 'scheduled,archived' }],
+    ['an unsupported sort field', { sortBy: 'company' }],
+    ['an unsupported sort order', { sortOrder: 'sideways' }],
+    ['page zero', { page: '0' }],
+    ['an oversized limit', { limit: '1000' }],
+    ['a blank keyword', { search: '   ' }],
+    ['a keyword over 100 characters', { search: 'x'.repeat(101) }],
+    ['a malformed job id', { jobId: 'abc' }],
+    ['an unsupported filter', { company: 'Nova' }],
+    ['a date that is not a date', { from: 'soon' }],
+    ['from after to', { from: '2026-10-31T00:00:00.000Z', to: '2026-10-01T00:00:00.000Z' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewListQueryValidator.safeParse(query).success).toBe(false);
   });
 });
 

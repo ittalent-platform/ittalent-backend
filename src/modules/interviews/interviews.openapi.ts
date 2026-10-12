@@ -7,6 +7,8 @@ import {
   interviewCalendarResponseSchema,
   interviewDetailDtoSchema,
   interviewIdParamSchema,
+  interviewListQuerySchema,
+  interviewListResponseSchema,
   updateInterviewBodySchema,
   updateInterviewStatusBodySchema,
 } from './interviews.schemas.js';
@@ -16,6 +18,7 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
   const registeredUpdate = registry.register('UpdateInterviewRequest', updateInterviewBodySchema);
   const registeredStatus = registry.register('UpdateInterviewStatusRequest', updateInterviewStatusBodySchema);
   const registeredDetail = registry.register('InterviewDetailDTO', interviewDetailDtoSchema);
+  const registeredList = registry.register('InterviewListResponse', interviewListResponseSchema);
   const registeredCalendar = registry.register('InterviewCalendarResponse', interviewCalendarResponseSchema);
 
   const authErrors = {
@@ -47,6 +50,25 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
         description: 'APPLICATION_NOT_SCHEDULABLE, APPLICANT_UNAVAILABLE, INTERVIEWER_CONFLICT or APPLICANT_CONFLICT',
       },
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/interviews',
+    tags: ['Interviews'],
+    summary: 'List interviews (List view) with search, filters, sorting and pagination',
+    description:
+      'Recruiter only: every interview of the recruiter\'s enterprise. ' +
+      'Filters: `status` (one value or a comma-separated list), `mode`, `jobId`, `applicationId`, `interviewerId`, ' +
+      '`from`/`to` on the start time, and `search` on the applicant or interviewer name/email and the job title. ' +
+      'Sorted by start time, earliest first, by default.',
+    security: [{ bearerAuth: [] }],
+    request: { query: interviewListQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Paginated interviews', content: { 'application/json': { schema: registeredList } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid or contradictory filter, sort or paging values' },
       ...authErrors,
     },
   });

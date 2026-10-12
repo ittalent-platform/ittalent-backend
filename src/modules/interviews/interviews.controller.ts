@@ -7,6 +7,7 @@ import type {
   CreateInterviewBody,
   InterviewCalendarQuery,
   InterviewIdParam,
+  InterviewListQuery,
   UpdateInterviewBody,
   UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
@@ -28,6 +29,16 @@ export class InterviewsController {
       const body = res.locals.validated?.body as CreateInterviewBody;
       const result = await this.service.create(this.actorOf(req), body);
       res.status(HTTP_STATUS.HTTP_201_CREATED).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listInterviews: RequestHandler = async (req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as InterviewListQuery;
+      const result = await this.service.list(this.actorOf(req), query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
