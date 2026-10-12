@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto';
-import bcrypt from 'bcryptjs';
 import mongoose, { Types } from 'mongoose';
 import { userInvitationRoles, type UserInvitationRole } from '../../models/user-invitation.model.js';
 
@@ -7,12 +6,12 @@ import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { sendUserInvitationEmail } from '../../shared/services/email.service.js';
+import { authService, type AuthService } from '../auth/auth.service.js';
 import { AUTH_CONFIG } from '../auth/auth.constants.js';
-import { authRepository, type AuthRepository } from '../auth/auth.repository.js';
 import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
 import { enterpriseRegistrationsService, type EnterpriseRegistrationsService } from '../enterprise-registrations/enterprise-registrations.service.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
-import type { CancelInvitationBody, CreateAdminUserBody } from '../users/users.schemas.js';
+import type { CancelInvitationBody, CreateAdminUserBody } from './user-invitations.schemas.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { USER_INVITATION_MESSAGES, USER_INVITATION_TTL_MS } from './user-invitations.constants.js';
 import { userInvitationsRepository, type UserInvitationsRepository } from './user-invitations.repository.js';
@@ -27,7 +26,7 @@ export class UserInvitationsService {
     private readonly users: UsersService = usersService,
     private readonly invitations: UserInvitationsRepository = userInvitationsRepository,
     private readonly audits: UserAuditsService = userAuditsService,
-    private readonly auth: AuthRepository = authRepository,
+    private readonly auth: AuthService = authService,
     private readonly enterprises: EnterprisesService = enterprisesService,
     private readonly registrations: EnterpriseRegistrationsService = enterpriseRegistrationsService,
   ) {}
@@ -70,7 +69,7 @@ export class UserInvitationsService {
           throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT, 'ACCOUNT_CONFLICT');
         }
         created = await this.users.createManagedUser({ ...input, enterprise_id: enterpriseId }, session);
-        await this.auth.createLocalAccount({ userId: created._id, provider: 'local' }, session);
+        await this.auth.createPasswordlessLocalAccount(created._id, session);
         await this.invitations.create({
           targetUserId: created._id, actorId: new Types.ObjectId(actorId), kind: 'new_account', role: input.role,
           enterpriseId, tokenHash, expiresAt,
@@ -100,7 +99,7 @@ export class UserInvitationsService {
     const tokenHash = this.hashToken(input.token);
     const invitation = await this.invitations.findPendingByHash(tokenHash);
     if (!invitation || invitation.kind !== 'new_account') throw createHttpError(HTTP_STATUS.HTTP_410_GONE, USER_INVITATION_MESSAGES.INVALID);
-    const passwordHash = await bcrypt.hash(input.password, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+    const passwordHash = await this.auth.hashPassword(input.password);
     const userId = invitation.target_user_id as Types.ObjectId;
     if (invitation.enterprise_id && !(await this.enterprises.isActiveEnterprise(String(invitation.enterprise_id)))) {
       throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
@@ -127,7 +126,7 @@ export class UserInvitationsService {
         if (!target) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
         accepted = await this.users.updateNewAccountFromInvitation(userId, invitation.role as UserInvitationRole, (invitation.enterprise_id as Types.ObjectId | null) ?? null, target.version ?? 0, session);
         if (!accepted) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.INVALID_ACCEPTANCE);
-        await this.auth.updateLocalAccountPassword(userId, passwordHash, session);
+        await this.auth.setLocalPasswordHash(userId, passwordHash, session);
         await this.audits.record({ targetUserId: userId, actorId: invitation.invited_by as Types.ObjectId, action: 'invitation_accepted', version: accepted.version ?? 0 }, session);
       });
     } finally { await session.endSession(); }

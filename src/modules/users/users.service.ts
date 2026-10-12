@@ -1,5 +1,4 @@
 import mongoose, { Types } from 'mongoose';
-import { Enterprise } from '../../models/enterprise.model.js';
 import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -10,6 +9,18 @@ import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
 import { usersRepository, type UsersRepository, type CreateManagedUserInput, type CreateUserData } from './users.repository.js';
 import { strictUserDtoSchema, type EmergencySuspensionBody, type RoleUpdateBody, type UpdateUserBody, type UserDTO, type UserListQuery, type StatusUpdateBody } from './users.schemas.js';
 
+type AdminInvitationMetadata = { status: 'pending' | 'accepted' | 'revoked' | 'cancelled' | 'expired'; deliveryStatus: 'pending' | 'sent' | 'failed'; expiresAt: string; sentAt: string | null };
+
+export interface AdminUserMetadata {
+  enterpriseName: string | null;
+  invitation: AdminInvitationMetadata | null;
+}
+
+export interface AdminUserMetadataResolver {
+  resolve(userId: string, enterpriseId: string | null): Promise<AdminUserMetadata>;
+  resolveMany(users: Array<{ id: string; enterpriseId: string | null }>): Promise<Map<string, AdminUserMetadata>>;
+}
+
 // History keeps who/what changed without storing raw personal values: first and last character only.
 const MASK_EDGE_CHARS = 1;
 function maskText(value: string): string {
@@ -18,23 +29,60 @@ function maskText(value: string): string {
 }
 
 export class UsersService {
-  async lockEnterpriseAdminChanges(enterpriseId: Types.ObjectId, session: mongoose.ClientSession): Promise<boolean> {
-    const result = await Enterprise.updateOne(
-      { _id: enterpriseId, is_deleted: false, status: 'active' },
-      { $inc: { admin_mutation_version: 1 } },
-      { session, timestamps: false },
-    ).exec();
-    return result.matchedCount === 1;
-  }
+  constructor(
+    private readonly repository: UsersRepository = usersRepository,
+    private readonly audits: UserAuditsService = userAuditsService,
+    private readonly adminMetadataResolver: AdminUserMetadataResolver = {
+      resolve: async (userId, enterpriseId) => {
+        const [{ enterprisesService }, { userInvitationsService }] = await Promise.all([
+          import('../enterprises/enterprises.service.js'),
+          import('../user-invitations/user-invitations.service.js'),
+        ]);
+        const [names, statuses] = await Promise.all([
+          enterpriseId ? enterprisesService.getNamesByIds([enterpriseId]) : Promise.resolve(new Map<string, string>()),
+          userInvitationsService.getStatuses([userId]),
+        ]);
+        const status = statuses.get(userId);
+        return { enterpriseName: enterpriseId ? names.get(enterpriseId) ?? null : null, invitation: status ? { status: status.status as AdminInvitationMetadata['status'], deliveryStatus: status.deliveryStatus as AdminInvitationMetadata['deliveryStatus'], expiresAt: status.expiresAt, sentAt: status.sentAt } : null };
+      },
+      resolveMany: async (users) => {
+        const [{ enterprisesService }, { userInvitationsService }] = await Promise.all([
+          import('../enterprises/enterprises.service.js'),
+          import('../user-invitations/user-invitations.service.js'),
+        ]);
+        const enterpriseIds = [...new Set(users.flatMap((user) => user.enterpriseId ? [user.enterpriseId] : []))];
+        const [names, statuses] = await Promise.all([enterprisesService.getNamesByIds(enterpriseIds), userInvitationsService.getStatuses(users.map((user) => user.id))]);
+        return new Map(users.map((user) => {
+          const status = statuses.get(user.id);
+          return [user.id, { enterpriseName: user.enterpriseId ? names.get(user.enterpriseId) ?? null : null, invitation: status ? { status: status.status as AdminInvitationMetadata['status'], deliveryStatus: status.deliveryStatus as AdminInvitationMetadata['deliveryStatus'], expiresAt: status.expiresAt, sentAt: status.sentAt } : null }];
+        }));
+      },
+    },
+    private readonly enterpriseLock: (id: Types.ObjectId, session: mongoose.ClientSession) => Promise<boolean> = async (id, session) => {
+      const { enterprisesService } = await import('../enterprises/enterprises.service.js');
+      return enterprisesService.incrementAdminMutationVersion(id, session);
+    },
+  ) {}
 
   async serializeIdentityRequests(id: Types.ObjectId, session: mongoose.ClientSession): Promise<void> {
     await this.repository.serializeIdentityRequests(id, session);
   }
 
-  constructor(
-    private readonly repository: UsersRepository = usersRepository,
-    private readonly audits: UserAuditsService = userAuditsService,
-  ) {}
+  async lockEnterpriseAdminChanges(enterpriseId: Types.ObjectId, session: mongoose.ClientSession): Promise<boolean> {
+    return this.enterpriseLock(enterpriseId, session);
+  }
+
+  async withAdminMetadata(user: UserDTO): Promise<UserDTO & AdminUserMetadata> {
+    return this.guardStore(async () => ({ ...user, ...await this.adminMetadataResolver.resolve(user.id, user.enterpriseId) }));
+  }
+
+  async listUsersWithAdminMetadata(query: UserListQuery): Promise<PaginatedResult<UserDTO & AdminUserMetadata>> {
+    const result = await this.listUsers(query);
+    return this.guardStore(async () => {
+      const metadata = await this.adminMetadataResolver.resolveMany(result.items.map(({ id, enterpriseId }) => ({ id, enterpriseId })));
+      return { ...result, items: result.items.map((user) => ({ ...user, ...(metadata.get(user.id) ?? { enterpriseName: null, invitation: null }) })) };
+    });
+  }
 
   async createManagedUser(data: CreateManagedUserInput, session: mongoose.ClientSession): Promise<UserDoc> {
     return this.repository.createManagedUser(data, session);
@@ -245,6 +293,10 @@ export class UsersService {
   // module instead of querying the User model themselves.
   async findByIds(ids: string[]): Promise<UserDoc[]> {
     return this.repository.findByIds(ids);
+  }
+
+  async findNamesByIds(ids: string[]): Promise<Map<string, string>> {
+    return this.repository.findNamesByIds(ids);
   }
 
   async findIdsByKeyword(keyword: string, limit: number): Promise<string[]> {

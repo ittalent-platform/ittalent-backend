@@ -1,9 +1,9 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
-import type { CreateAdminUserBody, UserIdParam } from '../users/users.schemas.js';
+import type { UserIdParam } from '../users/users.schemas.js';
 import { userInvitationsService, type UserInvitationsService } from './user-invitations.service.js';
-import type { AcceptNewAccountInvitationBody, InvitationPreviewQuery } from './user-invitations.schemas.js';
+import type { AcceptNewAccountInvitationBody, CreateAdminUserBody, InvitationPreviewQuery } from './user-invitations.schemas.js';
 
 export class UserInvitationsController {
   constructor(private readonly service: UserInvitationsService = userInvitationsService) {}

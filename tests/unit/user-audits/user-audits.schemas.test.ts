@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { userAuditHistoryQuerySchema } from '../../src/modules/user-audits/user-audits.schemas.js';
+import { userAuditHistoryQuerySchema } from '../../../src/modules/user-audits/user-audits.schemas.js';
 
 describe('userAuditHistoryQuerySchema', () => {
   it('accepts group, actor and an ordered date range', () => {

@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import type { ClientSession, Types } from 'mongoose';
 
 import { env } from '../../config/env.js';
-import type { Types } from 'mongoose';
 import type { AccountDoc } from '../../models/account.model.js';
 import type { UserDoc, UserStatus } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -399,6 +399,26 @@ export class AuthService {
       provider: 'local',
       password_hash,
     });
+  }
+
+  async hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+  }
+
+  async createPasswordlessLocalAccount(userId: Types.ObjectId, session: ClientSession): Promise<AccountDoc> {
+    return this.repository.createLocalAccount({ userId, provider: 'local' }, session);
+  }
+
+  async setLocalPasswordHash(userId: Types.ObjectId | string, passwordHash: string, session: ClientSession): Promise<void> {
+    await this.repository.updateLocalAccountPassword(userId, passwordHash, session);
+  }
+
+  async verifyCurrentPassword(userId: Types.ObjectId, password: string, session?: ClientSession): Promise<boolean> {
+    return this.repository.verifyCurrentPassword(userId, password, session);
+  }
+
+  async revokeIdentityTokens(userId: Types.ObjectId, session: ClientSession): Promise<void> {
+    await this.repository.revokeIdentityTokens(userId, session);
   }
 
   async verifyLocalPassword(userId: Types.ObjectId | string, password: string): Promise<boolean> {

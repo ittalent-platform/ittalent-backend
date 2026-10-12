@@ -1,6 +1,5 @@
 import { Types, type ClientSession, type QueryFilter } from 'mongoose';
 
-import { User } from '../../models/user.model.js';
 import { UserAudit, type UserAuditAction, type UserAuditData } from '../../models/user-audit.model.js';
 import { USER_AUDIT_GROUPS } from './user-audits.constants.js';
 import type { UserAuditHistoryQuery } from './user-audits.schemas.js';
@@ -41,10 +40,7 @@ export class UserAuditsRepository {
         .skip((query.page - 1) * query.limit).limit(query.limit).lean().exec(),
       UserAudit.countDocuments(filter).exec(),
     ]);
-    const actorIds = [...new Set(rows.map((row) => String(row.actor_user_id)))];
-    const actors = actorIds.length ? await User.find({ _id: { $in: actorIds } }).select('full_name username').lean().exec() : [];
-    const names = new Map(actors.map((actor) => [String(actor._id), actor.full_name || actor.username]));
-    return { rows: rows.map((row) => ({ ...row, actor_name: names.get(String(row.actor_user_id)) ?? null })), total };
+    return { rows: rows as unknown as Record<string, unknown>[], total };
   }
 }
 
