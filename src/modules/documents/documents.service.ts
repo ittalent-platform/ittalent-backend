@@ -31,10 +31,29 @@ export type DocumentPreviewResult =
   | { kind: 'file'; file: DocumentFileResult }
   | { kind: 'url'; previewUrl: string };
 
+export interface DocumentReferenceChecker {
+  isDocumentReferenced(documentId: string): Promise<boolean>;
+}
+
 export class DocumentsService {
   constructor(
     private readonly repository: DocumentsRepository = documentsRepository,
+    private readonly applications?: DocumentReferenceChecker,
   ) {}
+
+  private async isReferencedByApplication(documentId: string): Promise<boolean> {
+    if (this.applications) {
+      return this.applications.isDocumentReferenced(documentId);
+    }
+
+    // ApplicationsService already uses DocumentsService to validate submitted attachments.
+    // Resolve this reverse dependency lazily so the two service singletons do not form an ESM
+    // initialization cycle, while preserving the Documents -> Applications service boundary.
+    const { applicationsService } = await import(
+      '../applications/applications.service.js'
+    );
+    return applicationsService.isDocumentReferenced(documentId);
+  }
 
   private map(item: DocumentDoc): DocumentResponse {
     const raw = item.toObject();
@@ -142,7 +161,7 @@ export class DocumentsService {
 
   async remove(ownerId: string, id: string): Promise<void> {
     const document = await this.getOwnedActive(id, ownerId);
-    if (await this.repository.isReferenced(id)) {
+    if (await this.isReferencedByApplication(id)) {
       throw createHttpError(
         HTTP_STATUS.HTTP_409_CONFLICT,
         DOCUMENT_MESSAGES.IN_USE,

@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { Application } from '../../models/application.model.js';
 import {
   Document,
   type DocumentDoc,
@@ -67,14 +66,6 @@ export class DocumentsRepository {
       owner_id: ownerId,
       deleted_at: null,
     }).exec();
-  }
-
-  async isReferenced(id: string): Promise<boolean> {
-    return (
-      (await Application.exists({
-        $or: [{ cv_id: id }, { cover_letter_id: id }],
-      }).exec()) !== null
-    );
   }
 
   async list(

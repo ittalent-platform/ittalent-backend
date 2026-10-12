@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentDoc } from '../../../src/models/document.model.js';
 import type { DocumentsRepository } from '../../../src/modules/documents/documents.repository.js';
-import { DocumentsService } from '../../../src/modules/documents/documents.service.js';
+import {
+  DocumentsService,
+  type DocumentReferenceChecker,
+} from '../../../src/modules/documents/documents.service.js';
 
 const documentId = '507f1f77bcf86cd799439011';
 const ownerId = '507f1f77bcf86cd799439012';
@@ -30,7 +33,6 @@ type MockDocumentsRepository = {
   findByIds: ReturnType<typeof vi.fn>;
   list: ReturnType<typeof vi.fn>;
   findOwnedActiveById: ReturnType<typeof vi.fn>;
-  isReferenced: ReturnType<typeof vi.fn>;
   softDeleteAndPromote: ReturnType<typeof vi.fn>;
   setDefault: ReturnType<typeof vi.fn>;
 };
@@ -38,6 +40,7 @@ type MockDocumentsRepository = {
 function setup(): {
   service: DocumentsService;
   repository: MockDocumentsRepository;
+  applications: { isDocumentReferenced: ReturnType<typeof vi.fn> };
 } {
   const repository = {
     create: vi.fn(),
@@ -45,13 +48,17 @@ function setup(): {
     findByIds: vi.fn(),
     list: vi.fn(),
     findOwnedActiveById: vi.fn(),
-    isReferenced: vi.fn(),
     softDeleteAndPromote: vi.fn(),
     setDefault: vi.fn(),
   };
+  const applications = { isDocumentReferenced: vi.fn() };
   return {
-    service: new DocumentsService(repository as unknown as DocumentsRepository),
+    service: new DocumentsService(
+      repository as unknown as DocumentsRepository,
+      applications as DocumentReferenceChecker,
+    ),
     repository,
+    applications,
   };
 }
 
@@ -82,12 +89,13 @@ describe('DocumentsService', () => {
   });
 
   it('blocks deletion while an application references the document', async () => {
-    const { service, repository } = setup();
+    const { service, repository, applications } = setup();
     repository.findOwnedActiveById.mockResolvedValue(document());
-    repository.isReferenced.mockResolvedValue(true);
+    applications.isDocumentReferenced.mockResolvedValue(true);
     await expect(service.remove(ownerId, documentId)).rejects.toMatchObject({
       statusCode: 409,
     });
+    expect(applications.isDocumentReferenced).toHaveBeenCalledWith(documentId);
     expect(repository.softDeleteAndPromote).not.toHaveBeenCalled();
   });
 

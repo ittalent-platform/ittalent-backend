@@ -92,7 +92,12 @@ export function registerDocumentsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
         description: 'Inline PDF stream or DOC/DOCX viewer URL',
-        content: { 'application/json': { schema: previewResponse } },
+        content: {
+          'application/pdf': {
+            schema: { type: 'string', format: 'binary' },
+          },
+          'application/json': { schema: previewResponse },
+        },
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
         description: 'Authentication required',

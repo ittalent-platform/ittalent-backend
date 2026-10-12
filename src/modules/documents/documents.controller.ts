@@ -110,10 +110,11 @@ export class DocumentsController {
 
   downloadMine: RequestHandler = async (req, res, next): Promise<void> => {
     try {
+      const userId = this.userId(req);
       const { id } = res.locals.validated?.params as DocumentIdParam;
       await this.sendFile(
         res,
-        await this.service.download(this.userId(req), id),
+        await this.service.download(userId, id),
         'attachment',
       );
     } catch (error) {
@@ -123,8 +124,9 @@ export class DocumentsController {
 
   previewMine: RequestHandler = async (req, res, next): Promise<void> => {
     try {
+      const userId = this.userId(req);
       const { id } = res.locals.validated?.params as DocumentIdParam;
-      const preview = await this.service.preview(this.userId(req), id);
+      const preview = await this.service.preview(userId, id);
       if (preview.kind === 'url') res.json({ previewUrl: preview.previewUrl });
       else await this.sendFile(res, preview.file, 'inline');
     } catch (error) {
@@ -134,8 +136,9 @@ export class DocumentsController {
 
   removeMine: RequestHandler = async (req, res, next): Promise<void> => {
     try {
+      const userId = this.userId(req);
       const { id } = res.locals.validated?.params as DocumentIdParam;
-      await this.service.remove(this.userId(req), id);
+      await this.service.remove(userId, id);
       res.status(HTTP_STATUS.HTTP_204_NO_CONTENT).end();
     } catch (error) {
       next(error);
@@ -144,8 +147,9 @@ export class DocumentsController {
 
   setDefaultMine: RequestHandler = async (req, res, next): Promise<void> => {
     try {
+      const userId = this.userId(req);
       const { id } = res.locals.validated?.params as DocumentIdParam;
-      res.json(await this.service.setDefault(this.userId(req), id));
+      res.json(await this.service.setDefault(userId, id));
     } catch (error) {
       next(error);
     }
