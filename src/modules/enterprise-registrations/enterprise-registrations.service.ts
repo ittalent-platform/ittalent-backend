@@ -1,10 +1,17 @@
 import { createHash, randomBytes } from 'node:crypto';
+import mongoose from 'mongoose';
 
 import { env } from '../../config/env.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { sendEnterpriseRegistrationMagicLink } from '../../shared/services/email.service.js';
+import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
+import {
+  sendEnterpriseAdminInvitationEmail,
+  sendEnterpriseRegistrationMagicLink,
+  sendEnterpriseRejectionEmail,
+} from '../../shared/services/email.service.js';
+import type { CreateEnterpriseDTO } from '../enterprises/enterprises.schemas.js';
 import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { isValidPdf, storageService } from '../../shared/services/storage.service.js';
@@ -24,6 +31,9 @@ import {
   type EnterpriseRegistrationsRepository,
 } from './enterprise-registrations.repository.js';
 import type {
+  AdminDecisionDTO,
+  EnterpriseRegistrationSummaryDTO,
+  RegistrationListQuery,
   SaveDraftDTO,
   StartRegistrationDTO,
   SubmitRegistrationDTO,
@@ -32,6 +42,14 @@ import type {
 export interface StartRegistrationResult {
   message: string;
   email: string;
+}
+
+export interface AdminDecisionResult {
+  message: string;
+  registration_code: string;
+  status: string;
+  version: number;
+  enterprise_id?: string | undefined;
 }
 
 export interface VerifyEmailResult {
@@ -458,6 +476,186 @@ export class EnterpriseRegistrationsService {
       version: registration.version,
       submitted_at: submittedAt.toISOString(),
       estimated_sla_days: 2,
+    };
+  }
+
+  async listRegistrations(
+    query: RegistrationListQuery,
+  ): Promise<PaginatedResult<EnterpriseRegistrationSummaryDTO>> {
+    const page = query.page ?? REGISTRATION_CONFIG.DEFAULT_PAGE;
+    const limit = query.limit ?? REGISTRATION_CONFIG.DEFAULT_LIMIT;
+
+    const { items, total } = await this.repository.findPage(query);
+
+    return {
+      items: items.map((doc) => ({
+        id: String(doc._id),
+        registration_code: doc.registration_code,
+        corporate_email: doc.corporate_email,
+        company_name: doc.company_data?.name ?? null,
+        tax_code: doc.company_data?.tax_code ?? doc.claim_locks?.tax_code ?? null,
+        representative_name: doc.representative.full_name,
+        representative_phone: doc.representative.phone,
+        status: doc.status,
+        version: doc.version,
+        created_at: doc.createdAt ? doc.createdAt.toISOString() : null,
+        submitted_at: doc.claim_locks?.locked_at ? doc.claim_locks.locked_at.toISOString() : null,
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async processAdminDecision(
+    idOrCode: string,
+    payload: AdminDecisionDTO,
+    adminId: string,
+  ): Promise<AdminDecisionResult> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Verify case is currently awaiting administrative decision.
+    if (registration.status !== 'pending_review' && registration.status !== 'under_review') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.NOT_PENDING_REVIEW);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    const reviewedAt = new Date();
+    const adminObjectId = new mongoose.Types.ObjectId(adminId);
+
+    // Decision Branch 1: REJECTION
+    if (payload.decision === 'rejected') {
+      const reason = payload.rejection_reason?.trim();
+      if (!reason || reason.length < REGISTRATION_CONFIG.REJECTION_REASON_MIN_LENGTH) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          REGISTRATION_MESSAGES.REJECTION_REASON_REQUIRED,
+        );
+      }
+
+      // [BR-42 / EX3]: Release exclusive claim locks.
+      registration.claim_locks = undefined;
+      registration.status = 'rejected';
+      registration.version += 1;
+      registration.review = {
+        reviewed_by: adminObjectId,
+        reviewed_at: reviewedAt,
+        decision: 'rejected',
+        rejection_reason: reason,
+        checklist: payload.checklist,
+      };
+      await registration.save();
+
+      const companyName = registration.company_data?.name ?? 'your organization';
+      await sendEnterpriseRejectionEmail(registration.corporate_email, companyName, reason);
+
+      return {
+        message: 'Enterprise registration rejected',
+        registration_code: registration.registration_code,
+        status: registration.status,
+        version: registration.version,
+      };
+    }
+
+    // Decision Branch 2: APPROVAL
+    if (
+      !payload.checklist ||
+      !payload.checklist.tax_code_verified ||
+      !payload.checklist.legal_representative_verified ||
+      !payload.checklist.documents_verified
+    ) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        REGISTRATION_MESSAGES.CHECKLIST_INCOMPLETE,
+      );
+    }
+
+    if (!registration.company_data) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        'Registration company data is incomplete',
+      );
+    }
+
+    // Verify claim locks are intact before permanent instantiation.
+    if (!registration.claim_locks?.tax_code || !registration.claim_locks?.corporate_email) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        'Claim mismatch: claim lock is not currently held',
+      );
+    }
+
+    // Instantiate active Enterprise via decoupled EnterprisesService.
+    const createEnterprisePayload: CreateEnterpriseDTO = {
+      name: registration.company_data.name,
+      legal_name: registration.company_data.legal_name,
+      tax_code: registration.company_data.tax_code,
+      registration_number: registration.company_data.registration_number,
+      email: registration.corporate_email,
+      phone: registration.representative.phone,
+      website: registration.company_data.website,
+      industry: registration.company_data.industry,
+      sub_industries: registration.company_data.sub_industries,
+      company_size: registration.company_data.company_size,
+      company_type: registration.company_data.company_type,
+      founded_year: registration.company_data.founded_year,
+      address: registration.company_data.address,
+      short_description: registration.company_data.short_description,
+      description: registration.company_data.description,
+    };
+
+    const createdEnterprise = await this.enterpriseService.createEnterprise(
+      createEnterprisePayload,
+      adminId,
+      'admin',
+    );
+
+    // [BR-43]: Generate single-use 7-day onboarding invitation token.
+    const rawInviteToken = randomBytes(REGISTRATION_CONFIG.TOKEN_BYTES).toString('hex');
+    const inviteTokenHash = this.hashToken(rawInviteToken);
+    const inviteExpiresAt = new Date(
+      Date.now() + REGISTRATION_CONFIG.INVITATION_TOKEN_TTL_DAYS * TIME_MS.ONE_DAY,
+    );
+
+    registration.status = 'approved';
+    registration.version += 1;
+    registration.created_enterprise_id = new mongoose.Types.ObjectId(createdEnterprise.id);
+    registration.invitation_token = {
+      token_hash: inviteTokenHash,
+      expires_at: inviteExpiresAt,
+    };
+    registration.review = {
+      reviewed_by: adminObjectId,
+      reviewed_at: reviewedAt,
+      decision: 'approved',
+      checklist: payload.checklist,
+    };
+    await registration.save();
+
+    const baseUrl = env.APP_BASE_URL.replace(/\/$/, '');
+    const invitationUrl = `${baseUrl}/enterprise-registration/invitation?token=${rawInviteToken}`;
+
+    await sendEnterpriseAdminInvitationEmail(
+      registration.corporate_email,
+      registration.representative.full_name,
+      registration.company_data.name,
+      invitationUrl,
+    );
+
+    return {
+      message: 'Enterprise registration approved and enterprise created',
+      registration_code: registration.registration_code,
+      status: registration.status,
+      version: registration.version,
+      enterprise_id: createdEnterprise.id,
     };
   }
 }
