@@ -9,6 +9,7 @@ import {
   interviewCalendarQueryValidator,
   interviewIdParamSchema,
   interviewListQueryValidator,
+  interviewLookupQuerySchema,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
 } from './interviews.schemas.js';
@@ -25,6 +26,15 @@ interviewsRouter.post('/', ...manageInterviews, validateBody(createInterviewBody
 interviewsRouter.get('/', ...manageInterviews, validateQuery(interviewListQueryValidator), interviewsController.listInterviews);
 // Registered before /:id so "calendar" is not read as an interview id.
 interviewsRouter.get('/calendar', ...manageInterviews, validateQuery(interviewCalendarQueryValidator), interviewsController.calendar);
+
+// The pickers of the Schedule dialog: which application, and which colleagues as interviewers.
+interviewsRouter.get(
+  '/applications',
+  ...manageInterviews,
+  validateQuery(interviewLookupQuerySchema),
+  interviewsController.listSchedulableApplications,
+);
+interviewsRouter.get('/interviewers', ...manageInterviews, validateQuery(interviewLookupQuerySchema), interviewsController.listInterviewers);
 
 interviewsRouter.get('/:id', ...manageInterviews, validateParams(interviewIdParamSchema), interviewsController.getDetail);
 

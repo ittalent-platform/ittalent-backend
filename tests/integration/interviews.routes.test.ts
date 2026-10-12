@@ -52,6 +52,8 @@ describe('interviews routes (integration)', () => {
       ['POST', '', validCreate],
       ['GET', '', undefined],
       ['GET', '/calendar?from=2030-01-01T00:00:00Z&to=2030-01-08T00:00:00Z', undefined],
+      ['GET', '/applications', undefined],
+      ['GET', '/interviewers', undefined],
       ['GET', `/${ID}`, undefined],
       ['PATCH', `/${ID}`, { notes: 'x' }],
       ['PATCH', `/${ID}/status`, { status: 'cancelled' }],
@@ -64,6 +66,8 @@ describe('interviews routes (integration)', () => {
       ['POST', '', validCreate, ['user', 'applicant', 'admin']],
       ['GET', '', undefined, ['user', 'applicant', 'admin']],
       ['GET', '/calendar?from=2030-01-01T00:00:00Z&to=2030-01-08T00:00:00Z', undefined, ['user', 'applicant', 'admin']],
+      ['GET', '/applications', undefined, ['user', 'applicant', 'admin']],
+      ['GET', '/interviewers', undefined, ['user', 'applicant', 'admin']],
       ['GET', `/${ID}`, undefined, ['user', 'applicant', 'admin']],
       ['PATCH', `/${ID}`, { notes: 'x' }, ['user', 'applicant', 'admin']],
       ['PATCH', `/${ID}/status`, { status: 'cancelled' }, ['user', 'applicant', 'admin']],
@@ -127,10 +131,30 @@ describe('interviews routes (integration)', () => {
     });
   });
 
+  describe('lookups for the Schedule dialog', () => {
+    it.each([
+      ['/applications', 'a limit of zero', 'limit=0'],
+      ['/applications', 'an oversized limit', 'limit=1000'],
+      ['/applications', 'a blank keyword', 'search=%20%20'],
+      ['/applications', 'a parameter that is not supported', 'page=2'],
+      ['/interviewers', 'a limit of zero', 'limit=0'],
+      ['/interviewers', 'an oversized limit', 'limit=1000'],
+      ['/interviewers', 'a blank keyword', 'search=%20%20'],
+      ['/interviewers', 'a parameter that is not supported', 'page=2'],
+    ])('GET %s rejects %s', async (path, _label, queryString) => {
+      const response = await send('GET', `${path}?${queryString}`, 'recruiter');
+      expect(response.status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+      // Validated as a lookup query, so the path was not mistaken for an interview id.
+      expect(JSON.stringify(await response.json())).not.toContain('interview ID');
+    });
+  });
+
   it('documents the interview endpoints in openapi', async () => {
     const spec = (await (await fetch(`${baseUrl}/openapi.json`)).json()) as { paths: Record<string, Record<string, unknown>> };
     expect(Object.keys(spec.paths['/api/v1/interviews'] ?? {}).sort()).toEqual(['get', 'post']);
     expect(Object.keys(spec.paths['/api/v1/interviews/calendar'] ?? {})).toEqual(['get']);
+    expect(Object.keys(spec.paths['/api/v1/interviews/applications'] ?? {})).toEqual(['get']);
+    expect(Object.keys(spec.paths['/api/v1/interviews/interviewers'] ?? {})).toEqual(['get']);
     expect(Object.keys(spec.paths['/api/v1/interviews/{id}'] ?? {}).sort()).toEqual(['delete', 'get', 'patch']);
     expect(Object.keys(spec.paths['/api/v1/interviews/{id}/status'] ?? {})).toEqual(['patch']);
   });

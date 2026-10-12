@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { applicationStatuses } from '../../models/application.model.js';
 import { interviewModes, interviewStatuses, type InterviewStatus } from '../../models/interview.model.js';
 import { objectIdSchema } from '../../shared/schemas/object-id.schemas.js';
 import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
@@ -97,6 +98,12 @@ const statusFilterSchema = z.string().refine(
   INTERVIEW_MESSAGES.INVALID_STATUS_FILTER,
 );
 
+const searchKeywordSchema = z
+  .string()
+  .trim()
+  .min(INTERVIEW_CONFIG.KEYWORD_MIN_LENGTH, 'Search keyword must not be empty')
+  .max(INTERVIEW_CONFIG.KEYWORD_MAX_LENGTH, `Search keyword cannot exceed ${INTERVIEW_CONFIG.KEYWORD_MAX_LENGTH} characters`);
+
 // Filters shared by the List and the Calendar views.
 const interviewFilterShape = {
   status: statusFilterSchema.optional(),
@@ -105,12 +112,7 @@ const interviewFilterShape = {
   applicationId: objectIdSchema('application ID').optional(),
   interviewerId: objectIdSchema('interviewer ID').optional(),
   // Matches the applicant or interviewer name/email and the job title.
-  search: z
-    .string()
-    .trim()
-    .min(INTERVIEW_CONFIG.KEYWORD_MIN_LENGTH, 'Search keyword must not be empty')
-    .max(INTERVIEW_CONFIG.KEYWORD_MAX_LENGTH, `Search keyword cannot exceed ${INTERVIEW_CONFIG.KEYWORD_MAX_LENGTH} characters`)
-    .optional(),
+  search: searchKeywordSchema.optional(),
 };
 
 export const interviewListQuerySchema = z.strictObject({
@@ -143,6 +145,18 @@ export const interviewCalendarQueryValidator = interviewCalendarQuerySchema.supe
   }
 });
 export type InterviewCalendarQuery = z.infer<typeof interviewCalendarQuerySchema>;
+
+// The two pickers of the Schedule dialog (application, interviewer) share the same query.
+export const interviewLookupQuerySchema = z.strictObject({
+  search: searchKeywordSchema.optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(INTERVIEW_CONFIG.LOOKUP_MAX_LIMIT)
+    .default(INTERVIEW_CONFIG.LOOKUP_DEFAULT_LIMIT),
+});
+export type InterviewLookupQuery = z.infer<typeof interviewLookupQuerySchema>;
 
 // ---- responses ----
 
@@ -205,3 +219,27 @@ export const interviewCalendarResponseSchema = z.object({
   items: z.array(interviewDtoSchema),
 });
 export type InterviewCalendarResponse = z.infer<typeof interviewCalendarResponseSchema>;
+
+// An application an interview can still be scheduled for, with what the dialog shows about it.
+export const schedulableApplicationDtoSchema = z.object({
+  id: z.string(),
+  status: z.enum(applicationStatuses),
+  appliedAt: z.string(),
+  job: z.object({ id: z.string(), title: z.string().nullable() }),
+  applicant: participantDtoSchema,
+});
+export type SchedulableApplicationDTO = z.infer<typeof schedulableApplicationDtoSchema>;
+
+export const schedulableApplicationListResponseSchema = z.object({ items: z.array(schedulableApplicationDtoSchema) });
+export type SchedulableApplicationListResponse = z.infer<typeof schedulableApplicationListResponseSchema>;
+
+// A recruiter of the same enterprise who can be added as an interviewer.
+export const interviewerOptionDtoSchema = z.object({
+  id: z.string(),
+  fullName: z.string().nullable(),
+  email: z.string(),
+});
+export type InterviewerOptionDTO = z.infer<typeof interviewerOptionDtoSchema>;
+
+export const interviewerListResponseSchema = z.object({ items: z.array(interviewerOptionDtoSchema) });
+export type InterviewerListResponse = z.infer<typeof interviewerListResponseSchema>;

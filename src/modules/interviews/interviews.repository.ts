@@ -1,6 +1,11 @@
 import { Types, type QueryFilter } from 'mongoose';
 
-import { Application, type ApplicationDoc } from '../../models/application.model.js';
+import {
+  Application,
+  type ApplicationData,
+  type ApplicationDoc,
+  type ApplicationStatus,
+} from '../../models/application.model.js';
 import { Enterprise } from '../../models/enterprise.model.js';
 import {
   Interview,
@@ -85,6 +90,15 @@ export interface FindInterviewsPageParams {
   sortOrder: InterviewSortOrder;
 }
 
+// The applications of one enterprise (through the jobs it owns) that are in one of the given statuses.
+export interface SchedulableApplicationFilter {
+  enterpriseId: string;
+  statuses: readonly ApplicationStatus[];
+  // Already resolved from the keyword: the applicant matches or the job title matches.
+  search?: { userIds: string[]; jobIds: string[] } | undefined;
+  limit: number;
+}
+
 export interface InterviewConflictParams {
   interviewerIds: string[];
   applicantId: string;
@@ -135,6 +149,31 @@ export class InterviewsRepository {
       .lean<{ _id: Types.ObjectId }[]>()
       .exec();
     return jobs.map((job) => String(job._id));
+  }
+
+  // Newest applications first. The enterprise is reached through its jobs, because an application has no enterprise
+  // of its own; an enterprise with no job has nothing to schedule.
+  async findSchedulableApplications(filter: SchedulableApplicationFilter): Promise<ApplicationDoc[]> {
+    const jobs = await JobPosting.find({ enterprise_id: filter.enterpriseId }, { _id: 1 })
+      .lean<{ _id: Types.ObjectId }[]>()
+      .exec();
+    if (jobs.length === 0) {
+      return [];
+    }
+    const conditions: QueryFilter<ApplicationData>[] = [
+      { job_id: { $in: jobs.map((job) => String(job._id)) } },
+      { status: { $in: [...filter.statuses] } },
+    ];
+    if (filter.search) {
+      conditions.push({
+        $or: [{ applicant_id: { $in: filter.search.userIds } }, { job_id: { $in: filter.search.jobIds } }],
+      });
+    }
+    return Application.find({ $and: conditions })
+      .sort({ createdAt: DESCENDING, _id: DESCENDING })
+      .limit(filter.limit)
+      .lean<ApplicationDoc[]>()
+      .exec();
   }
 
   // ---- interviews ----

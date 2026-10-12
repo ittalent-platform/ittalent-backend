@@ -9,6 +9,9 @@ import {
   interviewIdParamSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
+  interviewLookupQuerySchema,
+  interviewerListResponseSchema,
+  schedulableApplicationListResponseSchema,
   updateInterviewBodySchema,
   updateInterviewStatusBodySchema,
 } from './interviews.schemas.js';
@@ -20,6 +23,8 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
   const registeredDetail = registry.register('InterviewDetailDTO', interviewDetailDtoSchema);
   const registeredList = registry.register('InterviewListResponse', interviewListResponseSchema);
   const registeredCalendar = registry.register('InterviewCalendarResponse', interviewCalendarResponseSchema);
+  const registeredApplications = registry.register('SchedulableApplicationListResponse', schedulableApplicationListResponseSchema);
+  const registeredInterviewers = registry.register('InterviewerListResponse', interviewerListResponseSchema);
 
   const authErrors = {
     [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
@@ -87,6 +92,42 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: { description: 'Interviews in the window', content: { 'application/json': { schema: registeredCalendar } } },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Missing window, from after to, or a window longer than 62 days' },
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/interviews/applications',
+    tags: ['Interviews'],
+    summary: 'Find the applications an interview can be scheduled for',
+    description:
+      'Recruiter only. The submitted, under review and interviewing applications for the jobs of the recruiter\'s ' +
+      'enterprise, newest first. `search` matches the applicant name/email and the job title; `limit` defaults to 20 (max 50). ' +
+      'Feeds the "Select application" field of the Schedule interview dialog.',
+    security: [{ bearerAuth: [] }],
+    request: { query: interviewLookupQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Matching applications', content: { 'application/json': { schema: registeredApplications } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid search or limit' },
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/interviews/interviewers',
+    tags: ['Interviews'],
+    summary: 'Find the recruiters who can be added as interviewers',
+    description:
+      'Recruiter only. The active recruiters of the recruiter\'s enterprise (the caller included), sorted by name. ' +
+      '`search` matches the name, email and username; `limit` defaults to 20 (max 50). ' +
+      'Resolves the interviewer emails of the Schedule interview dialog to the ids the create and update endpoints take.',
+    security: [{ bearerAuth: [] }],
+    request: { query: interviewLookupQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Matching recruiters', content: { 'application/json': { schema: registeredInterviewers } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid search or limit' },
       ...authErrors,
     },
   });
