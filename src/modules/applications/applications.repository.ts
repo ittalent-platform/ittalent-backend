@@ -43,6 +43,11 @@ export interface RecruiterApplicationListFilters {
   documentType?: 'cv' | 'cover_letter' | undefined;
   submittedFrom?: Date | undefined;
   submittedTo?: Date | undefined;
+  searchOr?: {
+    jobIds?: string[];
+    applicantIds?: string[];
+    applicationIds?: string[];
+  } | undefined;
 }
 
 export interface FindRecruiterApplicationsPageParams {
@@ -234,12 +239,27 @@ export class ApplicationsRepository {
       filter.status = { $in: filters.statuses };
     }
 
-    if (filters.applicantIds?.length) {
-      filter.applicant_id = { $in: filters.applicantIds.map((id) => new Types.ObjectId(id)) };
-    }
-
-    if (filters.applicationIds?.length) {
-      filter._id = { $in: filters.applicationIds.map((id) => new Types.ObjectId(id)) };
+    if (filters.searchOr) {
+      const orConditions: QueryFilter<ApplicationData>[] = [];
+      if (filters.searchOr.jobIds?.length) {
+        orConditions.push({ job_id: { $in: filters.searchOr.jobIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (filters.searchOr.applicantIds?.length) {
+        orConditions.push({ applicant_id: { $in: filters.searchOr.applicantIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (filters.searchOr.applicationIds?.length) {
+        orConditions.push({ _id: { $in: filters.searchOr.applicationIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (orConditions.length > 0) {
+        filter.$or = orConditions;
+      }
+    } else {
+      if (filters.applicantIds?.length) {
+        filter.applicant_id = { $in: filters.applicantIds.map((id) => new Types.ObjectId(id)) };
+      }
+      if (filters.applicationIds?.length) {
+        filter._id = { $in: filters.applicationIds.map((id) => new Types.ObjectId(id)) };
+      }
     }
 
     if (filters.documentType === 'cv') {
