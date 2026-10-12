@@ -291,4 +291,73 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('remove', () => {
+    it('deletes a scheduled interview and tells the participants it is cancelled', async () => {
+      await service.remove(recruiter, INTERVIEW_ID);
+      expect(repository.deleteNotCompleted).toHaveBeenCalledWith(INTERVIEW_ID);
+      expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'cancelled')).toBe(true);
+      expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+    });
+
+    it('deletes a cancelled interview without sending mail', async () => {
+      repository.findById!.mockResolvedValue(interview({ status: 'cancelled' }));
+      repository.deleteNotCompleted!.mockResolvedValue(interview({ status: 'cancelled' }));
+      await service.remove(recruiter, INTERVIEW_ID);
+      expect(sendInterviewEmail).not.toHaveBeenCalled();
+    });
+
+    it('keeps a completed interview', async () => {
+      repository.findById!.mockResolvedValue(interview({ status: 'completed' }));
+      await expect(service.remove(recruiter, INTERVIEW_ID)).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.COMPLETED_NOT_DELETABLE,
+      });
+      expect(repository.deleteNotCompleted).not.toHaveBeenCalled();
+    });
+
+    it('reports an interview that was completed while the delete ran', async () => {
+      repository.deleteNotCompleted!.mockResolvedValue(null);
+      await expect(service.remove(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.STATE_CHANGED });
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.remove(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 404 });
+      expect(repository.deleteNotCompleted).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('detail', () => {
+    it('refuses a caller who is not a recruiter', async () => {
+      await expect(service.getDetail({ id: RECRUITER, role: 'user' }, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 403 });
+      expect(repository.findById).not.toHaveBeenCalled();
+    });
+
+    it('returns the participants, the job and the history, and flags when the interview can be completed', async () => {
+      const early = await service.getDetail(recruiter, INTERVIEW_ID);
+      expect(early).toMatchObject({
+        id: INTERVIEW_ID,
+        scheduledAt: IN_ONE_DAY,
+        applicant: { id: APPLICANT, email: `${APPLICANT}@example.com` },
+        interviewers: [{ id: INTERVIEWER_A }],
+        job: { id: JOB, title: 'Backend Engineer' },
+        canComplete: false,
+        statusHistory: [{ status: 'scheduled' }],
+      });
+
+      now = new Date('2026-10-13T03:00:00.000Z');
+      expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(true);
+
+      repository.findById!.mockResolvedValue(interview({ status: 'completed' }));
+      expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(false);
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.getDetail(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 404 });
+      repository.findById!.mockResolvedValue(null);
+      await expect(service.getDetail(recruiter, INTERVIEW_ID)).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
 });

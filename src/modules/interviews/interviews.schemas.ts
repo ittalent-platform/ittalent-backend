@@ -36,6 +36,9 @@ const interviewerIdsSchema = z
   .max(INTERVIEW_CONFIG.MAX_INTERVIEWERS)
   .refine((ids) => new Set(ids).size === ids.length, INTERVIEW_MESSAGES.DUPLICATE_INTERVIEWERS);
 
+export const interviewIdParamSchema = z.object({ id: objectIdSchema('interview ID') });
+export type InterviewIdParam = z.infer<typeof interviewIdParamSchema>;
+
 // strictObject: the client cannot smuggle in fields such as enterprise_id, applicant_id or status.
 export const createInterviewBodySchema = z.strictObject({
   applicationId: objectIdSchema('application ID'),

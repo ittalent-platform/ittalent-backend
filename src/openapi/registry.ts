@@ -6,6 +6,7 @@ import { registerDocumentsOpenApi } from '../modules/documents/documents.openapi
 import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerEnterpriseRegistrationsOpenApi } from '../modules/enterprise-registrations/enterprise-registrations.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
+import { registerInterviewsOpenApi } from '../modules/interviews/interviews.openapi.js';
 import { registerJobPostingsOpenApi } from '../modules/job-postings/job-postings.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 
@@ -25,3 +26,4 @@ registerUsersOpenApi(registry);
 registerEnterprisesOpenApi(registry);
 registerEnterpriseRegistrationsOpenApi(registry);
 registerApplicationsOpenApi(registry);
+registerInterviewsOpenApi(registry);
