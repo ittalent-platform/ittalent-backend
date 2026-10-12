@@ -109,6 +109,28 @@ export function registerEnterprisesOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
+  // UC-17 / UC-ME-ENT-01: View my enterprise profile (direct endpoint)
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/enterprises/my-profile',
+    tags: ['Enterprises'],
+    summary: 'View authenticated user enterprise profile',
+    description: 'Returns the full enterprise profile for the authenticated recruiter or owner (UC-17).',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Enterprise detailed profile',
+        content: { 'application/json': { schema: registeredDetail } },
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
+        description: 'Authentication required',
+      },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
+        description: 'Enterprise not found or user is not affiliated with an enterprise',
+      },
+    },
+  });
+
   // UC-ENT-02: Update an enterprise profile information
   registry.registerPath({
     method: 'patch',

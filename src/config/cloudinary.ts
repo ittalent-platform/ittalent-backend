@@ -6,6 +6,10 @@ import { env } from './env.js';
 
 let configured = false;
 
+export function isCloudinaryConfigured(): boolean {
+  return Boolean(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET);
+}
+
 export function getCloudinary(): typeof cloudinary {
   if (!configured) {
     if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {

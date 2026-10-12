@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInterviewBodyValidator } from '../../../src/modules/interviews/interviews.schemas.js';
+import {
+  createInterviewBodyValidator,
+  interviewCalendarQueryValidator,
+  interviewListQueryValidator,
+  interviewLookupQuerySchema,
+  parseInterviewStatusFilter,
+  updateInterviewBodyValidator,
+  updateInterviewStatusBodySchema,
+} from '../../../src/modules/interviews/interviews.schemas.js';
 
 const APPLICATION = 'b00000000000000000000001';
 const INTERVIEWER = 'a00000000000000000000002';
@@ -45,3 +53,115 @@ describe('createInterviewBodyValidator', () => {
   });
 });
 
+describe('updateInterviewBodyValidator', () => {
+  it('accepts a partial update and null to clear a field', () => {
+    expect(updateInterviewBodyValidator.safeParse({ notes: 'x' }).success).toBe(true);
+    expect(updateInterviewBodyValidator.safeParse({ meetingLink: null, location: 'Floor 5', mode: 'onsite' }).success).toBe(true);
+  });
+
+  it.each([
+    ['an empty body', {}],
+    ['only undefined values', { notes: undefined }],
+    ['the application', { applicationId: APPLICATION }],
+    ['the status', { status: 'completed' }],
+    ['an http link', { meetingLink: 'http://x.example.com' }],
+    ['no interviewer', { interviewerIds: [] }],
+  ])('rejects %s', (_label, body) => {
+    expect(updateInterviewBodyValidator.safeParse(body).success).toBe(false);
+  });
+});
+
+describe('updateInterviewStatusBodySchema', () => {
+  it.each(['completed', 'cancelled', 'no_show'])('accepts %s', (status) => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status }).success).toBe(true);
+  });
+
+  it.each(['scheduled', 'done', ''])('rejects %s', (status) => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status }).success).toBe(false);
+  });
+
+  it('limits the note', () => {
+    expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'x'.repeat(501) }).success).toBe(false);
+    expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'Role closed' }).success).toBe(true);
+  });
+});
+
+describe('interviewListQueryValidator', () => {
+  it('applies the defaults', () => {
+    expect(interviewListQueryValidator.parse({})).toEqual({ page: 1, limit: 20, sortBy: 'scheduledAt', sortOrder: 'asc' });
+  });
+
+  it('parses the filters from a query string', () => {
+    const parsed = interviewListQueryValidator.parse({
+      page: '2',
+      limit: '5',
+      status: 'scheduled,completed',
+      mode: 'online',
+      search: '  nguyen ',
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-31T00:00:00.000Z',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    });
+    expect(parsed).toMatchObject({ page: 2, limit: 5, search: 'nguyen', sortBy: 'createdAt', sortOrder: 'desc' });
+    expect(parsed.from).toBeInstanceOf(Date);
+    expect(parseInterviewStatusFilter(parsed.status ?? '')).toEqual(['scheduled', 'completed']);
+  });
+
+  it.each([
+    ['an unsupported status', { status: 'archived' }],
+    ['a status list with an unsupported item', { status: 'scheduled,archived' }],
+    ['an unsupported sort field', { sortBy: 'company' }],
+    ['an unsupported sort order', { sortOrder: 'sideways' }],
+    ['page zero', { page: '0' }],
+    ['an oversized limit', { limit: '1000' }],
+    ['a blank keyword', { search: '   ' }],
+    ['a keyword over 100 characters', { search: 'x'.repeat(101) }],
+    ['a malformed job id', { jobId: 'abc' }],
+    ['an unsupported filter', { company: 'Nova' }],
+    ['a date that is not a date', { from: 'soon' }],
+    ['from after to', { from: '2026-10-31T00:00:00.000Z', to: '2026-10-01T00:00:00.000Z' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewListQueryValidator.safeParse(query).success).toBe(false);
+  });
+});
+
+describe('interviewCalendarQueryValidator', () => {
+  const window = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T00:00:00.000Z' };
+
+  it('accepts a window with filters', () => {
+    expect(interviewCalendarQueryValidator.safeParse({ ...window, status: 'scheduled', mode: 'onsite' }).success).toBe(true);
+  });
+
+  it('accepts a window of exactly 62 days and rejects a longer one', () => {
+    expect(interviewCalendarQueryValidator.safeParse({ from: '2026-10-01T00:00:00.000Z', to: '2026-12-02T00:00:00.000Z' }).success).toBe(true);
+    expect(interviewCalendarQueryValidator.safeParse({ from: '2026-10-01T00:00:00.000Z', to: '2026-12-02T00:00:00.001Z' }).success).toBe(false);
+  });
+
+  it.each([
+    ['no window', {}],
+    ['no start', { to: window.to }],
+    ['no end', { from: window.from }],
+    ['from after to', { from: window.to, to: window.from }],
+    ['paging, which the calendar does not use', { ...window, page: '1' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewCalendarQueryValidator.safeParse(query).success).toBe(false);
+  });
+});
+
+describe('interviewLookupQuerySchema', () => {
+  it('defaults the limit and trims the keyword', () => {
+    expect(interviewLookupQuerySchema.parse({})).toEqual({ limit: 20 });
+    expect(interviewLookupQuerySchema.parse({ search: '  bao ', limit: '5' })).toEqual({ search: 'bao', limit: 5 });
+  });
+
+  it.each([
+    ['a blank keyword', { search: '   ' }],
+    ['a limit of zero', { limit: '0' }],
+    ['a limit above the maximum', { limit: '51' }],
+    ['a keyword that is too long', { search: 'x'.repeat(101) }],
+    ['a parameter that is not supported', { page: '2' }],
+  ])('rejects %s', (_label, query) => {
+    expect(interviewLookupQuerySchema.safeParse(query).success).toBe(false);
+  });
+});

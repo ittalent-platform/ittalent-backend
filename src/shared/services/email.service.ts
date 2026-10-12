@@ -160,6 +160,50 @@ export async function sendEnterpriseRegistrationMagicLink(
   });
 }
 
+export async function sendEnterpriseRejectionEmail(
+  to: string,
+  companyName: string,
+  reason: string,
+): Promise<void> {
+  const safeCompany = escapeHtml(companyName);
+  const safeReason = escapeHtml(reason);
+  await sendEmail({
+    to,
+    subject: `Update on your ITTalent enterprise registration for ${safeCompany}`,
+    html: `
+      <p>Hello,</p>
+      <p>Thank you for submitting a registration application for <strong>${safeCompany}</strong> on ITTalent.</p>
+      <p>After careful review of your documents and company information, we regret to inform you that we cannot approve your registration at this time for the following reason:</p>
+      <blockquote><p>${safeReason}</p></blockquote>
+      <p>If you believe this was an error or wish to submit updated documentation, you are welcome to initiate a new registration.</p>
+      <p>Sincerely,<br/>The ITTalent Verification Team</p>
+    `,
+  });
+}
+
+export async function sendEnterpriseAdminInvitationEmail(
+  to: string,
+  representativeName: string,
+  companyName: string,
+  invitationUrl: string,
+): Promise<void> {
+  const safeName = escapeHtml(representativeName);
+  const safeCompany = escapeHtml(companyName);
+  const safeUrl = escapeHtml(invitationUrl);
+  await sendEmail({
+    to,
+    subject: `Welcome to ITTalent: Activate your enterprise account for ${safeCompany}`,
+    html: `
+      <p>Hello ${safeName},</p>
+      <p>Congratulations! Your enterprise registration for <strong>${safeCompany}</strong> has been approved by the ITTalent verification team.</p>
+      <p>Please click the link below to accept the invitation and configure your enterprise administrator account:</p>
+      <p><a href="${safeUrl}">Accept invitation and activate administrator account</a></p>
+      <p>This single-use invitation link expires in 7 days.</p>
+      <p>Welcome aboard,<br/>The ITTalent Team</p>
+    `,
+  });
+}
+
 export type InterviewEmailKind = 'scheduled' | 'updated' | 'cancelled';
 
 export interface InterviewEmailInput {

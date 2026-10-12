@@ -28,6 +28,7 @@ let mockService: Partial<ApplicationsService>;
     status: 'submitted',
     reviewStage: null,
     submittedDocuments: [],
+    certificates: [],
     message: null,
     attachments: [],
     canWithdraw: true,

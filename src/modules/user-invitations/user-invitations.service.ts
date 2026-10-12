@@ -10,6 +10,7 @@ import { sendUserInvitationEmail } from '../../shared/services/email.service.js'
 import { AUTH_CONFIG } from '../auth/auth.constants.js';
 import { authRepository, type AuthRepository } from '../auth/auth.repository.js';
 import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
+import { enterpriseRegistrationsService, type EnterpriseRegistrationsService } from '../enterprise-registrations/enterprise-registrations.service.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
 import type { CancelInvitationBody, CreateAdminUserBody } from '../users/users.schemas.js';
 import { usersService, type UsersService } from '../users/users.service.js';
@@ -28,6 +29,7 @@ export class UserInvitationsService {
     private readonly audits: UserAuditsService = userAuditsService,
     private readonly auth: AuthRepository = authRepository,
     private readonly enterprises: EnterprisesService = enterprisesService,
+    private readonly registrations: EnterpriseRegistrationsService = enterpriseRegistrationsService,
   ) {}
 
   private hashToken(token: string): string { return createHash('sha256').update(token).digest('hex'); }
@@ -61,6 +63,9 @@ export class UserInvitationsService {
         if (!currentActor || currentActor.role !== 'admin' || currentActor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
         if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId), session))) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
         if (enterpriseId && !await this.users.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
+        if (await this.registrations.hasIncompleteOnboarding(input.email, enterpriseId, session)) {
+          throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ONBOARDING_PENDING, 'ENTERPRISE_ONBOARDING_PENDING');
+        }
         if (await this.users.existsByEmailOrUsername(input.email, input.username, session)) {
           throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT, 'ACCOUNT_CONFLICT');
         }
