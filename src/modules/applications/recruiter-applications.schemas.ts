@@ -130,3 +130,101 @@ export const recruiterApplicationListResponseSchema = z.object({
 export type RecruiterApplicationListResponse = z.infer<
   typeof recruiterApplicationListResponseSchema
 >;
+
+export const recruiterAttachmentDtoSchema = z.object({
+  documentId: z.string(),
+  type: z.enum(recruiterApplicationDocumentTypes),
+  fileName: z.string(),
+  mimeType: z.string(),
+  size: z.number().int().min(0),
+  submittedAt: z.string(),
+});
+export type RecruiterAttachmentDTO = z.infer<
+  typeof recruiterAttachmentDtoSchema
+>;
+
+export const recruiterInterviewTimelineEntrySchema = z.object({
+  id: z.string(),
+  scheduledAt: z.string(),
+  endsAt: z.string(),
+  durationMinutes: z.number().int().min(1),
+  mode: z.enum(['online', 'onsite']),
+  meetingLink: z.string().nullable(),
+  location: z.string().nullable(),
+  status: z.enum(['scheduled', 'completed', 'cancelled', 'no_show']),
+  notes: z.string().nullable(),
+});
+export type RecruiterInterviewTimelineEntryDTO = z.infer<
+  typeof recruiterInterviewTimelineEntrySchema
+>;
+
+export const recruiterNoteEntryDtoSchema = z.object({
+  authorId: z.string(),
+  authorName: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+});
+export type RecruiterNoteEntryDTO = z.infer<
+  typeof recruiterNoteEntryDtoSchema
+>;
+
+export const recruiterStatusHistoryEntryDtoSchema = z.object({
+  status: z.enum(applicationStatuses),
+  reviewStage: z.enum(REVIEW_STAGES).nullable(),
+  actorRole: z.string().nullable(),
+  note: z.string().nullable(),
+  messageToCandidate: z.string().nullable(),
+  rejectionReason: z.string().nullable(),
+  occurredAt: z.string(),
+});
+export type RecruiterStatusHistoryEntryDTO = z.infer<
+  typeof recruiterStatusHistoryEntryDtoSchema
+>;
+
+export const recruiterApplicationDetailDtoSchema = z.object({
+  id: z.string(),
+  job: z.object({
+    id: z.string(),
+    title: z.string(),
+    location: z.string().nullable(),
+    employmentType: z.string().nullable(),
+    department: z.string().nullable(),
+    status: z.string(),
+    expiresAt: z.string().nullable(),
+  }),
+  applicant: z.object({
+    id: z.string(),
+    fullName: z.string().nullable(),
+    email: z.string(),
+    phone: z.string().nullable(),
+    role: z.string(),
+    status: z.string(),
+  }),
+  status: z.enum(applicationStatuses),
+  reviewStage: z.enum(REVIEW_STAGES).nullable(),
+  message: z.string().nullable(),
+  withdrawalReason: z.string().nullable(),
+  attachments: z.array(recruiterAttachmentDtoSchema),
+  interviews: z.array(recruiterInterviewTimelineEntrySchema),
+  notes: z.array(recruiterNoteEntryDtoSchema),
+  statusHistory: z.array(recruiterStatusHistoryEntryDtoSchema),
+  version: z.number().int().min(0),
+  submittedAt: z.string(),
+  latestStatusAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type RecruiterApplicationDetailDTO = z.infer<
+  typeof recruiterApplicationDetailDtoSchema
+>;
+
+export const recruiterApplicationCvMetadataDtoSchema = z.object({
+  documentId: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  size: z.number().int().min(1),
+  fileUrl: z.string(),
+});
+export type RecruiterApplicationCvMetadataDTO = z.infer<
+  typeof recruiterApplicationCvMetadataDtoSchema
+>;

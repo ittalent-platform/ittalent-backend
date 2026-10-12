@@ -6,6 +6,8 @@ import {
   recruiterApplicationListQueryValidator,
   recruiterApplicationSummaryDtoSchema,
   recruiterApplicationListResponseSchema,
+  recruiterApplicationDetailDtoSchema,
+  recruiterApplicationCvMetadataDtoSchema,
 } from '../../../src/modules/applications/recruiter-applications.schemas.js';
 
 describe('Recruiter Applications Schemas (PR 2)', () => {
@@ -157,4 +159,167 @@ describe('Recruiter Applications Schemas (PR 2)', () => {
       expect(parsed.statusCounts.position_filled).toBe(0);
     });
   });
+
+  describe('recruiterApplicationDetailDtoSchema (PR 3)', () => {
+    const validDetail = {
+      id: '507f1f77bcf86cd799439011',
+      job: {
+        id: '507f1f77bcf86cd799439012',
+        title: 'Backend Engineer',
+        location: 'Remote',
+        employmentType: 'full_time',
+        department: 'Engineering',
+        status: 'published',
+        expiresAt: '2026-12-31T23:59:59.000Z',
+      },
+      applicant: {
+        id: '507f1f77bcf86cd799439013',
+        fullName: 'Nguyễn Văn A',
+        email: 'applicant@example.com',
+        phone: '0901234567',
+        role: 'candidate',
+        status: 'active',
+      },
+      status: 'under_review' as const,
+      reviewStage: 'screening' as const,
+      message: 'Looking forward to hearing from you.',
+      withdrawalReason: null,
+      attachments: [
+        {
+          documentId: '507f1f77bcf86cd799439015',
+          fileName: 'My_CV.pdf',
+          type: 'cv' as const,
+          size: 102400,
+          mimeType: 'application/pdf',
+          submittedAt: '2026-10-12T10:00:00.000Z',
+        },
+      ],
+      interviews: [
+        {
+          id: '507f1f77bcf86cd799439016',
+          scheduledAt: '2026-10-15T09:00:00.000Z',
+          endsAt: '2026-10-15T10:00:00.000Z',
+          durationMinutes: 60,
+          mode: 'online' as const,
+          meetingLink: 'https://meet.google.com/xyz',
+          location: null,
+          status: 'scheduled' as const,
+          notes: 'Technical interview round 1',
+        },
+      ],
+      notes: [
+        {
+          authorId: '507f1f77bcf86cd799439017',
+          authorName: 'Recruiter Lead',
+          content: 'Strong background in Node.js and MongoDB.',
+          createdAt: '2026-10-12T11:00:00.000Z',
+        },
+      ],
+      statusHistory: [
+        {
+          status: 'submitted' as const,
+          reviewStage: null,
+          actorRole: 'candidate',
+          note: null,
+          messageToCandidate: null,
+          rejectionReason: null,
+          occurredAt: '2026-10-12T10:00:00.000Z',
+        },
+        {
+          status: 'under_review' as const,
+          reviewStage: 'screening' as const,
+          actorRole: 'recruiter',
+          note: 'Moved to screening stage',
+          messageToCandidate: null,
+          rejectionReason: null,
+          occurredAt: '2026-10-12T10:30:00.000Z',
+        },
+      ],
+      version: 1,
+      submittedAt: '2026-10-12T10:00:00.000Z',
+      latestStatusAt: '2026-10-12T10:30:00.000Z',
+      createdAt: '2026-10-12T10:00:00.000Z',
+      updatedAt: '2026-10-12T10:30:00.000Z',
+    };
+
+    it('parses valid application detail object successfully', () => {
+      const parsed = recruiterApplicationDetailDtoSchema.parse(validDetail);
+      expect(parsed.id).toBe('507f1f77bcf86cd799439011');
+      expect(parsed.job.title).toBe('Backend Engineer');
+      expect(parsed.applicant.email).toBe('applicant@example.com');
+      expect(parsed.attachments).toHaveLength(1);
+      expect(parsed.interviews).toHaveLength(1);
+      expect(parsed.notes).toHaveLength(1);
+      expect(parsed.statusHistory).toHaveLength(2);
+      expect(parsed.version).toBe(1);
+    });
+
+    it('allows nullable fields in detail object', () => {
+      const detailWithNulls = {
+        ...validDetail,
+        job: {
+          ...validDetail.job,
+          location: null,
+          employmentType: null,
+          department: null,
+          expiresAt: null,
+        },
+        applicant: {
+          ...validDetail.applicant,
+          fullName: null,
+          phone: null,
+        },
+        reviewStage: null,
+        message: null,
+        interviews: [],
+        notes: [],
+      };
+
+      const parsed = recruiterApplicationDetailDtoSchema.parse(detailWithNulls);
+      expect(parsed.applicant.fullName).toBeNull();
+      expect(parsed.job.location).toBeNull();
+      expect(parsed.reviewStage).toBeNull();
+      expect(parsed.interviews).toEqual([]);
+    });
+
+    it('rejects invalid status', () => {
+      const invalid = {
+        ...validDetail,
+        status: 'invalid_status',
+      };
+      const result = recruiterApplicationDetailDtoSchema.safeParse(invalid);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('recruiterApplicationCvMetadataDtoSchema (PR 3)', () => {
+    it('parses valid CV metadata object', () => {
+      const metadata = {
+        documentId: '507f1f77bcf86cd799439018',
+        fileName: 'resume.pdf',
+        mimeType: 'application/pdf',
+        size: 204800,
+        fileUrl: '/uploads/documents/resume.pdf',
+      };
+
+      const parsed = recruiterApplicationCvMetadataDtoSchema.parse(metadata);
+      expect(parsed.documentId).toBe('507f1f77bcf86cd799439018');
+      expect(parsed.fileName).toBe('resume.pdf');
+      expect(parsed.size).toBe(204800);
+    });
+
+    it('rejects non-positive file size', () => {
+      const invalid = {
+        documentId: '507f1f77bcf86cd799439018',
+        fileName: 'resume.pdf',
+        mimeType: 'application/pdf',
+        size: 0,
+        fileUrl: '/uploads/documents/resume.pdf',
+      };
+
+      const result = recruiterApplicationCvMetadataDtoSchema.safeParse(invalid);
+      expect(result.success).toBe(false);
+    });
+  });
 });
+
