@@ -51,6 +51,7 @@ export interface AdminUserMetadataResolver {
 
 // History keeps who/what changed without storing raw personal values: first and last character only.
 const MASK_EDGE_CHARS = 1;
+const MONGO_NO_TRANSACTION_ERROR_CODE = 20;
 function maskText(value: string): string {
   const hidden = value.length - MASK_EDGE_CHARS - MASK_EDGE_CHARS;
   return hidden <= 0 ? '*'.repeat(value.length) : `${value.slice(0, MASK_EDGE_CHARS)}${'*'.repeat(hidden)}${value.slice(-MASK_EDGE_CHARS)}`;
@@ -270,7 +271,7 @@ export class UsersService {
       const session = await mongoose.startSession();
       let result: UserDoc | null = null;
       try {
-        const runUpdate = async (sess?: mongoose.ClientSession) => {
+        const runUpdate = async (sess?: mongoose.ClientSession): Promise<void> => {
           const adminActor = sess
             ? await this.repository.findByIdWithSession(new Types.ObjectId(actorCtx.id), sess)
             : await this.repository.findById(actorCtx.id);
@@ -312,7 +313,7 @@ export class UsersService {
             await session.withTransaction(() => runUpdate(session));
           } catch (err: unknown) {
             if (isHttpError(err)) throw err;
-            if ((err as { code?: number })?.code === 20 || (err as Error)?.message?.includes('replica set member')) {
+            if ((err as { code?: number })?.code === MONGO_NO_TRANSACTION_ERROR_CODE || (err as Error)?.message?.includes('replica set member')) {
               await runUpdate();
             } else {
               throw err;

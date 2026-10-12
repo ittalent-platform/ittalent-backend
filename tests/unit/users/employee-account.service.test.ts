@@ -142,7 +142,7 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
       await expect(
         service.updateUser({ id: 'user-self', role: 'recruiter' }, 'user-self', {
           role: 'admin',
-        }),
+        } as never),
       ).rejects.toThrow(USER_MESSAGES.SELF_ROLE_CHANGE);
     });
 

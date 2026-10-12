@@ -5,7 +5,6 @@ import { paginatedResponseSchema, paginationQueryShape } from '../../shared/sche
 import {
   EMPLOYEE_ROLES,
   USER_DEFAULT_SORT,
-  USER_EDITABLE_ROLES,
   USER_EMAIL_MAX_LENGTH,
   USER_FILTER_MAX_VALUES,
   USER_FULL_NAME_LENGTH,
