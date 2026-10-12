@@ -136,4 +136,9 @@ export const REGISTRATION_MESSAGES = {
   REJECTION_REASON_REQUIRED: 'A rejection reason of at least 20 characters is mandatory to provide clear remediation feedback',
   CHECKLIST_INCOMPLETE: 'All verification checklist items must be verified prior to approving an enterprise account',
   TOKEN_INVALID_OR_EXPIRED: 'Verification link is invalid, revoked, or has expired. Please initiate a new registration',
+  DOCUMENT_FILE_REQUIRED: 'Document file is required',
+  DOCUMENT_FILE_EMPTY: 'Document file is empty',
+  PDF_DOCUMENT_REQUIRED: 'Only valid PDF files are accepted for enterprise legal documents',
+  DOCUMENT_FILE_SIZE_LIMIT: 'Document file cannot exceed 5MB',
+  SUBMISSION_SUCCESS: 'Enterprise registration submitted successfully for review',
 } as const;

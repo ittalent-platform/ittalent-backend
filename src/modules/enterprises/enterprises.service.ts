@@ -335,6 +335,14 @@ export class EnterprisesService {
     }
     return this.getEnterpriseById(enterpriseId, role, userId);
   }
+
+  async findByTaxCode(taxCode: string): Promise<EnterpriseDoc | null> {
+    return this.repository.findByTaxCode(taxCode);
+  }
+
+  async findByEmail(email: string): Promise<EnterpriseDoc | null> {
+    return this.repository.findByEmail(email);
+  }
 }
 
 export const enterprisesService = new EnterprisesService();

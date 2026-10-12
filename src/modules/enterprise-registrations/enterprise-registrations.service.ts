@@ -5,10 +5,17 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { sendEnterpriseRegistrationMagicLink } from '../../shared/services/email.service.js';
-import { enterprisesRepository, type EnterprisesRepository } from '../enterprises/enterprises.repository.js';
-import { usersRepository, type UsersRepository } from '../users/users.repository.js';
+import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
+import { usersService, type UsersService } from '../users/users.service.js';
+import { isValidPdf, storageService } from '../../shared/services/storage.service.js';
+import type {
+  EnterpriseRegistrationDoc,
+  LegalDocumentData,
+  RegistrationCompanyData,
+} from '../../models/enterprise-registration.model.js';
 import {
   BLOCKED_EMAIL_DOMAINS,
+  type LegalDocumentType,
   REGISTRATION_CONFIG,
   REGISTRATION_MESSAGES,
 } from './enterprise-registrations.constants.js';
@@ -17,7 +24,9 @@ import {
   type EnterpriseRegistrationsRepository,
 } from './enterprise-registrations.repository.js';
 import type {
+  SaveDraftDTO,
   StartRegistrationDTO,
+  SubmitRegistrationDTO,
 } from './enterprise-registrations.schemas.js';
 
 export interface StartRegistrationResult {
@@ -39,11 +48,19 @@ export interface VerifyEmailResult {
   };
 }
 
+export interface SubmissionReceiptResult {
+  registration_code: string;
+  status: string;
+  version: number;
+  submitted_at: string;
+  estimated_sla_days: number;
+}
+
 export class EnterpriseRegistrationsService {
   constructor(
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
-    private readonly enterpriseRepo: EnterprisesRepository = enterprisesRepository,
-    private readonly userRepo: UsersRepository = usersRepository,
+    private readonly enterpriseService: EnterprisesService = enterprisesService,
+    private readonly userService: UsersService = usersService,
   ) {}
 
   generateRegistrationCode(date = new Date()): string {
@@ -71,7 +88,7 @@ export class EnterpriseRegistrationsService {
       );
     }
 
-    const existingUser = await this.userRepo.findByEmail(corporateEmail);
+    const existingUser = await this.userService.findByEmail(corporateEmail);
     if (existingUser) {
       // [PRE-2 / BR-40 / EX1]: Candidate role conflict.
       // Users with active candidate/applicant accounts cannot request an enterprise.
@@ -93,7 +110,7 @@ export class EnterpriseRegistrationsService {
 
     // [PRE-2 / EX2]: Active organization conflict.
     // Email already belongs to an existing, verified enterprise entity.
-    const existingEnterprise = await this.enterpriseRepo.findByEmail(corporateEmail);
+    const existingEnterprise = await this.enterpriseService.findByEmail(corporateEmail);
     if (existingEnterprise) {
       throw createHttpError(
         HTTP_STATUS.HTTP_409_CONFLICT,
@@ -210,6 +227,237 @@ export class EnterpriseRegistrationsService {
         phone: registration.representative.phone,
         position: registration.representative.position,
       },
+    };
+  }
+
+  async getRegistration(idOrCode: string): Promise<EnterpriseRegistrationDoc> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+    return registration;
+  }
+
+  async saveDraft(idOrCode: string, payload: SaveDraftDTO): Promise<EnterpriseRegistrationDoc> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft mutation guard.
+    // Modifications are strictly permitted only while the case remains in 'draft' status.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== undefined && payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    if (payload.representative) {
+      registration.representative = {
+        full_name: payload.representative.full_name ?? registration.representative.full_name,
+        phone: payload.representative.phone ?? registration.representative.phone,
+        position: payload.representative.position ?? registration.representative.position,
+      };
+    }
+
+    if (payload.company_data) {
+      registration.company_data = {
+        name: payload.company_data.name ?? registration.company_data?.name ?? '',
+        legal_name: payload.company_data.legal_name ?? registration.company_data?.legal_name,
+        tax_code: payload.company_data.tax_code ?? registration.company_data?.tax_code ?? '',
+        registration_number: payload.company_data.registration_number ?? registration.company_data?.registration_number,
+        website: payload.company_data.website ?? registration.company_data?.website,
+        industry: payload.company_data.industry ?? registration.company_data?.industry ?? '',
+        sub_industries: payload.company_data.sub_industries ?? registration.company_data?.sub_industries,
+        company_size: payload.company_data.company_size ?? registration.company_data?.company_size ?? '1-10',
+        company_type: payload.company_data.company_type ?? registration.company_data?.company_type,
+        founded_year: payload.company_data.founded_year ?? registration.company_data?.founded_year,
+        address: {
+          street: payload.company_data.address?.street ?? registration.company_data?.address?.street ?? '',
+          city: payload.company_data.address?.city ?? registration.company_data?.address?.city ?? '',
+          district: payload.company_data.address?.district ?? registration.company_data?.address?.district,
+          state_province: payload.company_data.address?.state_province ?? registration.company_data?.address?.state_province,
+          country: payload.company_data.address?.country ?? registration.company_data?.address?.country ?? '',
+          postal_code: payload.company_data.address?.postal_code ?? registration.company_data?.address?.postal_code,
+        },
+        short_description: payload.company_data.short_description ?? registration.company_data?.short_description,
+        description: payload.company_data.description ?? registration.company_data?.description,
+      };
+    }
+
+    if (payload.legal_documents) {
+      registration.legal_documents = payload.legal_documents.map((doc) => ({
+        document_type: doc.document_type,
+        file_name: doc.file_name,
+        file_url: doc.file_url,
+        file_size: doc.file_size,
+        uploaded_at: new Date(),
+      }));
+    }
+
+    registration.version += 1;
+    await registration.save();
+    return registration;
+  }
+
+  async uploadLegalDocument(
+    idOrCode: string,
+    file: Express.Multer.File | undefined,
+    documentType: LegalDocumentType,
+  ): Promise<LegalDocumentData> {
+    if (!file) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.DOCUMENT_FILE_REQUIRED);
+    }
+
+    if (file.size <= 0) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.DOCUMENT_FILE_EMPTY);
+    }
+
+    // [BR-41 / EX4]: Mandatory PDF format integrity.
+    // Pure magic byte verification ensures file matches %PDF- specification.
+    if (!isValidPdf(file.buffer)) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.PDF_DOCUMENT_REQUIRED);
+    }
+
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft mutation guard.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    const uploadResult = await storageService.uploadFile({
+      buffer: file.buffer,
+      fileName: file.originalname,
+      folder: 'italent/enterprise-legal-documents',
+      prefix: `legal-${documentType}`,
+      resourceType: 'raw',
+      mimeType: 'application/pdf',
+    });
+
+    const docEntry: LegalDocumentData = {
+      document_type: documentType,
+      file_name: file.originalname,
+      file_url: uploadResult.fileUrl,
+      file_size: file.size,
+      uploaded_at: new Date(),
+    };
+
+    const currentDocs = registration.legal_documents ?? [];
+    const existingIndex = currentDocs.findIndex((d) => d.document_type === documentType);
+    if (existingIndex >= 0) {
+      currentDocs[existingIndex] = docEntry;
+    } else {
+      currentDocs.push(docEntry);
+    }
+    registration.legal_documents = currentDocs;
+    registration.version += 1;
+    await registration.save();
+
+    return docEntry;
+  }
+
+  async submitRegistration(
+    idOrCode: string,
+    payload: SubmitRegistrationDTO,
+  ): Promise<SubmissionReceiptResult> {
+    const registration = await this.repository.findByIdOrCode(idOrCode);
+    if (!registration) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REGISTRATION_MESSAGES.NOT_FOUND);
+    }
+
+    // [BR-40]: Draft status enforcement.
+    if (registration.status !== 'draft') {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.ALREADY_SUBMITTED);
+    }
+
+    // Optimistic concurrency control.
+    if (payload.version !== registration.version) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.INVALID_VERSION);
+    }
+
+    // [BR-41 / EX4]: Mandatory business registration certificate check.
+    const allLegalDocs = [
+      ...(registration.legal_documents ?? []),
+      ...payload.legal_documents,
+    ];
+    const hasBusinessLicense = allLegalDocs.some((d) => d.document_type === 'business_license');
+    if (!hasBusinessLicense) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REGISTRATION_MESSAGES.MISSING_LEGAL_DOCUMENTS);
+    }
+
+    // [BR-39]: Tax identification code uniqueness check against active registered enterprises.
+    const taxCode = payload.company_data.tax_code.trim();
+    const existingEnterprise = await this.enterpriseService.findByTaxCode(taxCode);
+    if (existingEnterprise) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.TAX_CODE_ALREADY_CLAIMED);
+    }
+
+    // [BR-42 / EX3]: Exclusive claim collision check against pending or under-review registrations.
+    const hasActiveConflict = await this.repository.hasActiveClaim(
+      registration.corporate_email,
+      taxCode,
+      registration._id,
+    );
+    if (hasActiveConflict) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.TAX_CODE_ALREADY_CLAIMED);
+    }
+
+    // Corporate email uniqueness check against registered enterprises.
+    const existingEmailEnterprise = await this.enterpriseService.findByEmail(registration.corporate_email);
+    if (existingEmailEnterprise) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.EMAIL_ALREADY_EXISTS);
+    }
+
+    // Merge finalized submission payload.
+    registration.representative = {
+      full_name: payload.representative.full_name,
+      phone: payload.representative.phone,
+      position: payload.representative.position,
+    };
+    registration.company_data = payload.company_data as RegistrationCompanyData;
+
+    // Merge legal documents if provided in payload.
+    if (payload.legal_documents && payload.legal_documents.length > 0) {
+      const mergedMap = new Map<string, LegalDocumentData>();
+      for (const doc of registration.legal_documents ?? []) {
+        mergedMap.set(doc.document_type, doc);
+      }
+      for (const doc of payload.legal_documents) {
+        mergedMap.set(doc.document_type, {
+          document_type: doc.document_type,
+          file_name: doc.file_name,
+          file_url: doc.file_url,
+          file_size: doc.file_size,
+          uploaded_at: new Date(),
+        });
+      }
+      registration.legal_documents = Array.from(mergedMap.values());
+    }
+
+    // [BR-42 / EX3]: Acquire exclusive claim locks.
+    const submittedAt = new Date();
+    registration.claim_locks = {
+      tax_code: taxCode,
+      corporate_email: registration.corporate_email,
+      locked_at: submittedAt,
+    };
+    registration.status = 'pending_review';
+    registration.version += 1;
+    await registration.save();
+
+    return {
+      registration_code: registration.registration_code,
+      status: registration.status,
+      version: registration.version,
+      submitted_at: submittedAt.toISOString(),
+      estimated_sla_days: 2,
     };
   }
 }
