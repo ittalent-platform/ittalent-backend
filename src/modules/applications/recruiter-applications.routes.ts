@@ -1,8 +1,9 @@
 import { Router } from 'express';
 
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { validateQuery } from '../../middleware/validate.js';
+import { validateParams, validateQuery } from '../../middleware/validate.js';
 import { RECRUITER_ROLES } from './applications.constants.js';
+import { applicationIdParamSchema } from './applications.schemas.js';
 import { recruiterApplicationsController } from './recruiter-applications.controller.js';
 import { recruiterApplicationListQueryValidator } from './recruiter-applications.schemas.js';
 
@@ -16,3 +17,22 @@ recruiterApplicationsRouter.get(
   validateQuery(recruiterApplicationListQueryValidator),
   recruiterApplicationsController.list,
 );
+
+// UC-S2-AA-02: Enterprise recruiter application detail view
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.getDetail,
+);
+
+// UC-S2-AA-04: Enterprise recruiter applicant CV download
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id/cv',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.downloadCv,
+);
+
