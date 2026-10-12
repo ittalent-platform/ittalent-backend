@@ -61,6 +61,22 @@ export const createInterviewBodyValidator = createInterviewBodySchema.superRefin
 });
 export type CreateInterviewBody = z.infer<typeof createInterviewBodySchema>;
 
+// `null` clears an optional field. The applicant and the application cannot change: schedule a new interview instead.
+export const updateInterviewBodySchema = z.strictObject({
+  interviewerIds: interviewerIdsSchema.optional(),
+  scheduledAt: scheduledAtSchema.optional(),
+  durationMinutes: durationSchema.optional(),
+  mode: z.enum(interviewModes).optional(),
+  meetingLink: meetingLinkSchema.nullable().optional(),
+  location: locationSchema.nullable().optional(),
+  notes: notesSchema.nullable().optional(),
+});
+export const updateInterviewBodyValidator = updateInterviewBodySchema.refine(
+  (data) => Object.values(data).some((value) => value !== undefined),
+  INTERVIEW_MESSAGES.EMPTY_UPDATE,
+);
+export type UpdateInterviewBody = z.infer<typeof updateInterviewBodySchema>;
+
 // ---- responses ----
 
 const participantDtoSchema = z.object({

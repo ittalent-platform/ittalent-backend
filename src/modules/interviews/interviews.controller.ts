@@ -6,6 +6,7 @@ import { INTERVIEW_MESSAGES } from './interviews.constants.js';
 import type {
   CreateInterviewBody,
   InterviewIdParam,
+  UpdateInterviewBody,
 } from './interviews.schemas.js';
 import { interviewsService, type InterviewActor, type InterviewsService } from './interviews.service.js';
 
@@ -34,6 +35,17 @@ export class InterviewsController {
     try {
       const params = res.locals.validated?.params as InterviewIdParam;
       const result = await this.service.getDetail(this.actorOf(req), params.id);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateInterview: RequestHandler = async (req, res, next) => {
+    try {
+      const params = res.locals.validated?.params as InterviewIdParam;
+      const body = res.locals.validated?.body as UpdateInterviewBody;
+      const result = await this.service.update(this.actorOf(req), params.id, body);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

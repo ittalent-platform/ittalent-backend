@@ -23,12 +23,14 @@ import {
 import {
   interviewsRepository,
   type InterviewsRepository,
+  type UpdateInterviewRecord,
 } from './interviews.repository.js';
 import {
   type CreateInterviewBody,
   type InterviewDetailDTO,
   type InterviewDTO,
   type InterviewParticipantDTO,
+  type UpdateInterviewBody,
 } from './interviews.schemas.js';
 
 export interface InterviewActor {
@@ -47,6 +49,10 @@ interface InterviewLookups {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function sameMembers(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 export class InterviewsService {
@@ -111,6 +117,70 @@ export class InterviewsService {
 
     const detail = await this.hydrateDetail(created);
     await this.notify('scheduled', detail, scope.enterpriseId);
+    return detail;
+  }
+
+  async update(actor: InterviewActor, id: string, body: UpdateInterviewBody): Promise<InterviewDetailDTO> {
+    const scope = await this.resolveScope(actor);
+    const existing = await this.loadScoped(scope, id);
+    if (existing.status !== INTERVIEW_EDITABLE_STATUS) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.NOT_EDITABLE, INTERVIEW_ERROR_CODES.NOT_EDITABLE);
+    }
+
+    const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : existing.scheduled_at;
+    // An unchanged time is left alone even if it has passed, so notes can still be edited during the interview.
+    const timeChanged = scheduledAt.getTime() !== existing.scheduled_at.getTime();
+    if (timeChanged) {
+      this.assertInFuture(scheduledAt);
+    }
+    const durationMinutes = body.durationMinutes ?? existing.duration_minutes;
+    const mode = body.mode ?? existing.mode;
+    this.assertModeDetails(
+      mode,
+      this.resolveNullable(body.meetingLink, existing.meeting_link),
+      this.resolveNullable(body.location, existing.location),
+    );
+
+    const previousInterviewerIds = existing.interviewer_ids.map(String);
+    const interviewerIds = body.interviewerIds ?? previousInterviewerIds;
+    this.assertDistinctInterviewers(interviewerIds);
+    const interviewersChanged = !sameMembers(interviewerIds, previousInterviewerIds);
+    if (interviewersChanged) {
+      await this.assertInterviewers(scope.enterpriseId, interviewerIds);
+    }
+
+    const endsAt = this.endOf(scheduledAt, durationMinutes);
+    if (timeChanged || interviewersChanged || durationMinutes !== existing.duration_minutes) {
+      await this.assertNoConflict({
+        interviewerIds,
+        applicantId: String(existing.applicant_id),
+        startsAt: scheduledAt,
+        endsAt,
+        excludeId: id,
+      });
+    }
+
+    const record: UpdateInterviewRecord = {
+      interviewerIds,
+      scheduledAt,
+      endsAt,
+      durationMinutes,
+      mode,
+      meetingLink: body.meetingLink,
+      location: body.location,
+      notes: body.notes,
+    };
+    const updated = await this.repository.updateScheduled(id, record);
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+
+    const detail = await this.hydrateDetail(updated);
+    await this.notify('updated', detail, scope.enterpriseId);
+    const removedIds = previousInterviewerIds.filter((interviewerId) => !interviewerIds.includes(interviewerId));
+    if (removedIds.length > 0) {
+      await this.notifyRemovedInterviewers(existing, removedIds, scope.enterpriseId);
+    }
     return detail;
   }
 
@@ -186,6 +256,11 @@ export class InterviewsService {
     if (mode === 'onsite' && !location) {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, INTERVIEW_MESSAGES.ONSITE_LOCATION_REQUIRED);
     }
+  }
+
+  // `undefined` keeps the stored value, `null` clears it, a value replaces it.
+  private resolveNullable(patch: string | null | undefined, current: string | undefined): string | undefined {
+    return patch === undefined ? current : (patch ?? undefined);
   }
 
   // Every interviewer must be an active recruiter of the same enterprise.
@@ -344,6 +419,19 @@ export class InterviewsService {
     });
   }
 
+  // Interviewers taken off an interview are told it no longer involves them, using the time they had been given.
+  private async notifyRemovedInterviewers(previous: InterviewDoc, removedIds: string[], enterpriseId: string): Promise<void> {
+    await this.safely(async () => {
+      const dto = await this.hydrateOne(previous);
+      const removed = await this.users.findByIds(removedIds);
+      await this.notify(
+        'cancelled',
+        dto,
+        enterpriseId,
+        removed.map((user) => ({ id: String(user._id), fullName: user.full_name ?? null, email: user.email })),
+      );
+    });
+  }
 }
 
 export const interviewsService = new InterviewsService();

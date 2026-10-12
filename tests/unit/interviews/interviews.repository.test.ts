@@ -77,6 +77,22 @@ describe('InterviewsRepository', () => {
       expect(document).not.toHaveProperty('notes');
     });
 
+    it('updates only while scheduled, setting given fields and unsetting the ones sent as null', async () => {
+      const update = vi.spyOn(Interview, 'findOneAndUpdate').mockReturnValue(query(null) as never);
+      await repository.updateScheduled('i1', {
+        durationMinutes: 30,
+        notes: 'New note',
+        meetingLink: null,
+        location: undefined,
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        { _id: 'i1', status: 'scheduled' },
+        { $set: { duration_minutes: 30, notes: 'New note' }, $unset: { meeting_link: '' } },
+        { returnDocument: 'after' },
+      );
+    });
+
     it('never deletes a completed interview', async () => {
       const remove = vi.spyOn(Interview, 'findOneAndDelete').mockReturnValue(query(null) as never);
       await repository.deleteNotCompleted('i1');

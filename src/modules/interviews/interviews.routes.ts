@@ -7,6 +7,7 @@ import { interviewsController } from './interviews.controller.js';
 import {
   createInterviewBodyValidator,
   interviewIdParamSchema,
+  updateInterviewBodyValidator,
 } from './interviews.schemas.js';
 
 export const interviewsRouter = Router();
@@ -18,5 +19,13 @@ const manageInterviews = [authenticate, authorize(INTERVIEW_MANAGER_ROLE)];
 interviewsRouter.post('/', ...manageInterviews, validateBody(createInterviewBodyValidator), interviewsController.createInterview);
 
 interviewsRouter.get('/:id', ...manageInterviews, validateParams(interviewIdParamSchema), interviewsController.getDetail);
+
+interviewsRouter.patch(
+  '/:id',
+  ...manageInterviews,
+  validateParams(interviewIdParamSchema),
+  validateBody(updateInterviewBodyValidator),
+  interviewsController.updateInterview,
+);
 
 interviewsRouter.delete('/:id', ...manageInterviews, validateParams(interviewIdParamSchema), interviewsController.deleteInterview);

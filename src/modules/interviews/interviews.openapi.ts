@@ -5,10 +5,12 @@ import {
   createInterviewBodySchema,
   interviewDetailDtoSchema,
   interviewIdParamSchema,
+  updateInterviewBodySchema,
 } from './interviews.schemas.js';
 
 export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
   const registeredCreate = registry.register('CreateInterviewRequest', createInterviewBodySchema);
+  const registeredUpdate = registry.register('UpdateInterviewRequest', updateInterviewBodySchema);
   const registeredDetail = registry.register('InterviewDetailDTO', interviewDetailDtoSchema);
 
   const authErrors = {
@@ -55,6 +57,31 @@ export function registerInterviewsOpenApi(registry: OpenAPIRegistry): void {
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: { description: 'Interview detail', content: { 'application/json': { schema: registeredDetail } } },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid interview ID' },
+      ...notFound,
+      ...authErrors,
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/interviews/{id}',
+    tags: ['Interviews'],
+    summary: 'Update the information of a scheduled interview',
+    description:
+      'Recruiter only, and only while the interview is `scheduled`. Send only the fields to change; `null` clears ' +
+      '`meetingLink`, `location` or `notes`. A new time must be in the future and overlap nothing else. ' +
+      'The participants are emailed the new details, and interviewers who were removed are told it no longer involves them.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: interviewIdParamSchema,
+      body: { required: true, content: { 'application/json': { schema: registeredUpdate } } },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Interview updated', content: { 'application/json': { schema: registeredDetail } } },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Validation failed, time in the past, or an interviewer is not eligible' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: {
+        description: 'INTERVIEW_NOT_EDITABLE, INTERVIEWER_CONFLICT, APPLICANT_CONFLICT or INTERVIEW_STATE_CHANGED',
+      },
       ...notFound,
       ...authErrors,
     },

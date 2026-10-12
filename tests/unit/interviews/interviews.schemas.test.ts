@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInterviewBodyValidator } from '../../../src/modules/interviews/interviews.schemas.js';
+import {
+  createInterviewBodyValidator,
+  updateInterviewBodyValidator,
+} from '../../../src/modules/interviews/interviews.schemas.js';
 
 const APPLICATION = 'b00000000000000000000001';
 const INTERVIEWER = 'a00000000000000000000002';
@@ -42,6 +45,24 @@ describe('createInterviewBodyValidator', () => {
     ['empty notes', { notes: '   ' }],
   ])('rejects %s', (_label, overrides) => {
     expect(createInterviewBodyValidator.safeParse({ ...validCreate, ...overrides }).success).toBe(false);
+  });
+});
+
+describe('updateInterviewBodyValidator', () => {
+  it('accepts a partial update and null to clear a field', () => {
+    expect(updateInterviewBodyValidator.safeParse({ notes: 'x' }).success).toBe(true);
+    expect(updateInterviewBodyValidator.safeParse({ meetingLink: null, location: 'Floor 5', mode: 'onsite' }).success).toBe(true);
+  });
+
+  it.each([
+    ['an empty body', {}],
+    ['only undefined values', { notes: undefined }],
+    ['the application', { applicationId: APPLICATION }],
+    ['the status', { status: 'completed' }],
+    ['an http link', { meetingLink: 'http://x.example.com' }],
+    ['no interviewer', { interviewerIds: [] }],
+  ])('rejects %s', (_label, body) => {
+    expect(updateInterviewBodyValidator.safeParse(body).success).toBe(false);
   });
 });
 
