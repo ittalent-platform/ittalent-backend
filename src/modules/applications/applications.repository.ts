@@ -2,6 +2,7 @@ import { Types, type QueryFilter } from 'mongoose';
 
 import {
   Application,
+  type ApplicationCertificateSnapshot,
   type ApplicationData,
   type ApplicationDoc,
   type ApplicationStatus,
@@ -35,6 +36,29 @@ export interface FindApplicationsPageParams {
   filters: ApplicationListFilters;
 }
 
+export interface RecruiterApplicationListFilters {
+  jobIds: string[];
+  applicantIds?: string[] | undefined;
+  applicationIds?: string[] | undefined;
+  statuses?: ApplicationStatus[] | undefined;
+  documentType?: 'cv' | 'cover_letter' | undefined;
+  submittedFrom?: Date | undefined;
+  submittedTo?: Date | undefined;
+  searchOr?: {
+    jobIds?: string[];
+    applicantIds?: string[];
+    applicationIds?: string[];
+  } | undefined;
+}
+
+export interface FindRecruiterApplicationsPageParams {
+  page: number;
+  limit: number;
+  sortBy: ApplicationSortField;
+  sortOrder: ApplicationSortOrder;
+  filters: RecruiterApplicationListFilters;
+}
+
 export interface SubmitApplicationData {
   jobId: Types.ObjectId | string;
   applicantId: Types.ObjectId | string;
@@ -45,6 +69,7 @@ export interface SubmitApplicationData {
   changedBy: string;
   // BR-APP-010: the closed (Withdrawn/Rejected) record this application replaces.
   reappliedFrom?: Types.ObjectId | string | undefined;
+  certificates?: ApplicationCertificateSnapshot[];
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -57,6 +82,16 @@ function isDuplicateKeyError(error: unknown): boolean {
 }
 
 export class ApplicationsRepository {
+  // Documents call this through ApplicationsService so the document repository never reaches
+  // across the bounded-context boundary to the Application model.
+  async isDocumentReferenced(documentId: string): Promise<boolean> {
+    return (
+      (await Application.exists({
+        $or: [{ cv_id: documentId }, { cover_letter_id: documentId }],
+      }).exec()) !== null
+    );
+  }
+
   // The pair can hold up to two records (BR-APP-010); the latest one decides what the applicant may do next.
   async findLatestByJobAndApplicant(
     jobId: Types.ObjectId | string,
@@ -76,6 +111,18 @@ export class ApplicationsRepository {
     return Application.countDocuments({ job_id: jobId, status: APPLICATION_HIRED_STATUS }).exec();
   }
 
+  async countCertificatesSent(applicantId: string, certificateIds: string[]): Promise<Map<string, number>> {
+    if (!certificateIds.length) return new Map();
+    const ids = certificateIds.map((id) => new Types.ObjectId(id));
+    const rows = await Application.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { applicant_id: new Types.ObjectId(applicantId), 'certificates.certificate_id': { $in: ids } } },
+      { $unwind: '$certificates' },
+      { $match: { 'certificates.certificate_id': { $in: ids } } },
+      { $group: { _id: '$certificates.certificate_id', count: { $sum: 1 } } },
+    ]).exec();
+    return new Map(rows.map((row) => [String(row._id), row.count]));
+  }
+
   // Returns null when the partial unique (job, applicant) index rejects the insert, i.e. another active
   // application exists (a concurrent duplicate). A reapplication also marks the closed record it replaces.
   // Compensation only: removes an application saved for a job that was deleted at the same moment.
@@ -91,6 +138,7 @@ export class ApplicationsRepository {
         cv_id: data.cvId,
         ...(data.coverLetterId ? { cover_letter_id: data.coverLetterId } : {}),
         ...(data.message ? { message: data.message } : {}),
+        ...(data.certificates?.length ? { certificates: data.certificates } : {}),
         ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}),
         status: APPLICATION_INITIAL_STATUS,
         status_history: [this.buildHistoryEntry(data.changedBy)],
@@ -203,6 +251,121 @@ export class ApplicationsRepository {
       changed_at: new Date(),
       changed_by: changedBy,
     };
+  }
+
+  // ---- Recruiter application listing & status counting (UC-S2-AA-01, 05, 06) ----
+
+  private buildRecruiterFilter(filters: RecruiterApplicationListFilters): QueryFilter<ApplicationData> {
+    const filter: QueryFilter<ApplicationData> = {
+      job_id: { $in: filters.jobIds.map((id) => new Types.ObjectId(id)) },
+    };
+
+    if (filters.statuses?.length) {
+      filter.status = { $in: filters.statuses };
+    }
+
+    if (filters.searchOr) {
+      const orConditions: QueryFilter<ApplicationData>[] = [];
+      if (filters.searchOr.jobIds?.length) {
+        orConditions.push({ job_id: { $in: filters.searchOr.jobIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (filters.searchOr.applicantIds?.length) {
+        orConditions.push({ applicant_id: { $in: filters.searchOr.applicantIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (filters.searchOr.applicationIds?.length) {
+        orConditions.push({ _id: { $in: filters.searchOr.applicationIds.map((id) => new Types.ObjectId(id)) } });
+      }
+      if (orConditions.length > 0) {
+        filter.$or = orConditions;
+      }
+    } else {
+      if (filters.applicantIds?.length) {
+        filter.applicant_id = { $in: filters.applicantIds.map((id) => new Types.ObjectId(id)) };
+      }
+      if (filters.applicationIds?.length) {
+        filter._id = { $in: filters.applicationIds.map((id) => new Types.ObjectId(id)) };
+      }
+    }
+
+    if (filters.documentType === 'cv') {
+      filter.cv_id = { $exists: true, $ne: null as unknown as Types.ObjectId };
+    } else if (filters.documentType === 'cover_letter') {
+      filter.cover_letter_id = { $exists: true, $ne: null as unknown as Types.ObjectId };
+    }
+
+    if (filters.submittedFrom || filters.submittedTo) {
+      filter.createdAt = {
+        ...(filters.submittedFrom ? { $gte: filters.submittedFrom } : {}),
+        ...(filters.submittedTo ? { $lt: new Date(filters.submittedTo.getTime() + TIME_MS.ONE_DAY) } : {}),
+      };
+    }
+
+    return filter;
+  }
+
+  async findPageForRecruiter(
+    params: FindRecruiterApplicationsPageParams,
+  ): Promise<{ items: ApplicationDoc[]; total: number }> {
+    if (params.filters.jobIds.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    const filter = this.buildRecruiterFilter(params.filters);
+    const [items, total] = await Promise.all([
+      Application.find(filter)
+        .sort(this.buildSort(params.sortBy, params.sortOrder))
+        .skip((params.page - 1) * params.limit)
+        .limit(params.limit)
+        .lean<ApplicationDoc[]>()
+        .exec(),
+      Application.countDocuments(filter).exec(),
+    ]);
+
+    return { items, total };
+  }
+
+  async countByStatusForRecruiter(
+    filters: RecruiterApplicationListFilters,
+  ): Promise<Record<ApplicationStatus, number>> {
+    const counts = createEmptyStatusCounts();
+    if (filters.jobIds.length === 0) {
+      return counts;
+    }
+
+    const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
+      { $match: this.buildRecruiterFilter(filters) },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]).exec();
+
+    for (const row of rows) {
+      counts[row._id] = row.count;
+    }
+
+    return counts;
+  }
+
+  async findById(id: string | Types.ObjectId): Promise<ApplicationDoc | null> {
+    if (!Types.ObjectId.isValid(id)) {
+      return null;
+    }
+    return Application.findById(id).lean<ApplicationDoc>().exec();
+  }
+
+  // Scoped to enterprise job IDs to prevent leaking application existence across organizations (BR-06).
+  async findByIdAndJobIds(
+    applicationId: string | Types.ObjectId,
+    jobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationDoc | null> {
+    if (jobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    return Application.findOne({
+      _id: new Types.ObjectId(applicationId),
+      job_id: { $in: jobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    })
+      .lean<ApplicationDoc>()
+      .exec();
   }
 }
 

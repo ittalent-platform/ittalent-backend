@@ -1,4 +1,4 @@
-import mongoose, { type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
+import mongoose, { type ClientSession, type QueryFilter, type Types, type UpdateQuery } from 'mongoose';
 
 import {
   Enterprise,
@@ -33,13 +33,24 @@ function equalsRegex(value: string): RegExp {
 }
 
 export class EnterprisesRepository {
+  async incrementAdminMutationVersion(enterpriseId: Types.ObjectId, session: ClientSession): Promise<boolean> {
+    const result = await Enterprise.updateOne(
+      { _id: enterpriseId, is_deleted: false, status: 'active' },
+      { $inc: { admin_mutation_version: 1 } },
+      { session, timestamps: false },
+    ).exec();
+    return result.matchedCount === 1;
+  }
+
   async create(data: Partial<EnterpriseData>): Promise<EnterpriseDoc> {
     const enterprise = new Enterprise(data);
     return enterprise.save();
   }
 
-  async findById(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
-    return Enterprise.findOne({ _id: id, is_deleted: false }).exec();
+  async findById(id: string | Types.ObjectId, session?: ClientSession): Promise<EnterpriseDoc | null> {
+    const query = Enterprise.findOne({ _id: id, is_deleted: false });
+    if (session) query.session(session);
+    return query.exec();
   }
 
   async findByIdIncludeDeleted(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
@@ -52,6 +63,12 @@ export class EnterprisesRepository {
 
   async findByEmail(email: string): Promise<EnterpriseDoc | null> {
     return Enterprise.findOne({ email: email.toLowerCase(), is_deleted: false }).exec();
+  }
+
+  async findNamesByIds(ids: Types.ObjectId[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await Enterprise.find({ _id: { $in: ids }, is_deleted: false }, { name: 1 }).lean().exec();
+    return new Map(rows.map((row) => [String(row._id), row.name]));
   }
 
   async findByCreatorId(creatorId: string | Types.ObjectId): Promise<EnterpriseDoc | null> {

@@ -549,7 +549,7 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
 
       // Trigger error path by passing a custom error into simulated handler
       const multerError = new multer.MulterError('LIMIT_FILE_SIZE');
-      
+
       // Test the error branching directly
       const errorHandler = (err: unknown) => {
         if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {

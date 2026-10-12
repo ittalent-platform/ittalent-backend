@@ -26,6 +26,12 @@ export const createApplicationBodySchema = z.strictObject({
     .trim()
     .max(APPLICATION_CONFIG.MESSAGE_MAX_LENGTH, `Message cannot exceed ${APPLICATION_CONFIG.MESSAGE_MAX_LENGTH} characters`)
     .optional(),
+  // BR-S4-LINK-003: the certificates the applicant ticked; none is a valid choice.
+  certificateLinkIds: z
+    .array(objectIdSchema('certificate link ID'))
+    .max(APPLICATION_CONFIG.CERTIFICATES_MAX, `Send at most ${APPLICATION_CONFIG.CERTIFICATES_MAX} certificates`)
+    .refine((ids) => new Set(ids).size === ids.length, 'Certificates must not repeat')
+    .optional(),
 });
 
 export type CreateApplicationBody = z.infer<typeof createApplicationBodySchema>;
@@ -134,6 +140,15 @@ export const applicationDetailDtoSchema = applicationSummaryDtoSchema.extend({
   message: z.string().nullable(),
   withdrawalReason: z.string().nullable(),
   attachments: z.array(attachmentDtoSchema),
+  certificates: z.array(z.object({
+    id: z.string(),
+    version: z.number().int(),
+    name: z.string(),
+    url: z.string(),
+    issuer: z.string().nullable(),
+    issuedDate: z.string().nullable(),
+    expiryDate: z.string().nullable(),
+  })),
   version: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),

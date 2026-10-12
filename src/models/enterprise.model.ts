@@ -84,6 +84,7 @@ export interface EnterpriseData {
   status_updated_at?: Date | undefined;
 
   creator_account_id: Types.ObjectId;
+  admin_mutation_version?: number | undefined;
   is_deleted: boolean;
   deleted_at?: Date | undefined;
   deleted_by?: Types.ObjectId | undefined;
@@ -163,6 +164,7 @@ const enterpriseSchema = new Schema<EnterpriseData>(
       ref: 'User',
       required: true,
     },
+    admin_mutation_version: { type: Number, default: 0, required: true },
     is_deleted: { type: Boolean, default: false, required: true, index: true },
     deleted_at: { type: Date },
     deleted_by: { type: Schema.Types.ObjectId, ref: 'User' },

@@ -12,9 +12,34 @@ describe('UsersController', () => {
     mockService = {
       getUserById: vi.fn(),
       listUsers: vi.fn(),
+      listUsersWithAdminMetadata: vi.fn(),
+      withAdminMetadata: vi.fn(),
       updateUser: vi.fn(),
+      updateStatus: vi.fn(),
+      emergencySuspend: vi.fn(),
+      updateRole: vi.fn(),
     };
     controller = new UsersController(mockService as UsersService);
+  });
+
+  it.each([
+    ['updateStatus', 'updateStatus', { status: 'suspended', reason: 'Policy violation', expectedVersion: 0 }],
+    ['emergencySuspend', 'emergencySuspend', { reason: 'Suspected account compromise', expectedVersion: 0 }],
+    ['updateRole', 'updateRole', { role: 'recruiter', reason: 'Role assignment update', expectedVersion: 0 }],
+  ] as const)('delegates %s to UsersService with actor, target, and validated body', async (method, serviceMethod, body) => {
+    const result = { id: 'target' };
+    const call = vi.fn().mockResolvedValue(result);
+    mockService[serviceMethod] = call as never;
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    const req = { user: { id: 'admin' } };
+    const res = { status, locals: { validated: { params: { id: 'target' }, body } } };
+
+    await controller[method](req as never, res as never, vi.fn());
+
+    expect(call).toHaveBeenCalledWith('admin', 'target', body);
+    expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+    expect(json).toHaveBeenCalledWith(result);
   });
 
   describe('updateUser', () => {
@@ -25,11 +50,19 @@ describe('UsersController', () => {
       const status = vi.fn().mockReturnValue({ json });
       const response = { status, locals: { validated: { params: { id: 'target' }, body: { fullName: 'Mai Dương' } } } } as never;
 
-      await controller.updateUser({ user: { id: 'admin-user' } } as never, response, vi.fn());
+      await controller.updateUser({ user: { id: 'admin-user', role: 'admin' } } as never, response, vi.fn());
 
-      expect(mockService.updateUser).toHaveBeenCalledWith('admin-user', 'target', { fullName: 'Mai Dương' });
+      expect(mockService.updateUser).toHaveBeenCalledWith({ id: 'admin-user', role: 'admin' }, 'target', { fullName: 'Mai Dương' });
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
       expect(json).toHaveBeenCalledWith(result);
+    });
+
+    it('fails closed with 401 Unauthorized when caller authentication is missing', async () => {
+      const next = vi.fn();
+      await controller.updateUser({} as never, {} as never, next);
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({ statusCode: HTTP_STATUS.HTTP_401_UNAUTHORIZED }),
+      );
     });
   });
 
@@ -43,6 +76,7 @@ describe('UsersController', () => {
         status: 'active',
       };
       mockService.getUserById = vi.fn().mockResolvedValue(mockResult);
+      mockService.withAdminMetadata = vi.fn().mockResolvedValue({ ...mockResult, enterpriseName: null, invitation: null });
 
       const json = vi.fn();
       const status = vi.fn().mockReturnValue({ json });
@@ -60,7 +94,7 @@ describe('UsersController', () => {
       await controller.getUserById(req, res, next);
 
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
-      expect(json).toHaveBeenCalledWith(mockResult);
+      expect(json).toHaveBeenCalledWith({ ...mockResult, enterpriseName: null, invitation: null });
     });
 
     it('forwards error to next when service throws', async () => {
@@ -88,7 +122,7 @@ describe('UsersController', () => {
   describe('listUsers', () => {
     it('returns 200 with the requested page', async () => {
       const page = { items: [], page: 1, limit: 20, total: 0, totalPages: 0 };
-      mockService.listUsers = vi.fn().mockResolvedValue(page);
+      mockService.listUsersWithAdminMetadata = vi.fn().mockResolvedValue(page);
       const json = vi.fn();
       const status = vi.fn().mockReturnValue({ json });
       const query = { page: 1, limit: 20, search: 'ann' };
@@ -97,15 +131,15 @@ describe('UsersController', () => {
 
       await controller.listUsers({} as never, res, next);
 
-      expect(mockService.listUsers).toHaveBeenCalledWith(query);
+      expect(mockService.listUsersWithAdminMetadata).toHaveBeenCalledWith(query);
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
       expect(json).toHaveBeenCalledWith(page);
     });
 
     it('forwards errors to next', async () => {
       const error = new Error('down');
-      mockService.listUsers = vi.fn().mockRejectedValue(error);
-      const res = { status: vi.fn(), locals: { validated: { query: { page: 1, limit: 20 } } } } as never;
+      mockService.listUsersWithAdminMetadata = vi.fn().mockRejectedValue(error);
+      const res = { status: vi.fn().mockReturnValue({ json: vi.fn() }), locals: { validated: { query: { page: 1, limit: 20 } } } } as never;
       const next = vi.fn();
 
       await controller.listUsers({} as never, res, next);

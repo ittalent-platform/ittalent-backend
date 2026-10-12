@@ -83,10 +83,21 @@ npm run dev
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username or email, literal and case-insensitive, max 100 characters), `role`, `status`, `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
+| `GET` | `/api/v1/users` | UC-USER-01. One page of user accounts of every role and status. Query: `page`, `limit` (1–100, default 20), `search` (username, email, full name or phone; literal and case-insensitive, max 100 characters), `role`, `status`, `enterpriseId` (each takes up to 10 values, repeated or comma-separated), `emailVerified` (`true`/`false`), `sortBy` (`createdAt` default, `id`, `name`, `username`, `email`) and `sortOrder` (`desc` default, `asc`). Account id in the same direction is the tie-breaker, and text columns sort ignoring case. Unknown query keys are rejected. |
 | `GET` | `/api/v1/users/:id` | UC-USER-02. One user account. |
 
-Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain only `id`, `username`, `email`, `emailVerified`, `role`, `status`, `enterpriseId`, `createdAt` and `updatedAt`; credentials and tokens are never read. A storage failure returns `503` with a generic message.
+Both are read-only and administrator-only (`401` without a valid session, `403` for any other role, including the account owner; use `GET /api/v1/auth/me` for the caller's own profile). Responses contain an allow-listed account projection plus company and invitation status metadata; credentials and tokens are never read. A storage failure returns `503` with a generic message.
+
+### Managed account changes
+
+System Administrator `POST /api/v1/users` accepts `user`, `recruiter`, or `enterprise_admin`. HR and Enterprise Administrator require an existing Active, non-deleted `enterpriseId`; Candidate must not have one. Accounts remain `invited` until the owner accepts the single-use email invitation and sets a password. `GET /api/v1/user-invitations/preview` returns the invited email, role, and company before acceptance. SysAdmins can inspect, replace, or cancel a pending invitation through `/api/v1/users/:id/invitation` and `/invitation-deliveries`. A canceled invitation keeps its account invited and unusable; a replacement send creates a fresh token. Creation, replacement and acceptance recheck enterprise eligibility; they do not create or approve an enterprise registration. A suspended company blocks acceptance without consuming the invitation. Existing Candidates are not promoted by invitation; the legacy accept route returns `410` and their data is unchanged. `PATCH /api/v1/users/:id/role` changes only active HR/Enterprise Administrator accounts within the same company and revokes existing sessions. Suspending or demoting the final active Enterprise Administrator is blocked; emergency suspension requires a reason and is audited. This endpoint does not allow creating or promoting System Administrators.
+
+- Account responses also include `fullName`, `phone`, and `version`. `PATCH /api/v1/users/:id` accepts `fullName` and/or `phone` with the loaded `expectedVersion`; role changes are rejected. A stale version returns `409` without overwriting data.
+- `POST /api/v1/users` creates an invited account; invitation acceptance supplies credentials. Invitation replacement and email-change requests serialize concurrent requests with a transactional user write. This internal counter does not change the displayed account version or revoke sessions.
+- Enterprise registration owns first-admin onboarding. `POST /api/v1/users` returns `409 ENTERPRISE_ONBOARDING_PENDING` when the email is in draft/review or the email/company has an unexpired approved registration invitation that has not been accepted. Once onboarding is completed, additional HR/Enterprise Administrator invitations are allowed; an expired enterprise invitation releases the guard so SysAdmin can send a recovery invitation. For legacy overlapping invitations, enterprise acceptance returns `409 ACCOUNT_INVITATION_PENDING` without changing credentials or consuming its token: accept the existing account invitation first, then return using the same account password. The two token stores are not automatically synchronized.
+- Suspension invalidates sessions and cannot target the acting administrator, including alternative hexadecimal ID casing. Optional-auth company reads validate current account state before granting privileged access; revoked sessions fall back to public visibility.
+- Email-change confirmation requires the owner and current password. Failed attempts are limited independently by account and IP using the existing login attempt/window settings (`429`); successful confirmations do not consume failed-attempt capacity.
+- Password reset verifies an eligible inactive account even when `email_verified=false`; an invitation account is not activated by password recovery. The account-history endpoints retain committed changes and do not expose credential/token material. `GET /api/v1/users/:id/history` is append-only, newest first, and supports `group` (`account`, `profile`, `email`), `actor` (`admin`, `self`), `action`, `from`/`to` (`to` ≥ `from`, at most 12 months) plus paging; profile and email values in events are masked. Status/role/cancel reasons need at least 10 characters. Reopening an unverified account returns it to `inactive` and restarts its verification window; a profile `PATCH` that changes nothing creates no audit event and no version bump (a stale `expectedVersion` still returns `409`).
 
 ### My Applications API
 
@@ -104,10 +115,33 @@ Successful responses are the resource/result objects directly (not wrapped in a 
 
 This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
 
-The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Application responses expose attachment metadata without storage URLs; authorized preview and download use the document endpoints below.
+
+### Candidate Certificate Links
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/me/certificate-links` | Create a private certificate link with required `name` and safe external `http`/`https` `url`; optional `issuer`, `issuedDate`, and `expiryDate`. Requires an `Idempotency-Key` header. Exact retries return the original item with `200`; a new create returns `201`. |
+| `GET` | `/api/v1/me/certificate-links` | Return the caller's available links in stable newest-first pages (`page`, `limit`, optional `search` up to 100 characters matching name, issuer or link). Each item has `suggested` and `sentCount` (applications that carry a copy); the page has `suggestedTotal`. Empty pages are valid. |
+| `PATCH` | `/api/v1/me/certificate-links/:id` | Change metadata (`name`, `url`, `issuer`, `issuedDate`, `expiryDate`; `null` clears an optional field) and/or `suggested`, with `expectedVersion`. Metadata changes bump the version; a suggested-only change keeps it. Stale version → `409 VERSION_CONFLICT`. |
+| `DELETE` | `/api/v1/me/certificate-links/:id?expectedVersion=N` | Delete an owned link (`204`). Applications already sent keep their own copy. |
+
+Both operations require the current active, email-verified Candidate account (`user` role). Links are private User-owned claims, not authenticity-verified credentials. The backend stores metadata only and never fetches external URLs. Run `npm run migrate:certificate-link-indexes` against an existing deployment before enabling create requests so the unique owner/URL and owner/idempotency indexes are active. `POST /api/v1/applications` accepts optional `certificateLinkIds` (up to 20 of the applicant's own links; any other id → `409 CERTIFICATE_UNAVAILABLE`, nothing is created). The application stores a copy of each ticked certificate, returned as `certificates` in the candidate's application detail.
 
 ---
 
+### Document Library API
+
+All document operations require the `user` role and are scoped to the authenticated owner. Active lists support `search` by filename, `type`, `is_default`, `sort_by`, `sort_order`, and pagination. Deletion is a soft delete and is rejected while an application references the document. If the deleted document was the default, the newest remaining active document of the same type is promoted. Administrators do not have document-management access in this sprint.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/documents/:id/download` | Stream an owned document as an attachment. |
+| `GET` | `/api/v1/documents/:id/preview` | Stream an owned PDF inline or return a DOC/DOCX viewer URL. |
+| `DELETE` | `/api/v1/documents/:id` | Soft-delete an owned, unreferenced document. |
+| `PATCH` | `/api/v1/documents/:id/default` | Make an owned active document the sole default for its type. |
+
+Run `npm run migrate:document-indexes` once after deployment to create the partial unique default-document index.
 ### Job Posting Lifecycle and History
 
 Recruiters can create a draft by sending `publication_status: "draft"`; omitting it preserves the existing create-and-publish behavior. `PATCH /api/v1/job-postings/:id` accepts `publication_status: "draft" | "published"`. Published jobs must contain all public fields and a non-expired deadline.
@@ -136,6 +170,7 @@ Recruiters can create a draft by sending `publication_status: "draft"`; omitting
 | `npm run test:integration` | Runs integration tests |
 | `npm run test:all` | Runs all unit and integration tests |
 | `npm run generate:client` | Generates TypeScript client from OpenAPI |
+| `npm run migrate:document-indexes` | Synchronizes document indexes, including one active default per owner and type |
 
 ---
 

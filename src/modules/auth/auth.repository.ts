@@ -1,4 +1,5 @@
-import type { Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 import { Account, type AccountDoc, type AuthProvider } from '../../models/account.model.js';
 import { Token, type TokenDoc } from '../../models/token.model.js';
@@ -8,6 +9,11 @@ export interface CreateAccountData {
   provider: AuthProvider;
   password_hash?: string;
   provider_account_id?: string;
+}
+
+export interface CreateLocalAccountData {
+  userId: Types.ObjectId;
+  provider: 'local';
 }
 
 export interface CreateVerificationTokenData {
@@ -23,6 +29,19 @@ export interface CreatePasswordResetTokenData {
 }
 
 export class AuthRepository {
+  async verifyCurrentPassword(userId: Types.ObjectId, rawPassword: string, session?: ClientSession): Promise<boolean> {
+    let query = Account.findOne({ user_id: userId, provider: 'local' }).select('+password_hash');
+    if (session) query = query.session(session);
+    const account = await query.exec() as (AccountDoc & { password_hash: string }) | null;
+    return Boolean(account?.password_hash && await bcrypt.compare(rawPassword, account.password_hash));
+  }
+
+  async createLocalAccount(data: CreateLocalAccountData, session: ClientSession): Promise<AccountDoc> {
+    const [account] = await Account.create([{ user_id: data.userId, provider: data.provider }], { session });
+    if (!account) throw new Error('Local account was not created');
+    return account;
+  }
+
   async createAccount(data: CreateAccountData): Promise<AccountDoc> {
     const account = new Account({
       user_id: data.userId,
@@ -92,7 +111,7 @@ export class AuthRepository {
 
   async markTokenUsed(tokenId: Types.ObjectId | string): Promise<void> {
     await Token.updateOne(
-      { _id: tokenId },
+      { _id: tokenId, status: 'pending', expires_at: { $gt: new Date() } },
       { $set: { status: 'used', consumed_at: new Date() } },
     ).exec();
   }
@@ -114,13 +133,20 @@ export class AuthRepository {
   async updateLocalAccountPassword(
     userId: Types.ObjectId | string,
     passwordHash: string,
+    session?: ClientSession,
   ): Promise<void> {
-    await Account.updateOne(
+    const query = Account.updateOne(
       { user_id: userId, provider: 'local' },
       { $set: { password_hash: passwordHash } },
-    ).exec();
+    );
+    if (session) query.session(session);
+    const result = await query.exec();
+    if (result.matchedCount !== 1) throw new Error('Local credentials were not found');
+  }
+
+  async revokeIdentityTokens(userId: Types.ObjectId, session: ClientSession): Promise<void> {
+    await Token.updateMany({ user_id: userId, status: 'pending' }, { $set: { status: 'revoked' } }, { session }).exec();
   }
 }
 
 export const authRepository = new AuthRepository();
-

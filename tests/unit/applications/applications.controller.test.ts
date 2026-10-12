@@ -28,6 +28,7 @@ let mockService: Partial<ApplicationsService>;
     status: 'submitted',
     reviewStage: null,
     submittedDocuments: [],
+    certificates: [],
     message: null,
     attachments: [],
     canWithdraw: true,
@@ -73,6 +74,7 @@ let mockService: Partial<ApplicationsService>;
       hired: 0,
       rejected: 0,
       withdrawn: 0,
+      position_filled: 0,
     },
   };
 
