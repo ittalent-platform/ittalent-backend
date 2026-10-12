@@ -16,13 +16,13 @@ import type {
   SubmitRegistrationDTO,
 } from '../../../src/modules/enterprise-registrations/enterprise-registrations.schemas.js';
 import { EnterpriseRegistrationsService } from '../../../src/modules/enterprise-registrations/enterprise-registrations.service.js';
-import type { EnterprisesRepository } from '../../../src/modules/enterprises/enterprises.repository.js';
+import type { EnterprisesService } from '../../../src/modules/enterprises/enterprises.service.js';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 import { storageService, PDF_SIGNATURE } from '../../../src/shared/services/storage.service.js';
 
 describe('Enterprise Registrations: Draft, Document Upload & Submission', () => {
   let mockRepo: Partial<EnterpriseRegistrationsRepository>;
-  let mockEnterpriseRepo: Partial<EnterprisesRepository>;
+  let mockEnterpriseService: Partial<EnterprisesService>;
   let service: EnterpriseRegistrationsService;
   let controller: EnterpriseRegistrationsController;
 
@@ -69,14 +69,14 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
       hasActiveClaim: vi.fn().mockResolvedValue(false),
     };
 
-    mockEnterpriseRepo = {
+    mockEnterpriseService = {
       findByTaxCode: vi.fn().mockResolvedValue(null),
       findByEmail: vi.fn().mockResolvedValue(null),
     };
 
     service = new EnterpriseRegistrationsService(
       mockRepo as EnterpriseRegistrationsRepository,
-      mockEnterpriseRepo as EnterprisesRepository,
+      mockEnterpriseService as EnterprisesService,
     );
 
     controller = new EnterpriseRegistrationsController(service);
@@ -361,7 +361,7 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
     it('throws 409 TAX_CODE_ALREADY_CLAIMED when tax code belongs to active enterprise [BR-39]', async () => {
       const mockDoc = createMockRegistrationDoc();
       vi.mocked(mockRepo.findByIdOrCode!).mockResolvedValue(mockDoc);
-      vi.mocked(mockEnterpriseRepo.findByTaxCode!).mockResolvedValue({ _id: new mongoose.Types.ObjectId() } as EnterpriseDoc);
+      vi.mocked(mockEnterpriseService.findByTaxCode!).mockResolvedValue({ _id: new mongoose.Types.ObjectId() } as EnterpriseDoc);
 
       await expect(service.submitRegistration(sampleCode, validSubmitPayload)).rejects.toMatchObject({
         statusCode: HTTP_STATUS.HTTP_409_CONFLICT,
@@ -372,7 +372,7 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
     it('throws 409 TAX_CODE_ALREADY_CLAIMED when active claim exists in pending reviews [BR-42 / EX3]', async () => {
       const mockDoc = createMockRegistrationDoc();
       vi.mocked(mockRepo.findByIdOrCode!).mockResolvedValue(mockDoc);
-      vi.mocked(mockEnterpriseRepo.findByTaxCode!).mockResolvedValue(null);
+      vi.mocked(mockEnterpriseService.findByTaxCode!).mockResolvedValue(null);
       vi.mocked(mockRepo.hasActiveClaim!).mockResolvedValue(true);
 
       await expect(service.submitRegistration(sampleCode, validSubmitPayload)).rejects.toMatchObject({
@@ -384,9 +384,9 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
     it('throws 409 EMAIL_ALREADY_EXISTS when corporate email belongs to active enterprise', async () => {
       const mockDoc = createMockRegistrationDoc();
       vi.mocked(mockRepo.findByIdOrCode!).mockResolvedValue(mockDoc);
-      vi.mocked(mockEnterpriseRepo.findByTaxCode!).mockResolvedValue(null);
+      vi.mocked(mockEnterpriseService.findByTaxCode!).mockResolvedValue(null);
       vi.mocked(mockRepo.hasActiveClaim!).mockResolvedValue(false);
-      vi.mocked(mockEnterpriseRepo.findByEmail!).mockResolvedValue({ _id: new mongoose.Types.ObjectId() } as EnterpriseDoc);
+      vi.mocked(mockEnterpriseService.findByEmail!).mockResolvedValue({ _id: new mongoose.Types.ObjectId() } as EnterpriseDoc);
 
       await expect(service.submitRegistration(sampleCode, validSubmitPayload)).rejects.toMatchObject({
         statusCode: HTTP_STATUS.HTTP_409_CONFLICT,
@@ -397,9 +397,9 @@ describe('Enterprise Registrations: Draft, Document Upload & Submission', () => 
     it('successfully acquires claim locks, sets pending_review status, and returns submission receipt [BR-42 / EX3]', async () => {
       const mockDoc = createMockRegistrationDoc();
       vi.mocked(mockRepo.findByIdOrCode!).mockResolvedValue(mockDoc);
-      vi.mocked(mockEnterpriseRepo.findByTaxCode!).mockResolvedValue(null);
+      vi.mocked(mockEnterpriseService.findByTaxCode!).mockResolvedValue(null);
       vi.mocked(mockRepo.hasActiveClaim!).mockResolvedValue(false);
-      vi.mocked(mockEnterpriseRepo.findByEmail!).mockResolvedValue(null);
+      vi.mocked(mockEnterpriseService.findByEmail!).mockResolvedValue(null);
 
       const receipt = await service.submitRegistration(sampleCode, validSubmitPayload);
 

@@ -5,8 +5,8 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { TIME_MS } from '../../shared/constants/time.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { sendEnterpriseRegistrationMagicLink } from '../../shared/services/email.service.js';
-import { enterprisesRepository, type EnterprisesRepository } from '../enterprises/enterprises.repository.js';
-import { usersRepository, type UsersRepository } from '../users/users.repository.js';
+import { enterprisesService, type EnterprisesService } from '../enterprises/enterprises.service.js';
+import { usersService, type UsersService } from '../users/users.service.js';
 import { isValidPdf, storageService } from '../../shared/services/storage.service.js';
 import type {
   EnterpriseRegistrationDoc,
@@ -59,8 +59,8 @@ export interface SubmissionReceiptResult {
 export class EnterpriseRegistrationsService {
   constructor(
     private readonly repository: EnterpriseRegistrationsRepository = enterpriseRegistrationsRepository,
-    private readonly enterpriseRepo: EnterprisesRepository = enterprisesRepository,
-    private readonly userRepo: UsersRepository = usersRepository,
+    private readonly enterpriseService: EnterprisesService = enterprisesService,
+    private readonly userService: UsersService = usersService,
   ) {}
 
   generateRegistrationCode(date = new Date()): string {
@@ -88,7 +88,7 @@ export class EnterpriseRegistrationsService {
       );
     }
 
-    const existingUser = await this.userRepo.findByEmail(corporateEmail);
+    const existingUser = await this.userService.findByEmail(corporateEmail);
     if (existingUser) {
       // [PRE-2 / BR-40 / EX1]: Candidate role conflict.
       // Users with active candidate/applicant accounts cannot request an enterprise.
@@ -110,7 +110,7 @@ export class EnterpriseRegistrationsService {
 
     // [PRE-2 / EX2]: Active organization conflict.
     // Email already belongs to an existing, verified enterprise entity.
-    const existingEnterprise = await this.enterpriseRepo.findByEmail(corporateEmail);
+    const existingEnterprise = await this.enterpriseService.findByEmail(corporateEmail);
     if (existingEnterprise) {
       throw createHttpError(
         HTTP_STATUS.HTTP_409_CONFLICT,
@@ -394,7 +394,7 @@ export class EnterpriseRegistrationsService {
 
     // [BR-39]: Tax identification code uniqueness check against active registered enterprises.
     const taxCode = payload.company_data.tax_code.trim();
-    const existingEnterprise = await this.enterpriseRepo.findByTaxCode(taxCode);
+    const existingEnterprise = await this.enterpriseService.findByTaxCode(taxCode);
     if (existingEnterprise) {
       throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.TAX_CODE_ALREADY_CLAIMED);
     }
@@ -410,7 +410,7 @@ export class EnterpriseRegistrationsService {
     }
 
     // Corporate email uniqueness check against registered enterprises.
-    const existingEmailEnterprise = await this.enterpriseRepo.findByEmail(registration.corporate_email);
+    const existingEmailEnterprise = await this.enterpriseService.findByEmail(registration.corporate_email);
     if (existingEmailEnterprise) {
       throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, REGISTRATION_MESSAGES.EMAIL_ALREADY_EXISTS);
     }
