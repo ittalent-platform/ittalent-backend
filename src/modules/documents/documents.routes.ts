@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser, authorize } from '../../middleware/auth.middleware.js';
 import { uploadDocument } from '../../middleware/document-upload.middleware.js';
 import {
   validateBody,
@@ -58,3 +58,4 @@ documentsRouter.delete(
   validateParams(documentIdParamSchema),
   documentsController.removeMine,
 );
+documentsRouter.get('/admin/documents', authenticate, authorize('admin'), validateQuery(documentListQuerySchema), documentsController.listAdmin);

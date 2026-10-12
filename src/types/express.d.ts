@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   role: string;
+  authVersion?: number;
 }
 
 declare module 'express-serve-static-core' {

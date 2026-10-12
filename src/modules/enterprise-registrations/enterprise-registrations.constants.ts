@@ -122,6 +122,7 @@ export const REGISTRATION_CONFIG = {
 } as const;
 
 export const REGISTRATION_MESSAGES = {
+  ACCOUNT_INVITATION_PENDING: 'Accept your existing account invitation first, then return to this enterprise invitation using your account password',
   NOT_FOUND: 'Enterprise registration case not found',
   PERSONAL_EMAIL_REJECTED: 'Personal or generic email domains are not permitted. Please use your corporate organization email address',
   EMAIL_ALREADY_EXISTS: 'This email is already associated with an active enterprise or pending registration',

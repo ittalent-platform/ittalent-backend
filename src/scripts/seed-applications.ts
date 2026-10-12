@@ -71,6 +71,7 @@ const STATUS_PATHS: Record<ApplicationStatus, readonly ApplicationStatus[]> = {
   hired: ['submitted', 'under_review', 'interviewing', 'offered', 'hired'],
   rejected: ['submitted', 'under_review', 'rejected'],
   withdrawn: ['submitted', 'withdrawn'],
+  position_filled: ['submitted', 'under_review', 'position_filled'],
 };
 
 // Ids are derived from the seed index so the withdrawn <-> apply-again links and the display ids are stable.

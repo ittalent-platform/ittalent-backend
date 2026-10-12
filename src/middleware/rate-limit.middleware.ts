@@ -179,6 +179,25 @@ export const loginRateLimit = createRateLimit({
   skipSuccessfulRequests: true,
 });
 
+export const emailChangeConfirmationRateLimit = createRateLimit({
+  prefix: 'email-change-password',
+  windowSeconds: Math.ceil(env.LOGIN_RATE_LIMIT_WINDOW_MS / TIME_MS.ONE_SECOND),
+  maxAttempts: env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+  message: 'Too many email change confirmation attempts. Please try again later.',
+  code: 'RATE_LIMITED',
+  getBucketKey: (req) => req.user?.id ?? getClientIp(req),
+  skipSuccessfulRequests: true,
+});
+
+export const emailChangeConfirmationIpRateLimit = createRateLimit({
+  prefix: 'email-change-password-ip',
+  windowSeconds: Math.ceil(env.LOGIN_RATE_LIMIT_WINDOW_MS / TIME_MS.ONE_SECOND),
+  maxAttempts: env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+  message: 'Too many email change confirmation attempts. Please try again later.',
+  code: 'RATE_LIMITED',
+  skipSuccessfulRequests: true,
+});
+
 export const registerRateLimit = createRateLimit({
   prefix: 'register',
   windowSeconds: env.REGISTER_RATE_LIMIT_WINDOW_SECONDS,
@@ -208,6 +227,15 @@ export const resetPasswordTokenCheckRateLimit = createRateLimit({
   windowSeconds: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_WINDOW_SECONDS,
   maxAttempts: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_MAX_ATTEMPTS,
   message: 'Too many reset token verification attempts. Please try again later.',
+  code: 'RATE_LIMITED',
+  skipSuccessfulRequests: true,
+});
+
+export const invitationTokenRateLimit = createRateLimit({
+  prefix: 'invitation-token',
+  windowSeconds: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_WINDOW_SECONDS,
+  maxAttempts: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_MAX_ATTEMPTS,
+  message: 'Too many invitation checks. Please try again later.',
   code: 'RATE_LIMITED',
   skipSuccessfulRequests: true,
 });

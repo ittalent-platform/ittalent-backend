@@ -44,4 +44,14 @@ describe('errorHandler', () => {
       }),
     );
   });
+
+  it('hides internal messages of unhandled errors and returns an error id', () => {
+    const json = vi.fn();
+    const res = { status: vi.fn().mockReturnValue({ json }) } as never;
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    errorHandler(new Error('Local credentials were not found'), {} as never, res, vi.fn());
+
+    expect(json).toHaveBeenCalledWith({ success: false, message: 'Internal server error', errorId: expect.any(String) });
+  });
 });

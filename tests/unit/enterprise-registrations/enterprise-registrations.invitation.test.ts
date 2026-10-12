@@ -113,7 +113,7 @@ describe('Enterprise Registrations: Invitation Acceptance Workflow', () => {
       existsByUsername: vi.fn().mockResolvedValue(false),
       createUser: vi.fn().mockResolvedValue(createMockUserDoc()),
       assignEnterprise: vi.fn().mockResolvedValue(createMockUserDoc()),
-      updateRole: vi.fn().mockResolvedValue(createMockUserDoc()),
+      assignRole: vi.fn().mockResolvedValue(createMockUserDoc()),
       mapUserDto: vi.fn().mockReturnValue(sampleUserDto),
     };
 
@@ -135,6 +135,22 @@ describe('Enterprise Registrations: Invitation Acceptance Workflow', () => {
   });
 
   describe('Service: acceptInvitation', () => {
+    it('directs an invited account to finish its account invitation without checking or replacing a password', async () => {
+      const registration = createMockApprovedDoc();
+      vi.mocked(mockRepo.findByInvitationTokenHash!).mockResolvedValue(registration);
+      vi.mocked(mockUserService.findByEmail!).mockResolvedValue(createMockUserDoc({ status: 'invited', email_verified: false }));
+
+      await expect(service.acceptInvitation({ token: rawToken, password: 'ValidPassword123!' })).rejects.toMatchObject({
+        statusCode: HTTP_STATUS.HTTP_409_CONFLICT,
+        code: 'ACCOUNT_INVITATION_PENDING',
+      });
+      expect(mockAuthService.hasLocalAccount).not.toHaveBeenCalled();
+      expect(mockAuthService.verifyLocalPassword).not.toHaveBeenCalled();
+      expect(mockAuthService.createLocalAccount).not.toHaveBeenCalled();
+      expect(mockAuthService.issueTokens).not.toHaveBeenCalled();
+      expect(registration.save).not.toHaveBeenCalled();
+    });
+
     it('successfully provisions new user, sets up password, redeems token, and returns tokens', async () => {
       const mockDoc = createMockApprovedDoc();
       vi.mocked(mockRepo.findByInvitationTokenHash!).mockResolvedValue(mockDoc);
@@ -225,7 +241,7 @@ describe('Enterprise Registrations: Invitation Acceptance Workflow', () => {
       const result = await service.acceptInvitation(payload);
 
       expect(mockAuthService.verifyLocalPassword).toHaveBeenCalledWith(sampleUserId, 'ValidPassword123!');
-      expect(mockUserService.updateRole).toHaveBeenCalledWith(sampleUserId.toString(), 'enterprise_admin');
+      expect(mockUserService.assignRole).toHaveBeenCalledWith(sampleUserId.toString(), 'enterprise_admin');
       expect(mockUserService.assignEnterprise).toHaveBeenCalledWith(
         sampleUserId.toString(),
         sampleEnterpriseId.toString(),
@@ -251,7 +267,7 @@ describe('Enterprise Registrations: Invitation Acceptance Workflow', () => {
       await service.acceptInvitation(payload);
 
       expect(mockAuthService.createLocalAccount).toHaveBeenCalledWith(sampleUserId, 'ValidPassword123!');
-      expect(mockUserService.updateRole).toHaveBeenCalledWith(sampleUserId.toString(), 'enterprise_admin');
+      expect(mockUserService.assignRole).toHaveBeenCalledWith(sampleUserId.toString(), 'enterprise_admin');
       expect(mockUserService.assignEnterprise).toHaveBeenCalledWith(
         sampleUserId.toString(),
         sampleEnterpriseId.toString(),
