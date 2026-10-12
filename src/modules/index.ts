@@ -3,6 +3,7 @@ import {
   applicationsRouter,
   recruiterApplicationsRouter,
 } from './applications/index.js';
+import { certificateLinksRouter } from './certificate-links/index.js';
 import { authRouter } from './auth/index.js';
 import { documentsRouter } from './documents/index.js';
 import { enterpriseRegistrationsRouter } from './enterprise-registrations/index.js';
@@ -27,6 +28,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use('/enterprises', enterprisesRouter);
   apiV1Router.use('/enterprise-registrations', enterpriseRegistrationsRouter);
   apiV1Router.use('/me/applications', applicationsRouter);
+  apiV1Router.use(certificateLinksRouter);
   apiV1Router.use(recruiterApplicationsRouter);
   apiV1Router.use('/interviews', interviewsRouter);
 

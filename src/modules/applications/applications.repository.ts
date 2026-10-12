@@ -2,6 +2,7 @@ import { Types, type QueryFilter } from 'mongoose';
 
 import {
   Application,
+  type ApplicationCertificateSnapshot,
   type ApplicationData,
   type ApplicationDoc,
   type ApplicationStatus,
@@ -68,6 +69,7 @@ export interface SubmitApplicationData {
   changedBy: string;
   // BR-APP-010: the closed (Withdrawn/Rejected) record this application replaces.
   reappliedFrom?: Types.ObjectId | string | undefined;
+  certificates?: ApplicationCertificateSnapshot[];
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -109,6 +111,18 @@ export class ApplicationsRepository {
     return Application.countDocuments({ job_id: jobId, status: APPLICATION_HIRED_STATUS }).exec();
   }
 
+  async countCertificatesSent(applicantId: string, certificateIds: string[]): Promise<Map<string, number>> {
+    if (!certificateIds.length) return new Map();
+    const ids = certificateIds.map((id) => new Types.ObjectId(id));
+    const rows = await Application.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { applicant_id: new Types.ObjectId(applicantId), 'certificates.certificate_id': { $in: ids } } },
+      { $unwind: '$certificates' },
+      { $match: { 'certificates.certificate_id': { $in: ids } } },
+      { $group: { _id: '$certificates.certificate_id', count: { $sum: 1 } } },
+    ]).exec();
+    return new Map(rows.map((row) => [String(row._id), row.count]));
+  }
+
   // Returns null when the partial unique (job, applicant) index rejects the insert, i.e. another active
   // application exists (a concurrent duplicate). A reapplication also marks the closed record it replaces.
   // Compensation only: removes an application saved for a job that was deleted at the same moment.
@@ -124,6 +138,7 @@ export class ApplicationsRepository {
         cv_id: data.cvId,
         ...(data.coverLetterId ? { cover_letter_id: data.coverLetterId } : {}),
         ...(data.message ? { message: data.message } : {}),
+        ...(data.certificates?.length ? { certificates: data.certificates } : {}),
         ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}),
         status: APPLICATION_INITIAL_STATUS,
         status_history: [this.buildHistoryEntry(data.changedBy)],

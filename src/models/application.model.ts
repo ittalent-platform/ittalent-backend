@@ -40,6 +40,17 @@ export interface ApplicationNoteEntry {
   created_at: Date;
 }
 
+// A copy of a certificate link as it was when the application was sent; later edits or deletion don't touch it.
+export interface ApplicationCertificateSnapshot {
+  certificate_id: Types.ObjectId;
+  version: number;
+  name: string;
+  url: string;
+  issuer?: string;
+  issued_date?: string;
+  expiry_date?: string;
+}
+
 export interface ApplicationData {
   job_id: Types.ObjectId;
   // User id of the applicant. Documents (cv_id / cover_letter_id) are also owned by the User (Document.owner_id).
@@ -55,6 +66,7 @@ export interface ApplicationData {
   reapplied_as?: Types.ObjectId;
   // Append-only: one entry per accepted status change.
   status_history: ApplicationStatusHistoryEntry[];
+  certificates: ApplicationCertificateSnapshot[];
   // Append-only internal notes recorded by recruiters for team evaluation.
   notes: ApplicationNoteEntry[];
 }
@@ -82,6 +94,19 @@ const noteSchema = new Schema<ApplicationNoteEntry>(
   { _id: false },
 );
 
+const certificateSnapshotSchema = new Schema<ApplicationCertificateSnapshot>(
+  {
+    certificate_id: { type: Schema.Types.ObjectId, ref: 'CertificateLink', required: true },
+    version: { type: Number, required: true },
+    name: { type: String, required: true },
+    url: { type: String, required: true },
+    issuer: { type: String },
+    issued_date: { type: String },
+    expiry_date: { type: String },
+  },
+  { _id: false },
+);
+
 const applicationSchema = new Schema<ApplicationData>(
   {
     job_id: { type: Schema.Types.ObjectId, ref: 'JobPosting', required: true },
@@ -94,6 +119,7 @@ const applicationSchema = new Schema<ApplicationData>(
     reapplied_from: { type: Schema.Types.ObjectId, ref: 'Application' },
     reapplied_as: { type: Schema.Types.ObjectId, ref: 'Application' },
     status_history: { type: [statusHistorySchema], default: [] },
+    certificates: { type: [certificateSnapshotSchema], default: [] },
     notes: { type: [noteSchema], default: [] },
   },
   {
@@ -112,6 +138,7 @@ applicationSchema.index(
 applicationSchema.index({ job_id: 1, applicant_id: 1, createdAt: -1 });
 applicationSchema.index({ job_id: 1, status: 1 });
 applicationSchema.index({ applicant_id: 1, createdAt: -1 });
+applicationSchema.index({ applicant_id: 1, 'certificates.certificate_id': 1 });
 
 export const Application = model('Application', applicationSchema);
 export type ApplicationDoc = ApplicationData & {
