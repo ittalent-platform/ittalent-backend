@@ -116,7 +116,7 @@ export class EnterpriseRegistrationsRepository {
   }
 
   async findPage(
-    params: RegistrationListQuery,
+    params: Partial<RegistrationListQuery> = {},
   ): Promise<{ items: EnterpriseRegistrationDoc[]; total: number }> {
     const filter: QueryFilter<EnterpriseRegistrationData> = {};
 

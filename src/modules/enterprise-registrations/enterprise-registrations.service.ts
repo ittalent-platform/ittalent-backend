@@ -480,7 +480,7 @@ export class EnterpriseRegistrationsService {
   }
 
   async listRegistrations(
-    query: RegistrationListQuery,
+    query: Partial<RegistrationListQuery> = {},
   ): Promise<PaginatedResult<EnterpriseRegistrationSummaryDTO>> {
     const page = query.page ?? REGISTRATION_CONFIG.DEFAULT_PAGE;
     const limit = query.limit ?? REGISTRATION_CONFIG.DEFAULT_LIMIT;
