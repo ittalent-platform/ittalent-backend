@@ -7,7 +7,7 @@ import {
   consumeEmailDeliveryStatus,
   sendApplicationConfirmationEmail,
 } from '../../shared/services/email.service.js';
-import { certificateLinksService, type CertificateLinksService } from '../certificate-links/certificate-links.service.js';
+import { certificateLinksService, type CertificateLinksService } from '../certificate-links/index.js';
 import { documentsService, type DocumentsService } from '../documents/documents.service.js';
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
@@ -83,6 +83,10 @@ export class ApplicationsService {
   // the only layer that accesses the Application model.
   async isDocumentReferenced(documentId: string): Promise<boolean> {
     return this.repository.isDocumentReferenced(documentId);
+  }
+
+  async countCertificatesSent(applicantId: string, certificateIds: string[]): Promise<Map<string, number>> {
+    return this.repository.countCertificatesSent(applicantId, certificateIds);
   }
 
   async applyToJob(userId: string, input: CreateApplicationBody): Promise<ApplicationDTO> {

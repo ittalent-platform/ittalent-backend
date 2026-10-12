@@ -1,6 +1,5 @@
-import { Types, type UpdateQuery } from 'mongoose';
+import type { UpdateQuery } from 'mongoose';
 
-import { Application } from '../../models/application.model.js';
 import { CertificateLink, type CertificateLinkData, type CertificateLinkDoc } from '../../models/certificate-link.model.js';
 import { CERTIFICATE_LINKS } from './certificate-links.constants.js';
 import type { CreateCertificateLinkInput } from './certificate-links.schemas.js';
@@ -69,18 +68,6 @@ export class CertificateLinksRepository {
   async deleteGuarded(ownerId: string, id: string, expectedVersion: number): Promise<boolean> {
     const result = await CertificateLink.deleteOne({ _id: id, owner_id: ownerId, version: expectedVersion }).exec();
     return result.deletedCount === 1;
-  }
-
-  /** How many of the owner's applications carry a copy of each certificate. */
-  async countSent(ownerId: string, ids: Types.ObjectId[]): Promise<Map<string, number>> {
-    if (!ids.length) return new Map();
-    const rows = await Application.aggregate<{ _id: Types.ObjectId; count: number }>([
-      { $match: { applicant_id: new Types.ObjectId(ownerId), 'certificates.certificate_id': { $in: ids } } },
-      { $unwind: '$certificates' },
-      { $match: { 'certificates.certificate_id': { $in: ids } } },
-      { $group: { _id: '$certificates.certificate_id', count: { $sum: 1 } } },
-    ]).exec();
-    return new Map(rows.map((row) => [String(row._id), row.count]));
   }
 }
 

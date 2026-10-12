@@ -4,6 +4,7 @@ import type { UserDoc } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError, isHttpError } from '../../shared/errors/http-error.js';
 import { usersService, type UsersService } from '../users/users.service.js';
+import type { ApplicationsService } from '../applications/applications.service.js';
 import { CERTIFICATE_LINKS, CERTIFICATE_LINK_MESSAGES } from './certificate-links.constants.js';
 import { certificateLinksRepository, type CertificateLinksRepository } from './certificate-links.repository.js';
 import { datesInOrder, type CertificateLinkListQuery, type CertificateLinkResponse, type CreateCertificateLinkInput, type UpdateCertificateLinkInput } from './certificate-links.schemas.js';
@@ -17,10 +18,18 @@ export interface PaginatedCertificateLinks {
   suggestedTotal: number;
 }
 
+type CountCertificatesSent = ApplicationsService['countCertificatesSent'];
+
+async function countSentByApplications(applicantId: string, ids: string[]): Promise<Map<string, number>> {
+  const { applicationsService } = await import('../applications/applications.service.js');
+  return applicationsService.countCertificatesSent(applicantId, ids);
+}
+
 export class CertificateLinksService {
   constructor(
     private readonly repository: CertificateLinksRepository = certificateLinksRepository,
     private readonly users: UsersService = usersService,
+    private readonly countCertificatesSent: CountCertificatesSent = countSentByApplications,
   ) {}
 
   private map(item: CertificateLinkDoc, sentCount = 0): CertificateLinkResponse {
@@ -98,13 +107,12 @@ export class CertificateLinksService {
   }
 
   async list(ownerId: string, query: CertificateLinkListQuery): Promise<PaginatedCertificateLinks> {
-    await this.assertCandidate(ownerId);
     return this.guardStore(async () => {
       const [result, suggestedTotal] = await Promise.all([
         this.repository.findPage(ownerId, query.page, query.limit, query.search),
         this.repository.countSuggested(ownerId),
       ]);
-      const sent = await this.repository.countSent(ownerId, result.items.map((item) => item._id));
+      const sent = await this.countCertificatesSent(ownerId, result.items.map((item) => String(item._id)));
       return {
         items: result.items.map((item) => this.map(item, sent.get(String(item._id)) ?? 0)),
         page: query.page,
@@ -180,7 +188,7 @@ export class CertificateLinksService {
   }
 
   private async withSentCount(ownerId: string, item: CertificateLinkDoc): Promise<CertificateLinkResponse> {
-    const sent = await this.guardStore(() => this.repository.countSent(ownerId, [item._id]));
+    const sent = await this.guardStore(() => this.countCertificatesSent(ownerId, [String(item._id)]));
     return this.map(item, sent.get(String(item._id)) ?? 0);
   }
 

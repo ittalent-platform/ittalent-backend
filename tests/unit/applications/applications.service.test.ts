@@ -27,7 +27,7 @@ function application(status: ApplicationStatus, id = '507f1f77bcf86cd7994390aa')
 }
 
 describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
-  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
+  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; countCertificatesSent: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
   let service: ApplicationsService;
   let stillExists: ReturnType<typeof vi.fn>;
 
@@ -37,6 +37,7 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
       findLatestByJobAndApplicant: vi.fn().mockResolvedValue(null),
       countByJobAndApplicant: vi.fn().mockResolvedValue(1),
       countHiredByJobId: vi.fn().mockResolvedValue(0),
+      countCertificatesSent: vi.fn().mockResolvedValue(new Map()),
       deleteById: vi.fn().mockResolvedValue(undefined),
       create: vi.fn().mockImplementation(async (data: { reappliedFrom?: string }) => ({ ...application('submitted', '507f1f77bcf86cd7994390bb'), ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}) })),
     };
@@ -123,6 +124,17 @@ describe('ApplicationsService document references', () => {
 
     await expect(service.isDocumentReferenced(cvId)).resolves.toBe(true);
     expect(repository.isDocumentReferenced).toHaveBeenCalledWith(cvId);
+  });
+});
+
+describe('ApplicationsService certificate sent counts', () => {
+  it('delegates certificate usage counts to the applications repository', async () => {
+    const sentCounts = new Map([['certificate-1', 3]]);
+    const repository = { countCertificatesSent: vi.fn().mockResolvedValue(sentCounts) };
+    const service = new ApplicationsService(repository as unknown as ApplicationsRepository);
+
+    await expect(service.countCertificatesSent(userId, ['certificate-1'])).resolves.toBe(sentCounts);
+    expect(repository.countCertificatesSent).toHaveBeenCalledWith(userId, ['certificate-1']);
   });
 });
 

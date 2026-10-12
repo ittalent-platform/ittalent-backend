@@ -132,10 +132,11 @@ describe('Candidate certificate links (UC-S4-CERT-01 / UC-S4-CERT-04)', () => {
     expect(sameKeyDifferentBody.body.code).toBe('IDEMPOTENCY_KEY_REUSED');
   });
 
-  it('rejects non-candidate, unverified, and unauthenticated requests', async () => {
+  it('allows stateless reads, requires a verified candidate for writes, and rejects unauthenticated requests', async () => {
     expect((await create('No access', 'https://cert.example/no-access', 'recruiter-key', recruiterToken)).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
     await User.updateOne({ _id: candidateId }, { $set: { email_verified: false } });
-    expect((await list()).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect((await list()).status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await create('Unverified', 'https://cert.example/unverified', 'unverified-key')).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
     await User.updateOne({ _id: candidateId }, { $set: { email_verified: true } });
     const response = await fetch(`${baseUrl}/api/v1/me/certificate-links`);
     expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);

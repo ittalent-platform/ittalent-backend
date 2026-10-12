@@ -3,7 +3,7 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { CERTIFICATE_LINK_MESSAGES } from './certificate-links.constants.js';
 import { certificateLinksService, type CertificateLinksService } from './certificate-links.service.js';
-import { certificateLinkListQuerySchema, createCertificateLinkSchema, idempotencyKeySchema, type CertificateLinkListQuery, type CreateCertificateLinkInput, type UpdateCertificateLinkInput } from './certificate-links.schemas.js';
+import { idempotencyKeySchema, type CertificateLinkListQuery, type CreateCertificateLinkInput, type UpdateCertificateLinkInput } from './certificate-links.schemas.js';
 
 export class CertificateLinksController {
   constructor(private readonly service: CertificateLinksService = certificateLinksService) {}
@@ -11,7 +11,7 @@ export class CertificateLinksController {
   create: RequestHandler = async (req, res, next): Promise<void> => {
     try {
       if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
-      const body = createCertificateLinkSchema.parse(res.locals.validated?.body) as CreateCertificateLinkInput;
+      const body = res.locals.validated?.body as CreateCertificateLinkInput;
       const key = idempotencyKeySchema.safeParse(req.get('Idempotency-Key'));
       if (!key.success) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, CERTIFICATE_LINK_MESSAGES.IDEMPOTENCY_KEY_REQUIRED);
       const result = await this.service.create(req.user.id, body, key.data);
@@ -25,7 +25,7 @@ export class CertificateLinksController {
   list: RequestHandler = async (req, res, next): Promise<void> => {
     try {
       if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
-      const query = certificateLinkListQuerySchema.parse(res.locals.validated?.query) as CertificateLinkListQuery;
+      const query = res.locals.validated?.query as CertificateLinkListQuery;
       res.json(await this.service.list(req.user.id, query));
     } catch (error) {
       next(error);

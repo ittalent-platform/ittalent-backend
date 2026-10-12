@@ -27,15 +27,15 @@ function item(overrides: Record<string, unknown> = {}): CertificateLinkDoc {
 describe('CertificateLinksService', () => {
   let repository: CertificateLinksRepository;
   let users: UsersService;
+  let countCertificatesSent: (applicantId: string, certificateIds: string[]) => Promise<Map<string, number>>;
 
   beforeEach(() => {
     repository = {
       create: vi.fn(),
       findByIdempotencyKey: vi.fn().mockResolvedValue(null),
       findByUrl: vi.fn().mockResolvedValue(null),
-      findPage: vi.fn(),
+      findPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       countSuggested: vi.fn().mockResolvedValue(0),
-      countSent: vi.fn().mockResolvedValue(new Map()),
       findOwned: vi.fn(),
       findOwnedMany: vi.fn(),
       updateGuarded: vi.fn(),
@@ -44,6 +44,7 @@ describe('CertificateLinksService', () => {
     users = {
       findById: vi.fn().mockResolvedValue({ role: 'user', status: 'active', email_verified: true }),
     } as unknown as UsersService;
+    countCertificatesSent = vi.fn().mockResolvedValue(new Map());
   });
 
   it('creates a private link and retries the same operation without creating a duplicate', async () => {
@@ -54,7 +55,7 @@ describe('CertificateLinksService', () => {
       idempotency_key: 'op-1',
       request_hash: createHash('sha256').update(JSON.stringify({ name: 'Certificate', url: 'https://cert.example/abc' })).digest('hex'),
     } as CertificateLinkDoc);
-    const service = new CertificateLinksService(repository, users);
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
     const input = { name: 'Certificate', url: 'https://cert.example/abc' };
 
     const first = await service.create(ownerId, input, 'op-1');
@@ -65,27 +66,38 @@ describe('CertificateLinksService', () => {
     expect(repository.create).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a stale account authorization before accessing the library', async () => {
-    vi.mocked(users.findById).mockResolvedValue({ role: 'user', status: 'active', email_verified: false } as never);
-    const service = new CertificateLinksService(repository, users);
+  it('uses stateless role authorization for the read and skips a second user lookup', async () => {
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
 
-    await expect(service.list(ownerId, { page: 1, limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
-    expect(repository.findPage).not.toHaveBeenCalled();
+    await service.list(ownerId, { page: 1, limit: 20 });
+    expect(users.findById).not.toHaveBeenCalled();
+    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 1, 20, undefined);
   });
 
   it('does not expose private idempotency data in the candidate response', async () => {
     vi.mocked(repository.findPage).mockResolvedValue({ items: [item({ idempotency_key: 'secret', request_hash: 'secret', history: [] })], total: 1 });
-    const result = await new CertificateLinksService(repository, users).list(ownerId, { page: 1, limit: 20 });
+    const result = await new CertificateLinksService(repository, users, countCertificatesSent).list(ownerId, { page: 1, limit: 20 });
 
     expect(result.items[0]).not.toHaveProperty('idempotency_key');
     expect(result.items[0]).not.toHaveProperty('history');
+  });
+
+  it('gets sent counts through ApplicationsService and maps them onto certificate items', async () => {
+    const certificate = item();
+    vi.mocked(repository.findPage).mockResolvedValue({ items: [certificate], total: 1 });
+    countCertificatesSent = vi.fn().mockResolvedValue(new Map([[String(certificate._id), 4]]));
+
+    const result = await new CertificateLinksService(repository, users, countCertificatesSent).list(ownerId, { page: 1, limit: 20 });
+
+    expect(countCertificatesSent).toHaveBeenCalledWith(ownerId, [String(certificate._id)]);
+    expect(result.items[0]?.sentCount).toBe(4);
   });
 
   it('bumps the version for a metadata change but not for a suggested-only change', async () => {
     const current = item({ version: 2, suggested: false });
     vi.mocked(repository.findOwned).mockResolvedValue(current);
     vi.mocked(repository.updateGuarded).mockResolvedValue(item({ version: 2, suggested: true }));
-    const service = new CertificateLinksService(repository, users);
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
 
     await service.update(ownerId, String(current._id), { expectedVersion: 2, suggested: true });
     expect(vi.mocked(repository.updateGuarded).mock.calls[0]![3]).toMatchObject({ $set: { version: 2, suggested: true }, $push: { history: { action: 'suggestion_changed' } } });
@@ -97,13 +109,13 @@ describe('CertificateLinksService', () => {
   it('returns the item unchanged without writing when nothing changes', async () => {
     const current = item({ version: 1, issuer: 'Same' });
     vi.mocked(repository.findOwned).mockResolvedValue(current);
-    const result = await new CertificateLinksService(repository, users).update(ownerId, String(current._id), { expectedVersion: 1, issuer: 'Same' });
+    const result = await new CertificateLinksService(repository, users, countCertificatesSent).update(ownerId, String(current._id), { expectedVersion: 1, issuer: 'Same' });
     expect(result.version).toBe(1);
     expect(repository.updateGuarded).not.toHaveBeenCalled();
   });
 
   it('rejects a stale version, a missing item and an expiry before the stored issued date', async () => {
-    const service = new CertificateLinksService(repository, users);
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
     vi.mocked(repository.findOwned).mockResolvedValue(item({ version: 3, issued_date: '2026-01-10' }));
     await expect(service.update(ownerId, new Types.ObjectId().toString(), { expectedVersion: 2, name: 'New' })).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
     await expect(service.update(ownerId, new Types.ObjectId().toString(), { expectedVersion: 3, expiryDate: '2026-01-01' })).rejects.toMatchObject({ statusCode: 400 });
@@ -115,7 +127,7 @@ describe('CertificateLinksService', () => {
   it('refuses an application when a ticked certificate is not the applicant’s own', async () => {
     const own = item();
     vi.mocked(repository.findOwnedMany).mockResolvedValue([own]);
-    const service = new CertificateLinksService(repository, users);
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
     await expect(service.resolveForApplication(ownerId, [String(own._id), new Types.ObjectId().toString()])).rejects.toMatchObject({ statusCode: 409, code: 'CERTIFICATE_UNAVAILABLE' });
     await expect(service.resolveForApplication(ownerId, [String(own._id)])).resolves.toEqual([own]);
     await expect(service.resolveForApplication(ownerId, [])).resolves.toEqual([]);
