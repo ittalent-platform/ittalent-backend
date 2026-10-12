@@ -4,11 +4,13 @@ import { Application, type ApplicationDoc } from '../../models/application.model
 import { Enterprise } from '../../models/enterprise.model.js';
 import {
   Interview,
+  type InterviewData,
   type InterviewDoc,
   type InterviewMode,
 } from '../../models/interview.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
 import {
+  INTERVIEW_EDITABLE_STATUS,
   INTERVIEW_COMPLETED_STATUS,
   INTERVIEW_INITIAL_STATUS,
 } from './interviews.constants.js';
@@ -40,6 +42,18 @@ export interface CreateInterviewRecord {
   meetingLink?: string | undefined;
   location?: string | undefined;
   notes?: string | undefined;
+}
+
+// Only the fields that are present are written; `null` clears an optional field.
+export interface UpdateInterviewRecord {
+  interviewerIds?: string[] | undefined;
+  scheduledAt?: Date | undefined;
+  endsAt?: Date | undefined;
+  durationMinutes?: number | undefined;
+  mode?: InterviewMode | undefined;
+  meetingLink?: string | null | undefined;
+  location?: string | null | undefined;
+  notes?: string | null | undefined;
 }
 
 export interface InterviewConflictParams {
@@ -117,6 +131,35 @@ export class InterviewsRepository {
 
   async findById(id: string): Promise<InterviewDoc | null> {
     return Interview.findById(id).lean<InterviewDoc>().exec();
+  }
+
+  // Applies the change only while the interview is still scheduled; null means it changed (or vanished) meanwhile.
+  async updateScheduled(id: string, update: UpdateInterviewRecord): Promise<InterviewDoc | null> {
+    const set: Partial<Record<keyof InterviewData, unknown>> = {};
+    const unset: Partial<Record<keyof InterviewData, ''>> = {};
+    if (update.interviewerIds) set.interviewer_ids = update.interviewerIds;
+    if (update.scheduledAt) set.scheduled_at = update.scheduledAt;
+    if (update.endsAt) set.ends_at = update.endsAt;
+    if (update.durationMinutes !== undefined) set.duration_minutes = update.durationMinutes;
+    if (update.mode) set.mode = update.mode;
+    for (const [field, value] of [
+      ['meeting_link', update.meetingLink],
+      ['location', update.location],
+      ['notes', update.notes],
+    ] as const) {
+      if (value === null) unset[field] = '';
+      else if (value !== undefined) set[field] = value;
+    }
+    return Interview.findOneAndUpdate(
+      { _id: id, status: INTERVIEW_EDITABLE_STATUS },
+      {
+        ...(Object.keys(set).length > 0 ? { $set: set } : {}),
+        ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+      },
+      { returnDocument: 'after' },
+    )
+      .lean<InterviewDoc>()
+      .exec();
   }
 
   // Deletes unless the interview was completed meanwhile; returns the deleted record.

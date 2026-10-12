@@ -55,6 +55,16 @@ describe('InterviewsController', () => {
     expect(json).toHaveBeenCalledWith({ id: ID });
   });
 
+  it('updates the information', async () => {
+    service.update!.mockResolvedValue({ id: ID });
+    const { res, json } = response({ params: { id: ID }, body: { notes: 'x' } });
+
+    await controller.updateInterview(req, res, vi.fn());
+
+    expect(service.update).toHaveBeenCalledWith(actor, ID, { notes: 'x' });
+    expect(json).toHaveBeenCalledWith({ id: ID });
+  });
+
   it('deletes and answers 204 without a body', async () => {
     service.remove!.mockResolvedValue(undefined);
     const { res, status, json, send } = response({ params: { id: ID } });
@@ -70,6 +80,7 @@ describe('InterviewsController', () => {
   it.each([
     ['createInterview'],
     ['getDetail'],
+    ['updateInterview'],
     ['deleteInterview'],
   ] as const)('%s answers 401 when there is no authenticated user', async (handler) => {
     const { res } = response({ params: { id: ID } });

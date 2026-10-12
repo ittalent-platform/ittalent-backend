@@ -291,6 +291,119 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('update', () => {
+    it('changes the interview and emails the participants the new details', async () => {
+      const result = await service.update(recruiter, INTERVIEW_ID, { notes: 'Bring a laptop' });
+
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ notes: 'Bring a laptop', mode: 'online', durationMinutes: 60 }),
+      );
+      expect(result.id).toBe(INTERVIEW_ID);
+      expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'updated')).toBe(true);
+      expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+    });
+
+    it('never stores the same interviewer twice, even when the head count is unchanged', async () => {
+      repository.findById!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A, INTERVIEWER_B] }));
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_A, INTERVIEWER_A] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+      expect(repository.updateScheduled).not.toHaveBeenCalled();
+    });
+
+    it('moves the interview, re-checks the overlap without counting itself and recomputes the end', async () => {
+      const newStart = '2026-10-14T08:00:00.000Z';
+      await service.update(recruiter, INTERVIEW_ID, { scheduledAt: newStart, durationMinutes: 30 });
+      expect(repository.findConflict).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeId: INTERVIEW_ID,
+          startsAt: new Date(newStart),
+          endsAt: new Date(new Date(newStart).getTime() + 30 * 60_000),
+        }),
+      );
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ scheduledAt: new Date(newStart), durationMinutes: 30 }),
+      );
+    });
+
+    it('does not re-check the overlap when only the notes change', async () => {
+      await service.update(recruiter, INTERVIEW_ID, { notes: 'x' });
+      expect(repository.findConflict).not.toHaveBeenCalled();
+    });
+
+    it('reports a new overlap', async () => {
+      repository.findConflict!.mockResolvedValue(interview({ applicant_id: 'a000000000000000000000ff' }));
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: '2026-10-14T08:00:00.000Z' }),
+      ).rejects.toMatchObject({ statusCode: 409, code: INTERVIEW_ERROR_CODES.INTERVIEWER_CONFLICT });
+      expect(repository.updateScheduled).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new time in the past but lets the notes of a running interview change', async () => {
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: '2026-10-11T03:00:00.000Z' }),
+      ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.TIME_IN_PAST });
+
+      now = new Date('2026-10-13T03:30:00.000Z');
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: IN_ONE_DAY, notes: 'Running late' }),
+      ).resolves.toBeDefined();
+    });
+
+    it.each<InterviewStatus>(['completed', 'cancelled', 'no_show'])('refuses to change a %s interview', async (status) => {
+      repository.findById!.mockResolvedValue(interview({ status }));
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.NOT_EDITABLE,
+      });
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('clears the link with null and refuses to leave an online interview without one', async () => {
+      await expect(service.update(recruiter, INTERVIEW_ID, { meetingLink: null })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { mode: 'onsite', location: 'Floor 5', meetingLink: null }),
+      ).resolves.toBeDefined();
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ mode: 'onsite', location: 'Floor 5', meetingLink: null }),
+      );
+    });
+
+    it('validates new interviewers and tells removed ones the interview no longer involves them', async () => {
+      repository.findById!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A, INTERVIEWER_B] }));
+      repository.updateScheduled!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A] }));
+
+      await service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_A] });
+
+      const sent = vi.mocked(sendInterviewEmail).mock.calls.map(([input]) => [input.kind, input.to]);
+      expect(sent).toContainEqual(['cancelled', `${INTERVIEWER_B}@example.com`]);
+      expect(sent).toContainEqual(['updated', `${INTERVIEWER_A}@example.com`]);
+      expect(sent).not.toContainEqual(['cancelled', `${INTERVIEWER_A}@example.com`]);
+    });
+
+    it('rejects an interviewer who is not eligible', async () => {
+      users.findByIds.mockResolvedValue([user(INTERVIEWER_B, { enterprise_id: OTHER_ENTERPRISE })]);
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_B] }),
+      ).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+    });
+
+    it('reports a concurrent change instead of overwriting it', async () => {
+      repository.updateScheduled!.mockResolvedValue(null);
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.STATE_CHANGED,
+      });
+    });
+  });
+
   describe('remove', () => {
     it('deletes a scheduled interview and tells the participants it is cancelled', async () => {
       await service.remove(recruiter, INTERVIEW_ID);
