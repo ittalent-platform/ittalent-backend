@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApplicationStatus } from '../../../src/models/application.model.js';
 import type { InterviewDoc, InterviewStatus } from '../../../src/models/interview.model.js';
 import type { UserDoc } from '../../../src/models/user.model.js';
-import { INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
+import { INTERVIEW_CONFIG, INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
 import type { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
 import { InterviewsService, type InterviewActor } from '../../../src/modules/interviews/interviews.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
@@ -92,6 +92,7 @@ function makeRepository(): Record<keyof InterviewsRepository, ReturnType<typeof 
     deleteNotCompleted: vi.fn().mockResolvedValue(interview()),
     findPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     findCalendar: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    findSchedulableApplications: vi.fn().mockResolvedValue([]),
   } as unknown as Record<keyof InterviewsRepository, ReturnType<typeof vi.fn>>;
 }
 
@@ -102,6 +103,7 @@ describe('InterviewsService', () => {
     findById: ReturnType<typeof vi.fn>;
     findByIds: ReturnType<typeof vi.fn>;
     findIdsByKeyword: ReturnType<typeof vi.fn>;
+    findRecruitersByEnterpriseId: ReturnType<typeof vi.fn>;
   };
   let service: InterviewsService;
   let now: Date;
@@ -114,6 +116,7 @@ describe('InterviewsService', () => {
       findById: vi.fn().mockResolvedValue({ _id: APPLICANT, email: 'applicant@example.com', status: 'active' }),
       findByIds: vi.fn().mockImplementation(async (ids: string[]) => ids.map((id) => user(id))),
       findIdsByKeyword: vi.fn().mockResolvedValue([]),
+      findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]),
     };
     now = NOW;
     service = new InterviewsService(
@@ -291,6 +294,184 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('update', () => {
+    it('changes the interview and emails the participants the new details', async () => {
+      const result = await service.update(recruiter, INTERVIEW_ID, { notes: 'Bring a laptop' });
+
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ notes: 'Bring a laptop', mode: 'online', durationMinutes: 60 }),
+      );
+      expect(result.id).toBe(INTERVIEW_ID);
+      expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'updated')).toBe(true);
+      expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+    });
+
+    it('never stores the same interviewer twice, even when the head count is unchanged', async () => {
+      repository.findById!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A, INTERVIEWER_B] }));
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_A, INTERVIEWER_A] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+      expect(repository.updateScheduled).not.toHaveBeenCalled();
+    });
+
+    it('moves the interview, re-checks the overlap without counting itself and recomputes the end', async () => {
+      const newStart = '2026-10-14T08:00:00.000Z';
+      await service.update(recruiter, INTERVIEW_ID, { scheduledAt: newStart, durationMinutes: 30 });
+      expect(repository.findConflict).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeId: INTERVIEW_ID,
+          startsAt: new Date(newStart),
+          endsAt: new Date(new Date(newStart).getTime() + 30 * 60_000),
+        }),
+      );
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ scheduledAt: new Date(newStart), durationMinutes: 30 }),
+      );
+    });
+
+    it('does not re-check the overlap when only the notes change', async () => {
+      await service.update(recruiter, INTERVIEW_ID, { notes: 'x' });
+      expect(repository.findConflict).not.toHaveBeenCalled();
+    });
+
+    it('reports a new overlap', async () => {
+      repository.findConflict!.mockResolvedValue(interview({ applicant_id: 'a000000000000000000000ff' }));
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: '2026-10-14T08:00:00.000Z' }),
+      ).rejects.toMatchObject({ statusCode: 409, code: INTERVIEW_ERROR_CODES.INTERVIEWER_CONFLICT });
+      expect(repository.updateScheduled).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new time in the past but lets the notes of a running interview change', async () => {
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: '2026-10-11T03:00:00.000Z' }),
+      ).rejects.toMatchObject({ statusCode: 400, code: INTERVIEW_ERROR_CODES.TIME_IN_PAST });
+
+      now = new Date('2026-10-13T03:30:00.000Z');
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { scheduledAt: IN_ONE_DAY, notes: 'Running late' }),
+      ).resolves.toBeDefined();
+    });
+
+    it.each<InterviewStatus>(['completed', 'cancelled', 'no_show'])('refuses to change a %s interview', async (status) => {
+      repository.findById!.mockResolvedValue(interview({ status }));
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.NOT_EDITABLE,
+      });
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('clears the link with null and refuses to leave an online interview without one', async () => {
+      await expect(service.update(recruiter, INTERVIEW_ID, { meetingLink: null })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { mode: 'onsite', location: 'Floor 5', meetingLink: null }),
+      ).resolves.toBeDefined();
+      expect(repository.updateScheduled).toHaveBeenCalledWith(
+        INTERVIEW_ID,
+        expect.objectContaining({ mode: 'onsite', location: 'Floor 5', meetingLink: null }),
+      );
+    });
+
+    it('validates new interviewers and tells removed ones the interview no longer involves them', async () => {
+      repository.findById!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A, INTERVIEWER_B] }));
+      repository.updateScheduled!.mockResolvedValue(interview({ interviewer_ids: [INTERVIEWER_A] }));
+
+      await service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_A] });
+
+      const sent = vi.mocked(sendInterviewEmail).mock.calls.map(([input]) => [input.kind, input.to]);
+      expect(sent).toContainEqual(['cancelled', `${INTERVIEWER_B}@example.com`]);
+      expect(sent).toContainEqual(['updated', `${INTERVIEWER_A}@example.com`]);
+      expect(sent).not.toContainEqual(['cancelled', `${INTERVIEWER_A}@example.com`]);
+    });
+
+    it('rejects an interviewer who is not eligible', async () => {
+      users.findByIds.mockResolvedValue([user(INTERVIEWER_B, { enterprise_id: OTHER_ENTERPRISE })]);
+      await expect(
+        service.update(recruiter, INTERVIEW_ID, { interviewerIds: [INTERVIEWER_B] }),
+      ).rejects.toMatchObject({ code: INTERVIEW_ERROR_CODES.INVALID_INTERVIEWERS });
+    });
+
+    it('reports a concurrent change instead of overwriting it', async () => {
+      repository.updateScheduled!.mockResolvedValue(null);
+      await expect(service.update(recruiter, INTERVIEW_ID, { notes: 'x' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.STATE_CHANGED,
+      });
+    });
+  });
+
+  describe('updateStatus', () => {
+    it.each<'completed' | 'no_show'>(['completed', 'no_show'])(
+      'refuses %s before the interview has ended',
+      async (status) => {
+        now = new Date('2026-10-13T03:59:59.999Z');
+        await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status })).rejects.toMatchObject({
+          statusCode: 409,
+          code: INTERVIEW_ERROR_CODES.NOT_ENDED,
+        });
+        expect(repository.transitionFromScheduled).not.toHaveBeenCalled();
+      },
+    );
+
+    it('completes the interview from the moment it has ended', async () => {
+      now = new Date('2026-10-13T04:00:00.000Z');
+      const result = await service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed', note: 'Strong candidate' });
+
+      expect(repository.transitionFromScheduled).toHaveBeenCalledWith(INTERVIEW_ID, 'completed', RECRUITER, {
+        note: 'Strong candidate',
+        endedBefore: now,
+      });
+      expect(result.status).toBe('completed');
+      expect(sendInterviewEmail).not.toHaveBeenCalled();
+    });
+
+    it('marks a no-show once the interview has ended', async () => {
+      now = new Date('2026-10-13T04:10:00.000Z');
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'no_show' })).resolves.toMatchObject({ status: 'no_show' });
+    });
+
+    it('cancels at any time without the time guard and emails the participants', async () => {
+      const result = await service.updateStatus(recruiter, INTERVIEW_ID, { status: 'cancelled', note: 'Role closed' });
+
+      expect(repository.transitionFromScheduled).toHaveBeenCalledWith(INTERVIEW_ID, 'cancelled', RECRUITER, {
+        note: 'Role closed',
+        endedBefore: undefined,
+      });
+      expect(result.status).toBe('cancelled');
+      expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'cancelled')).toBe(true);
+      expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+    });
+
+    it.each<InterviewStatus>(['completed', 'cancelled', 'no_show'])('does not change a %s interview again', async (status) => {
+      repository.findById!.mockResolvedValue(interview({ status }));
+      now = new Date('2026-10-14T00:00:00.000Z');
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed' })).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.ALREADY_FINAL,
+      });
+    });
+
+    it('reports a concurrent change (for example the interview was just moved to a later time)', async () => {
+      now = new Date('2026-10-13T04:00:00.000Z');
+      repository.transitionFromScheduled!.mockResolvedValue(null);
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'completed' })).rejects.toMatchObject({
+        code: INTERVIEW_ERROR_CODES.STATE_CHANGED,
+      });
+    });
+
+    it('hides an interview of another enterprise', async () => {
+      repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
+      await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'cancelled' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
   describe('remove', () => {
     it('deletes a scheduled interview and tells the participants it is cancelled', async () => {
       await service.remove(recruiter, INTERVIEW_ID);
@@ -345,7 +526,10 @@ describe('InterviewsService', () => {
         statusHistory: [{ status: 'scheduled' }],
       });
 
-      now = new Date('2026-10-13T03:00:00.000Z');
+      now = new Date('2026-10-13T03:59:59.999Z');
+      expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(false);
+
+      now = new Date('2026-10-13T04:00:00.000Z');
       expect((await service.getDetail(recruiter, INTERVIEW_ID)).canComplete).toBe(true);
 
       repository.findById!.mockResolvedValue(interview({ status: 'completed' }));
@@ -360,4 +544,213 @@ describe('InterviewsService', () => {
     });
   });
 
+  describe('list (List view)', () => {
+    const query = { page: 2, limit: 10, sortBy: 'scheduledAt', sortOrder: 'asc' } as const;
+
+    it('applies the filters and pages the result', async () => {
+      repository.findPage!.mockResolvedValue({ items: [interview()], total: 21 });
+      const from = new Date('2026-10-01T00:00:00.000Z');
+      const to = new Date('2026-10-31T00:00:00.000Z');
+
+      const result = await service.list(recruiter, {
+        ...query,
+        status: 'scheduled, completed',
+        mode: 'online',
+        jobId: JOB,
+        applicationId: APPLICATION,
+        interviewerId: INTERVIEWER_A,
+        from,
+        to,
+      });
+
+      expect(repository.findPage).toHaveBeenCalledWith(
+        {
+          enterpriseId: ENTERPRISE,
+          interviewerId: INTERVIEWER_A,
+          statuses: ['scheduled', 'completed'],
+          mode: 'online',
+          jobId: JOB,
+          applicationId: APPLICATION,
+          from,
+          to,
+          overlapRange: false,
+          search: undefined,
+        },
+        { page: 2, limit: 10, sortBy: 'scheduledAt', sortOrder: 'asc' },
+      );
+      expect(result).toMatchObject({ page: 2, limit: 10, total: 21, totalPages: 3 });
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('turns a keyword into the users and jobs it matches', async () => {
+      users.findIdsByKeyword.mockResolvedValue([APPLICANT]);
+      repository.findJobIdsByTitle!.mockResolvedValue([JOB]);
+      await service.list(recruiter, { ...query, search: 'nguyen' });
+      expect(users.findIdsByKeyword).toHaveBeenCalledWith('nguyen', INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT);
+      expect(repository.findJobIdsByTitle).toHaveBeenCalledWith(ENTERPRISE, 'nguyen');
+      expect(repository.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { userIds: [APPLICANT], jobIds: [JOB] } }),
+        expect.anything(),
+      );
+    });
+
+    it('scopes every list to the enterprise of the recruiter and can filter by one interviewer', async () => {
+      await service.list(recruiter, { ...query, interviewerId: INTERVIEWER_B });
+      expect(repository.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, interviewerId: INTERVIEWER_B }),
+        expect.anything(),
+      );
+    });
+
+    it('refuses an account that has no enterprise', async () => {
+      users.getEnterpriseId.mockResolvedValue(null);
+      await expect(service.list(recruiter, query)).rejects.toMatchObject({ statusCode: 403 });
+    });
+  });
+
+  describe('calendar (Calendar view)', () => {
+    const from = new Date('2026-10-01T00:00:00.000Z');
+    const to = new Date('2026-10-31T00:00:00.000Z');
+
+    it('returns every interview that overlaps the window and says when the result was cut', async () => {
+      repository.findCalendar!.mockResolvedValue({ items: [interview()], total: 501 });
+      const result = await service.calendar(recruiter, { from, to, status: 'scheduled' });
+
+      expect(repository.findCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, from, to, overlapRange: true, statuses: ['scheduled'] }),
+        500,
+      );
+      expect(result).toMatchObject({ from: from.toISOString(), to: to.toISOString(), total: 501, truncated: true });
+
+      repository.findCalendar!.mockResolvedValue({ items: [interview()], total: 1 });
+      expect((await service.calendar(recruiter, { from, to })).truncated).toBe(false);
+    });
+
+    it('can filter the calendar by one interviewer', async () => {
+      await service.calendar(recruiter, { from, to, interviewerId: INTERVIEWER_B });
+      expect(repository.findCalendar).toHaveBeenCalledWith(
+        expect.objectContaining({ enterpriseId: ENTERPRISE, interviewerId: INTERVIEWER_B }),
+        500,
+      );
+    });
+  });
+
+  describe('listSchedulableApplications (application picker)', () => {
+    const application = (overrides: Record<string, unknown> = {}): unknown => ({
+      _id: APPLICATION,
+      job_id: JOB,
+      applicant_id: APPLICANT,
+      status: 'under_review',
+      createdAt: new Date('2026-10-10T03:00:00.000Z'),
+      ...overrides,
+    });
+
+    it.each(['user', 'applicant', 'admin'])('refuses a %s before looking anything up', async (role) => {
+      await expect(service.listSchedulableApplications({ id: RECRUITER, role }, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(users.getEnterpriseId).not.toHaveBeenCalled();
+      expect(repository.findSchedulableApplications).not.toHaveBeenCalled();
+    });
+
+    it('refuses a recruiter who has no enterprise', async () => {
+      users.getEnterpriseId.mockResolvedValue(null);
+      await expect(service.listSchedulableApplications(recruiter, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(repository.findSchedulableApplications).not.toHaveBeenCalled();
+    });
+
+    it('asks only for the schedulable statuses of the recruiter enterprise and names the applicant and the job', async () => {
+      repository.findSchedulableApplications!.mockResolvedValue([application()]);
+      users.findByIds.mockResolvedValue([user(APPLICANT, { full_name: 'Ha Quoc Bao', email: 'bao.ha@gmail.com', role: 'user' })]);
+
+      const result = await service.listSchedulableApplications(recruiter, { limit: 20 });
+
+      expect(repository.findSchedulableApplications).toHaveBeenCalledWith({
+        enterpriseId: ENTERPRISE,
+        statuses: ['submitted', 'under_review', 'interviewing'],
+        search: undefined,
+        limit: 20,
+      });
+      expect(users.findIdsByKeyword).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        items: [
+          {
+            id: APPLICATION,
+            status: 'under_review',
+            appliedAt: '2026-10-10T03:00:00.000Z',
+            job: { id: JOB, title: 'Backend Engineer' },
+            applicant: { id: APPLICANT, fullName: 'Ha Quoc Bao', email: 'bao.ha@gmail.com' },
+          },
+        ],
+      });
+    });
+
+    it('turns the keyword into applicant and job matches', async () => {
+      users.findIdsByKeyword.mockResolvedValue([APPLICANT]);
+      repository.findJobIdsByTitle!.mockResolvedValue([JOB]);
+
+      await service.listSchedulableApplications(recruiter, { search: 'bao', limit: 5 });
+
+      expect(users.findIdsByKeyword).toHaveBeenCalledWith('bao', INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT);
+      expect(repository.findJobIdsByTitle).toHaveBeenCalledWith(ENTERPRISE, 'bao');
+      expect(repository.findSchedulableApplications).toHaveBeenCalledWith(
+        expect.objectContaining({ search: { userIds: [APPLICANT], jobIds: [JOB] }, limit: 5 }),
+      );
+    });
+
+    it('falls back to empty names when the applicant account or the job no longer exists', async () => {
+      repository.findSchedulableApplications!.mockResolvedValue([application()]);
+      users.findByIds.mockResolvedValue([]);
+      repository.findJobTitles!.mockResolvedValue(new Map());
+
+      const result = await service.listSchedulableApplications(recruiter, { limit: 20 });
+
+      expect(result.items[0]).toMatchObject({
+        job: { id: JOB, title: null },
+        applicant: { id: APPLICANT, fullName: null, email: null },
+      });
+    });
+  });
+
+  describe('listInterviewers (interviewer picker)', () => {
+    const team = [
+      user('a00000000000000000000011', { full_name: 'Binh Nguyen', email: 'binh@acme.vn', username: 'binh' }),
+      user('a00000000000000000000012', { full_name: 'An Tran', email: 'an.tran@acme.vn', username: 'antran' }),
+      user('a00000000000000000000013', { full_name: 'Chi Le', email: 'chi@acme.vn', username: 'chi', status: 'blocked' }),
+      user('a00000000000000000000014', { full_name: undefined, email: 'zed@acme.vn', username: 'zed' }),
+    ];
+
+    beforeEach(() => {
+      users.findRecruitersByEnterpriseId.mockResolvedValue(team);
+    });
+
+    it.each(['user', 'applicant', 'admin'])('refuses a %s before looking anything up', async (role) => {
+      await expect(service.listInterviewers({ id: RECRUITER, role }, { limit: 20 })).rejects.toMatchObject({ statusCode: 403 });
+      expect(users.findRecruitersByEnterpriseId).not.toHaveBeenCalled();
+    });
+
+    it('lists the active recruiters of the enterprise sorted by name, leaving out accounts that are not active', async () => {
+      const result = await service.listInterviewers(recruiter, { limit: 20 });
+
+      expect(users.findRecruitersByEnterpriseId).toHaveBeenCalledWith(ENTERPRISE);
+      expect(result.items).toEqual([
+        { id: 'a00000000000000000000012', fullName: 'An Tran', email: 'an.tran@acme.vn' },
+        { id: 'a00000000000000000000011', fullName: 'Binh Nguyen', email: 'binh@acme.vn' },
+        { id: 'a00000000000000000000014', fullName: null, email: 'zed@acme.vn' },
+      ]);
+    });
+
+    it.each([
+      ['an email, ignoring case', 'BINH@ACME', ['a00000000000000000000011']],
+      ['a name', 'tran', ['a00000000000000000000012']],
+      ['a username', 'zed', ['a00000000000000000000014']],
+      ['an inactive account (it never shows)', 'chi', []],
+    ])('finds a recruiter by %s', async (_label, search, ids) => {
+      const result = await service.listInterviewers(recruiter, { search, limit: 20 });
+      expect(result.items.map((item) => item.id)).toEqual(ids);
+    });
+
+    it('returns at most `limit` recruiters', async () => {
+      const result = await service.listInterviewers(recruiter, { limit: 1 });
+      expect(result.items).toHaveLength(1);
+    });
+  });
 });

@@ -19,16 +19,29 @@ import {
   INTERVIEW_COMPLETED_STATUS,
   ACTIVE_USER_STATUS,
   SCHEDULABLE_APPLICATION_STATUSES,
+  TIME_GATED_STATUSES,
 } from './interviews.constants.js';
 import {
   interviewsRepository,
+  type InterviewFilter,
   type InterviewsRepository,
+  type UpdateInterviewRecord,
 } from './interviews.repository.js';
 import {
+  parseInterviewStatusFilter,
   type CreateInterviewBody,
+  type InterviewCalendarQuery,
+  type InterviewCalendarResponse,
   type InterviewDetailDTO,
   type InterviewDTO,
+  type InterviewListQuery,
+  type InterviewListResponse,
+  type InterviewLookupQuery,
   type InterviewParticipantDTO,
+  type InterviewerListResponse,
+  type SchedulableApplicationListResponse,
+  type UpdateInterviewBody,
+  type UpdateInterviewStatusBody,
 } from './interviews.schemas.js';
 
 export interface InterviewActor {
@@ -45,15 +58,25 @@ interface InterviewLookups {
   jobTitles: Map<string, string>;
 }
 
+// The filters the List and the Calendar views have in common.
+type InterviewFilterQuery = Pick<
+  InterviewCalendarQuery,
+  'status' | 'mode' | 'jobId' | 'applicationId' | 'interviewerId' | 'search'
+> & { from?: Date | undefined; to?: Date | undefined };
+
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function sameMembers(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
 }
 
 export class InterviewsService {
   constructor(
     private readonly repository: InterviewsRepository = interviewsRepository,
     private readonly users: UsersService = usersService,
-    // Injected so the "interview time has arrived" rule can be tested without waiting.
+    // Injected so the "interview has ended" rule can be tested without waiting.
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -114,6 +137,99 @@ export class InterviewsService {
     return detail;
   }
 
+  async update(actor: InterviewActor, id: string, body: UpdateInterviewBody): Promise<InterviewDetailDTO> {
+    const scope = await this.resolveScope(actor);
+    const existing = await this.loadScoped(scope, id);
+    if (existing.status !== INTERVIEW_EDITABLE_STATUS) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.NOT_EDITABLE, INTERVIEW_ERROR_CODES.NOT_EDITABLE);
+    }
+
+    const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : existing.scheduled_at;
+    // An unchanged time is left alone even if it has passed, so notes can still be edited during the interview.
+    const timeChanged = scheduledAt.getTime() !== existing.scheduled_at.getTime();
+    if (timeChanged) {
+      this.assertInFuture(scheduledAt);
+    }
+    const durationMinutes = body.durationMinutes ?? existing.duration_minutes;
+    const mode = body.mode ?? existing.mode;
+    this.assertModeDetails(
+      mode,
+      this.resolveNullable(body.meetingLink, existing.meeting_link),
+      this.resolveNullable(body.location, existing.location),
+    );
+
+    const previousInterviewerIds = existing.interviewer_ids.map(String);
+    const interviewerIds = body.interviewerIds ?? previousInterviewerIds;
+    this.assertDistinctInterviewers(interviewerIds);
+    const interviewersChanged = !sameMembers(interviewerIds, previousInterviewerIds);
+    if (interviewersChanged) {
+      await this.assertInterviewers(scope.enterpriseId, interviewerIds);
+    }
+
+    const endsAt = this.endOf(scheduledAt, durationMinutes);
+    if (timeChanged || interviewersChanged || durationMinutes !== existing.duration_minutes) {
+      await this.assertNoConflict({
+        interviewerIds,
+        applicantId: String(existing.applicant_id),
+        startsAt: scheduledAt,
+        endsAt,
+        excludeId: id,
+      });
+    }
+
+    const record: UpdateInterviewRecord = {
+      interviewerIds,
+      scheduledAt,
+      endsAt,
+      durationMinutes,
+      mode,
+      meetingLink: body.meetingLink,
+      location: body.location,
+      notes: body.notes,
+    };
+    const updated = await this.repository.updateScheduled(id, record);
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+
+    const detail = await this.hydrateDetail(updated);
+    await this.notify('updated', detail, scope.enterpriseId);
+    const removedIds = previousInterviewerIds.filter((interviewerId) => !interviewerIds.includes(interviewerId));
+    if (removedIds.length > 0) {
+      await this.notifyRemovedInterviewers(existing, removedIds, scope.enterpriseId);
+    }
+    return detail;
+  }
+
+  async updateStatus(actor: InterviewActor, id: string, body: UpdateInterviewStatusBody): Promise<InterviewDetailDTO> {
+    const scope = await this.resolveScope(actor);
+    const existing = await this.loadScoped(scope, id);
+    if (existing.status !== INTERVIEW_EDITABLE_STATUS) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.ALREADY_FINAL, INTERVIEW_ERROR_CODES.ALREADY_FINAL);
+    }
+
+    // Completed / no-show only make sense once the interview has ended; cancelling is always possible.
+    const timeGated = TIME_GATED_STATUSES.includes(body.status);
+    const now = this.now();
+    if (timeGated && now.getTime() < existing.ends_at.getTime()) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.NOT_ENDED, INTERVIEW_ERROR_CODES.NOT_ENDED);
+    }
+
+    const updated = await this.repository.transitionFromScheduled(id, body.status, actor.id, {
+      note: body.note,
+      endedBefore: timeGated ? now : undefined,
+    });
+    if (!updated) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, INTERVIEW_MESSAGES.STATE_CHANGED, INTERVIEW_ERROR_CODES.STATE_CHANGED);
+    }
+
+    const detail = await this.hydrateDetail(updated);
+    if (body.status === 'cancelled') {
+      await this.notify('cancelled', detail, scope.enterpriseId);
+    }
+    return detail;
+  }
+
   async remove(actor: InterviewActor, id: string): Promise<void> {
     const scope = await this.resolveScope(actor);
     const existing = await this.loadScoped(scope, id);
@@ -141,9 +257,83 @@ export class InterviewsService {
 
   // ---- reads ----
 
+  async list(actor: InterviewActor, query: InterviewListQuery): Promise<InterviewListResponse> {
+    const scope = await this.resolveScope(actor);
+    const filter = await this.buildFilter(scope, query, false);
+    const { items, total } = await this.repository.findPage(filter, {
+      page: query.page,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+    return {
+      items: await this.hydrate(items),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
+
+  async calendar(actor: InterviewActor, query: InterviewCalendarQuery): Promise<InterviewCalendarResponse> {
+    const scope = await this.resolveScope(actor);
+    const window = { from: query.from.toISOString(), to: query.to.toISOString() };
+    const filter = await this.buildFilter(scope, query, true);
+    const { items, total } = await this.repository.findCalendar(filter, INTERVIEW_CONFIG.CALENDAR_MAX_ITEMS);
+    return { ...window, total, truncated: total > items.length, items: await this.hydrate(items) };
+  }
+
   async getDetail(actor: InterviewActor, id: string): Promise<InterviewDetailDTO> {
     const scope = await this.resolveScope(actor);
     return this.hydrateDetail(await this.loadScoped(scope, id));
+  }
+
+  // ---- lookups for the Schedule dialog ----
+
+  // The applications an interview can still be scheduled for (see SCHEDULABLE_APPLICATION_STATUSES), newest first.
+  // `search` matches the applicant name/email or the job title.
+  async listSchedulableApplications(actor: InterviewActor, query: InterviewLookupQuery): Promise<SchedulableApplicationListResponse> {
+    const scope = await this.resolveScope(actor);
+    const search = query.search ? await this.resolveSearch(scope.enterpriseId, query.search) : undefined;
+    const applications = await this.repository.findSchedulableApplications({
+      enterpriseId: scope.enterpriseId,
+      statuses: SCHEDULABLE_APPLICATION_STATUSES,
+      search,
+      limit: query.limit,
+    });
+    const [applicants, jobTitles] = await Promise.all([
+      this.users.findByIds(unique(applications.map((application) => String(application.applicant_id)))),
+      this.repository.findJobTitles(unique(applications.map((application) => String(application.job_id)))),
+    ]);
+    const lookups: InterviewLookups = { users: new Map(applicants.map((user) => [String(user._id), user])), jobTitles };
+    return {
+      items: applications.map((application) => ({
+        id: String(application._id),
+        status: application.status,
+        appliedAt: application.createdAt.toISOString(),
+        job: { id: String(application.job_id), title: jobTitles.get(String(application.job_id)) ?? null },
+        applicant: this.participant(lookups, String(application.applicant_id)),
+      })),
+    };
+  }
+
+  // The active recruiters of the actor's enterprise who can be added as interviewers (the actor included),
+  // by name or email. A recruiter team is small, so it is filtered here instead of with a dedicated query.
+  async listInterviewers(actor: InterviewActor, query: InterviewLookupQuery): Promise<InterviewerListResponse> {
+    const scope = await this.resolveScope(actor);
+    const keyword = query.search?.toLowerCase();
+    const recruiters = await this.users.findRecruitersByEnterpriseId(scope.enterpriseId);
+    const items = recruiters
+      .filter((recruiter) => recruiter.status === ACTIVE_USER_STATUS)
+      .filter(
+        (recruiter) =>
+          !keyword ||
+          [recruiter.full_name, recruiter.email, recruiter.username].some((value) => value?.toLowerCase().includes(keyword)),
+      )
+      .map((recruiter) => ({ id: String(recruiter._id), fullName: recruiter.full_name ?? null, email: recruiter.email }))
+      .sort((left, right) => (left.fullName ?? left.email).localeCompare(right.fullName ?? right.email))
+      .slice(0, query.limit);
+    return { items };
   }
 
   // ---- scope and rules ----
@@ -169,6 +359,32 @@ export class InterviewsService {
     return interview;
   }
 
+  private async buildFilter(scope: InterviewScope, query: InterviewFilterQuery, overlapRange: boolean): Promise<InterviewFilter> {
+    const search = query.search ? await this.resolveSearch(scope.enterpriseId, query.search) : undefined;
+    return {
+      enterpriseId: scope.enterpriseId,
+      interviewerId: query.interviewerId,
+      statuses: query.status ? parseInterviewStatusFilter(query.status) : undefined,
+      mode: query.mode,
+      jobId: query.jobId,
+      applicationId: query.applicationId,
+      from: query.from,
+      to: query.to,
+      overlapRange,
+      search,
+    };
+  }
+
+  // A keyword matches people (the applicant or an interviewer, by name, email or username) and the enterprise's job
+  // titles. Each side is capped, so a very short keyword on a large user base can miss some matches.
+  private async resolveSearch(enterpriseId: string, keyword: string): Promise<{ userIds: string[]; jobIds: string[] }> {
+    const [userIds, jobIds] = await Promise.all([
+      this.users.findIdsByKeyword(keyword, INTERVIEW_CONFIG.SEARCH_MATCH_LIMIT),
+      this.repository.findJobIdsByTitle(enterpriseId, keyword),
+    ]);
+    return { userIds, jobIds };
+  }
+
   private endOf(startsAt: Date, durationMinutes: number): Date {
     return new Date(startsAt.getTime() + durationMinutes * INTERVIEW_CONFIG.MS_PER_MINUTE);
   }
@@ -186,6 +402,11 @@ export class InterviewsService {
     if (mode === 'onsite' && !location) {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, INTERVIEW_MESSAGES.ONSITE_LOCATION_REQUIRED);
     }
+  }
+
+  // `undefined` keeps the stored value, `null` clears it, a value replaces it.
+  private resolveNullable(patch: string | null | undefined, current: string | undefined): string | undefined {
+    return patch === undefined ? current : (patch ?? undefined);
   }
 
   // Every interviewer must be an active recruiter of the same enterprise.
@@ -266,10 +487,15 @@ export class InterviewsService {
       applicant: this.participant(lookups, String(interview.applicant_id)),
       interviewers: interview.interviewer_ids.map((interviewerId) => this.participant(lookups, String(interviewerId))),
       canComplete:
-        interview.status === INTERVIEW_EDITABLE_STATUS && interview.scheduled_at.getTime() <= this.now().getTime(),
+        interview.status === INTERVIEW_EDITABLE_STATUS && interview.ends_at.getTime() <= this.now().getTime(),
       createdAt: interview.createdAt.toISOString(),
       updatedAt: interview.updatedAt.toISOString(),
     };
+  }
+
+  private async hydrate(interviews: InterviewDoc[]): Promise<InterviewDTO[]> {
+    const lookups = await this.loadLookups(interviews);
+    return interviews.map((interview) => this.toDto(interview, lookups));
   }
 
   private async hydrateOne(interview: InterviewDoc): Promise<InterviewDTO> {
@@ -344,6 +570,19 @@ export class InterviewsService {
     });
   }
 
+  // Interviewers taken off an interview are told it no longer involves them, using the time they had been given.
+  private async notifyRemovedInterviewers(previous: InterviewDoc, removedIds: string[], enterpriseId: string): Promise<void> {
+    await this.safely(async () => {
+      const dto = await this.hydrateOne(previous);
+      const removed = await this.users.findByIds(removedIds);
+      await this.notify(
+        'cancelled',
+        dto,
+        enterpriseId,
+        removed.map((user) => ({ id: String(user._id), fullName: user.full_name ?? null, email: user.email })),
+      );
+    });
+  }
 }
 
 export const interviewsService = new InterviewsService();

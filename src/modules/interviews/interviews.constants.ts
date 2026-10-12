@@ -19,7 +19,7 @@ export const INTERVIEW_INITIAL_STATUS: InterviewStatus = 'scheduled';
 export const INTERVIEW_EDITABLE_STATUS: InterviewStatus = 'scheduled';
 export const INTERVIEW_COMPLETED_STATUS: InterviewStatus = 'completed';
 // Statuses that say "the interview took place (or the applicant did not come)". They cannot be set before the
-// scheduled time has arrived. Cancelling is allowed at any time while the interview is still scheduled.
+// interview has ended. Cancelling is allowed at any time while the interview is still scheduled.
 export const TIME_GATED_STATUSES: readonly InterviewStatus[] = ['completed', 'no_show'];
 // Statuses a recruiter can move a scheduled interview to.
 export const SETTABLE_STATUSES = ['completed', 'cancelled', 'no_show'] as const satisfies readonly InterviewStatus[];
@@ -51,6 +51,9 @@ export const INTERVIEW_CONFIG = {
   CALENDAR_MAX_ITEMS: 500,
   // Upper bound on users/jobs a search keyword may resolve to before it is applied to the interviews.
   SEARCH_MATCH_LIMIT: 200,
+  // The Schedule dialog's pickers (application, interviewer) only show the best few matches.
+  LOOKUP_DEFAULT_LIMIT: 20,
+  LOOKUP_MAX_LIMIT: 50,
   MS_PER_MINUTE: 60_000,
   MS_PER_DAY: 86_400_000,
 } as const;
@@ -71,7 +74,7 @@ export const INTERVIEW_MESSAGES = {
   APPLICANT_CONFLICT: 'The applicant already has an interview during this time',
   NOT_EDITABLE: 'Only a scheduled interview can be changed',
   ALREADY_FINAL: 'The interview status is final and cannot be changed',
-  NOT_STARTED: 'An interview can only be marked completed or no-show once its scheduled time has arrived',
+  NOT_ENDED: 'An interview can only be marked completed or no-show once it has ended',
   STATE_CHANGED: 'The interview changed before this request could be applied',
   COMPLETED_NOT_DELETABLE: 'A completed interview cannot be deleted',
   INVALID_STATUS_FILTER: 'Status filter must be a comma-separated list of supported interview statuses',
@@ -91,7 +94,7 @@ export const INTERVIEW_ERROR_CODES = {
   APPLICANT_CONFLICT: 'APPLICANT_CONFLICT',
   NOT_EDITABLE: 'INTERVIEW_NOT_EDITABLE',
   ALREADY_FINAL: 'INTERVIEW_STATUS_FINAL',
-  NOT_STARTED: 'INTERVIEW_NOT_STARTED',
+  NOT_ENDED: 'INTERVIEW_NOT_ENDED',
   STATE_CHANGED: 'INTERVIEW_STATE_CHANGED',
   COMPLETED_NOT_DELETABLE: 'INTERVIEW_COMPLETED',
 } as const;
