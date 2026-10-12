@@ -2,6 +2,7 @@ import { Types, type QueryFilter } from 'mongoose';
 
 import {
   Application,
+  type ApplicationCertificateSnapshot,
   type ApplicationData,
   type ApplicationDoc,
   type ApplicationStatus,
@@ -45,6 +46,7 @@ export interface SubmitApplicationData {
   changedBy: string;
   // BR-APP-010: the closed (Withdrawn/Rejected) record this application replaces.
   reappliedFrom?: Types.ObjectId | string | undefined;
+  certificates?: ApplicationCertificateSnapshot[];
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -91,6 +93,7 @@ export class ApplicationsRepository {
         cv_id: data.cvId,
         ...(data.coverLetterId ? { cover_letter_id: data.coverLetterId } : {}),
         ...(data.message ? { message: data.message } : {}),
+        ...(data.certificates?.length ? { certificates: data.certificates } : {}),
         ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}),
         status: APPLICATION_INITIAL_STATUS,
         status_history: [this.buildHistoryEntry(data.changedBy)],

@@ -116,6 +116,18 @@ This slice scopes Application directly to the existing active `User` identity. T
 
 The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
 
+### Candidate Certificate Links
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/me/certificate-links` | Create a private certificate link with required `name` and safe external `http`/`https` `url`; optional `issuer`, `issuedDate`, and `expiryDate`. Requires an `Idempotency-Key` header. Exact retries return the original item with `200`; a new create returns `201`. |
+| `GET` | `/api/v1/me/certificate-links` | Return the caller's available links in stable newest-first pages (`page`, `limit`, optional `search` up to 100 characters matching name, issuer or link). Each item has `suggested` and `sentCount` (applications that carry a copy); the page has `suggestedTotal`. Empty pages are valid. |
+| `PATCH` | `/api/v1/me/certificate-links/:id` | Change metadata (`name`, `url`, `issuer`, `issuedDate`, `expiryDate`; `null` clears an optional field) and/or `suggested`, with `expectedVersion`. Metadata changes bump the version; a suggested-only change keeps it. Stale version → `409 VERSION_CONFLICT`. |
+| `DELETE` | `/api/v1/me/certificate-links/:id?expectedVersion=N` | Delete an owned link (`204`). Applications already sent keep their own copy. |
+
+Both operations require the current active, email-verified Candidate account (`user` role). Links are private User-owned claims, not authenticity-verified credentials. The backend stores metadata only and never fetches external URLs. Run `npm run migrate:certificate-link-indexes` against an existing deployment before enabling create requests so the unique owner/URL and owner/idempotency indexes are active. `POST /api/v1/applications` accepts optional `certificateLinkIds` (up to 20 of the applicant's own links; any other id → `409 CERTIFICATE_UNAVAILABLE`, nothing is created). The application stores a copy of each ticked certificate, returned as `certificates` in the candidate's application detail.
+
+---
 
 ### Job Posting Lifecycle and History
 

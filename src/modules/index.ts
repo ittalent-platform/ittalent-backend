@@ -1,5 +1,6 @@
 import { Router, type Express } from 'express';
 import { applicationsRouter } from './applications/index.js';
+import { certificateLinksRouter } from './certificate-links/index.js';
 import { authRouter } from './auth/index.js';
 import { documentsRouter } from './documents/index.js';
 import { enterprisesRouter } from './enterprises/index.js';
@@ -21,6 +22,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use(userEmailChangesRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
   apiV1Router.use('/me/applications', applicationsRouter);
+  apiV1Router.use(certificateLinksRouter);
 
   app.use(healthRouter);
   app.use('/api/v1', apiV1Router);
