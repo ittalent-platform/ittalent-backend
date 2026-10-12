@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 
-import type { ApplicationDoc, ApplicationStatus } from '../../models/application.model.js';
+import type { ApplicationDoc } from '../../models/application.model.js';
 import { Interview, type InterviewDoc } from '../../models/interview.model.js';
 import type { UserDoc } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
@@ -82,7 +82,7 @@ export class RecruiterApplicationsService {
   }> {
     const [matchedJobIds, matchedApplicantIds] = await Promise.all([
       this.jobs.findJobIdsByTitleAndEnterpriseId(enterpriseId, keyword),
-      this.users.findIdsByKeyword(keyword, 100),
+      this.users.findIdsByKeyword(keyword, APPLICATION_CONFIG.HISTORY_MAX_LIMIT),
     ]);
 
     const matchedApplicationIds = OBJECT_ID_PATTERN.test(keyword) ? [keyword] : [];

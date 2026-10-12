@@ -11,7 +11,6 @@ import {
   APPLICATION_SORT_FIELDS,
   APPLICATION_SORT_ORDERS,
   REVIEW_STAGES,
-  type ApplicationReviewStage,
 } from './applications.constants.js';
 
 export function parseRecruiterStatusFilter(value: string): ApplicationStatus[] {
@@ -39,8 +38,13 @@ export type RecruiterApplicationDocumentType =
   (typeof recruiterApplicationDocumentTypes)[number];
 
 export const recruiterApplicationListQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  page: z.coerce.number().int().min(1).default(APPLICATION_CONFIG.DEFAULT_PAGE),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(APPLICATION_CONFIG.HISTORY_MAX_LIMIT)
+    .default(APPLICATION_CONFIG.HISTORY_DEFAULT_LIMIT),
   search: z
     .string()
     .trim()

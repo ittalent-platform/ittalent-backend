@@ -1,12 +1,12 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import mongoose, { Types } from 'mongoose';
+import { Types } from 'mongoose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import jwt from 'jsonwebtoken';
 
 import { app } from '../../src/app.js';
 import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
-import { Application, type ApplicationStatus } from '../../src/models/application.model.js';
+import { Application } from '../../src/models/application.model.js';
 import { Document } from '../../src/models/document.model.js';
 import { Enterprise } from '../../src/models/enterprise.model.js';
 import { Interview } from '../../src/models/interview.model.js';
