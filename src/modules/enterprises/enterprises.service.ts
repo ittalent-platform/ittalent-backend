@@ -192,12 +192,10 @@ export class EnterprisesService {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, ENTERPRISE_MESSAGES.NOT_FOUND);
     }
 
-    const recruiterEnterpriseId = role === 'recruiter'
-      ? await this.getRecruiterEnterpriseId(actorId)
-      : null;
+    const userEnterpriseId = await this.getRecruiterEnterpriseId(actorId);
     const canManage = role === 'admin'
-      || (role === 'recruiter' && recruiterEnterpriseId === String(enterprise._id))
-      || (role !== 'recruiter' && String(enterprise.creator_account_id) === actorId);
+      || (userEnterpriseId === String(enterprise._id))
+      || (String(enterprise.creator_account_id) === actorId);
     if (!canManage) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, ENTERPRISE_MESSAGES.UNAUTHORIZED_UPDATE);
     }
@@ -320,12 +318,10 @@ export class EnterprisesService {
     }
 
     if (enterprise.status !== 'active') {
-      const recruiterEnterpriseId = role === 'recruiter' && userId
-        ? await this.getRecruiterEnterpriseId(userId)
-        : null;
+      const userEnterpriseId = userId ? await this.getRecruiterEnterpriseId(userId) : null;
       const isOwner = userId && (
-        (role === 'recruiter' && recruiterEnterpriseId === String(enterprise._id))
-        || (role !== 'recruiter' && String(enterprise.creator_account_id) === userId)
+        (userEnterpriseId === String(enterprise._id))
+        || (String(enterprise.creator_account_id) === userId)
       );
       const isAdmin = role === 'admin';
 
@@ -340,10 +336,7 @@ export class EnterprisesService {
 
   /** UC 17: View current user's enterprise profile */
   async getMyEnterpriseProfile(userId: string, role: string): Promise<EnterpriseDetailDTO> {
-    let enterpriseId: string | null = null;
-    if (role === 'recruiter') {
-      enterpriseId = await this.getRecruiterEnterpriseId(userId);
-    }
+    let enterpriseId: string | null = await this.getRecruiterEnterpriseId(userId);
     if (!enterpriseId) {
       const owned = await this.repository.findByCreatorId(userId);
       if (owned) {

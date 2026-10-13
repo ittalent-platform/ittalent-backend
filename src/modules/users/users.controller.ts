@@ -119,9 +119,19 @@ export class UsersController {
 
   updateStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const params = res.locals.validated?.params as UserIdParam;
-      const body = res.locals.validated?.body as StatusUpdateBody;
-      const result = await this.service.updateStatus(req.user?.id ?? '', params.id, body);
+      const params = (res.locals.validated?.params ?? req.params) as UserIdParam;
+      const body = (res.locals.validated?.body ?? req.body) as StatusUpdateBody | UpdateUserStatusBody;
+      const actor = req.user?.id && req.user?.role
+        ? { id: req.user.id, role: req.user.role }
+        : { id: req.user?.id ?? '', role: 'admin' };
+
+      if (actor.role === 'recruiter' || actor.role === 'enterprise_admin' || (body as StatusUpdateBody).expectedVersion === undefined) {
+        const result = await this.service.updateUserStatus(actor, params.id, body as UpdateUserStatusBody);
+        res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+        return;
+      }
+
+      const result = await this.service.updateStatus(req.user?.id ?? '', params.id, body as StatusUpdateBody);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) { next(error); }
   };
