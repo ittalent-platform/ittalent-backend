@@ -176,4 +176,84 @@ describe('RecruiterApplicationsController', () => {
       expect(next).toHaveBeenCalledWith(error);
     });
   });
+
+  describe('updateStatus', () => {
+    it('updates application status and returns HTTP 200', async () => {
+      const mockResult = {
+        id: 'app-1',
+        status: 'under_review',
+      };
+      mockService.updateStatus = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = {
+        user: { id: 'recruiter-1', email: 'recruiter@enterprise.com', role: 'recruiter' },
+      } as never;
+      const res = {
+        status,
+        json,
+        locals: {
+          validated: {
+            params: { id: 'app-1' },
+            body: { status: 'under_review', note: 'Moving to review' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.updateStatus(req, res, next);
+
+      expect(mockService.updateStatus).toHaveBeenCalledWith(
+        'recruiter-1',
+        'recruiter',
+        'app-1',
+        { status: 'under_review', note: 'Moving to review' },
+      );
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('rejects unauthenticated requests with HTTP 401', async () => {
+      const req = {} as never;
+      const res = {
+        status: vi.fn(),
+        locals: {},
+      } as never;
+      const next = vi.fn();
+
+      await controller.updateStatus(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          message: 'Authentication required',
+        }),
+      );
+    });
+
+    it('forwards error to next when service throws', async () => {
+      const error = new Error('Invalid status transition');
+      mockService.updateStatus = vi.fn().mockRejectedValue(error);
+
+      const req = {
+        user: { id: 'recruiter-1', email: 'recruiter@enterprise.com', role: 'recruiter' },
+      } as never;
+      const res = {
+        status: vi.fn(),
+        locals: {
+          validated: {
+            params: { id: 'app-1' },
+            body: { status: 'rejected' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.updateStatus(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
 });
+

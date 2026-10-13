@@ -13,6 +13,7 @@ import type { ApplicationIdParam } from './applications.schemas.js';
 import type {
   CreateRecruiterNoteBody,
   RecruiterApplicationListQuery,
+  UpdateRecruiterApplicationStatusBody,
 } from './recruiter-applications.schemas.js';
 
 export class RecruiterApplicationsController {
@@ -170,6 +171,32 @@ export class RecruiterApplicationsController {
         user.id,
         user.role,
         params.id,
+      );
+
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateStatus: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          'Authentication required',
+        );
+      }
+
+      const params = (res.locals.validated?.params ?? req.params) as ApplicationIdParam;
+      const body = (res.locals.validated?.body ?? req.body) as UpdateRecruiterApplicationStatusBody;
+
+      const result = await this.service.updateStatus(
+        user.id,
+        user.role,
+        params.id,
+        body,
       );
 
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);

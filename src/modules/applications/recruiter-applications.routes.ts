@@ -8,6 +8,7 @@ import { recruiterApplicationsController } from './recruiter-applications.contro
 import {
   createRecruiterNoteBodySchema,
   recruiterApplicationListQueryValidator,
+  updateRecruiterApplicationStatusBodySchema,
 } from './recruiter-applications.schemas.js';
 
 export const recruiterApplicationsRouter = Router();
@@ -57,4 +58,12 @@ recruiterApplicationsRouter.get(
   validateParams(applicationIdParamSchema),
   recruiterApplicationsController.listNotes,
 );
-
+// UC-S2-AA-03: Update recruiter application status workflow (BR-17, BR-18, BR-24, BR-37)
+recruiterApplicationsRouter.patch(
+  '/recruiter/applications/:id/status',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  validateBody(updateRecruiterApplicationStatusBodySchema),
+  recruiterApplicationsController.updateStatus,
+);
