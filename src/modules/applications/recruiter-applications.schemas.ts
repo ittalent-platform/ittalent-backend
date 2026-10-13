@@ -151,7 +151,7 @@ export const recruiterInterviewTimelineEntrySchema = z.object({
   mode: z.enum(['online', 'onsite']),
   meetingLink: z.string().nullable(),
   location: z.string().nullable(),
-  status: z.enum(['scheduled', 'completed', 'cancelled', 'no_show']),
+  status: z.enum(['scheduled', 'reschedule_requested', 'completed', 'cancelled', 'no_show']),
   notes: z.string().nullable(),
 });
 export type RecruiterInterviewTimelineEntryDTO = z.infer<
