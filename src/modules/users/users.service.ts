@@ -359,10 +359,14 @@ export class UsersService {
     const session = await mongoose.startSession();
     let updated: UserDoc | null = null;
     try {
-      await this.guardStore(() => session.withTransaction(async () => {
-        const actor = await this.repository.findByIdWithSession(new Types.ObjectId(actorId), session);
+      const runTransition = async (sess?: mongoose.ClientSession): Promise<void> => {
+        const actor = sess
+          ? await this.repository.findByIdWithSession(new Types.ObjectId(actorId), sess)
+          : await this.repository.findById(actorId);
         if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-        const latest = await this.repository.findByIdWithSession(new Types.ObjectId(id), session);
+        const latest = sess
+          ? await this.repository.findByIdWithSession(new Types.ObjectId(id), sess)
+          : await this.repository.findById(id);
         if (!latest) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
         if ((latest.version ?? 0) !== body.expectedVersion) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
         const reopening = body.status === 'active' && (latest.status === 'suspended' || latest.status === 'blocked');
@@ -370,20 +374,33 @@ export class UsersService {
         if (!reopening && !suspending) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
         if (emergency && latest.role !== 'enterprise_admin') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
         if (body.status === 'suspended' && latest.role === 'admin') {
-          await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorId), session);
-          if (await this.repository.countActiveAdmins(session) <= 1) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ADMIN, 'LAST_ADMIN');
+          if (sess) await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorId), sess);
+          if (await this.repository.countActiveAdmins(sess) <= 1) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ADMIN, 'LAST_ADMIN');
         }
         if (body.status === 'suspended' && latest.role === 'enterprise_admin' && latest.enterprise_id) {
           const enterpriseId = latest.enterprise_id as Types.ObjectId;
-        if (!await this.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
-          if (await this.repository.countActiveEnterpriseAdmins(enterpriseId, session) <= 1 && !emergency) {
+          if (!await this.lockEnterpriseAdminChanges(enterpriseId, sess)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
+          if (await this.repository.countActiveEnterpriseAdmins(enterpriseId, sess) <= 1 && !emergency) {
             throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ENTERPRISE_ADMIN, 'LAST_ENTERPRISE_ADMIN');
           }
         }
-        updated = await this.repository.transitionStatus(id, body.expectedVersion, body.status as UserStatus, session);
+        updated = await this.repository.transitionStatus(id, body.expectedVersion, body.status as UserStatus, sess);
         if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
-        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, ...(emergency ? { changes: { emergency: 'true' } } : {}), version: updated.version ?? 0 }, session);
-      }));
+        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, ...(emergency ? { changes: { emergency: 'true' } } : {}), version: updated.version ?? 0 }, sess);
+      };
+
+      await this.guardStore(async () => {
+        try {
+          await session.withTransaction(() => runTransition(session));
+        } catch (err: unknown) {
+          if (isHttpError(err)) throw err;
+          if ((err as { code?: number })?.code === MONGO_NO_TRANSACTION_ERROR_CODE || (err as Error)?.message?.includes('replica set member')) {
+            await runTransition();
+          } else {
+            throw err;
+          }
+        }
+      });
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
     return this.mapUserDto(updated);

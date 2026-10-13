@@ -137,7 +137,7 @@ export const createEmployeeBodySchema = z.strictObject({
     .string()
     .regex(/^[0-9a-fA-F]{24}$/, 'Invalid enterprise ID format')
     .optional(),
-  status: z.enum(['active', 'inactive']).default('active').optional(),
+  status: z.enum(['active', 'inactive', 'invited']).default('active').optional(),
 });
 
 export type CreateEmployeeBody = z.infer<typeof createEmployeeBodySchema>;
