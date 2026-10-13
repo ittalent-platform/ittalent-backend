@@ -629,12 +629,12 @@ export class RecruiterApplicationsService {
     }
 
     if (input.status === 'interviewing') {
-      const hasScheduledInterview = await Interview.exists({
+      const hasActiveInterview = await Interview.exists({
         application_id: application._id,
         enterprise_id: new Types.ObjectId(enterpriseId),
-        status: 'scheduled',
+        status: { $in: ['scheduled', 'completed'] },
       });
-      if (!hasScheduledInterview) {
+      if (!hasActiveInterview) {
         throw createHttpError(
           HTTP_STATUS.HTTP_400_BAD_REQUEST,
           APPLICATION_MESSAGES.MISSING_INTERVIEW_SCHEDULE,
