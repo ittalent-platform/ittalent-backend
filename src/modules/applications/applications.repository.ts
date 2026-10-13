@@ -398,7 +398,7 @@ export class ApplicationsRepository {
       {
         $push: { notes: noteEntry },
       },
-      { new: true },
+      { returnDocument: 'after' },
     )
       .lean<ApplicationDoc>()
       .exec();

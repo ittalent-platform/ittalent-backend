@@ -137,7 +137,7 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
             }),
           },
         },
-        { new: true },
+        { returnDocument: 'after' },
       );
     });
 
