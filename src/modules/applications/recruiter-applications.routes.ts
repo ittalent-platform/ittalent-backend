@@ -67,3 +67,13 @@ recruiterApplicationsRouter.patch(
   validateBody(updateRecruiterApplicationStatusBodySchema),
   recruiterApplicationsController.updateStatus,
 );
+
+// UC-S2-AA-07: Enterprise recruiter candidate cross-job company application history
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id/company-history',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.getCompanyHistory,
+);
+

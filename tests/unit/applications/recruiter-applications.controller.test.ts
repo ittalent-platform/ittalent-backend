@@ -255,5 +255,89 @@ describe('RecruiterApplicationsController', () => {
       expect(next).toHaveBeenCalledWith(error);
     });
   });
+
+  describe('getCompanyHistory', () => {
+    it('returns 200 with applicant company history on success', async () => {
+      const mockResult = {
+        applicant: {
+          id: 'cand-1',
+          fullName: 'Test Candidate',
+          email: 'cand@test.com',
+          phone: null,
+        },
+        isFirstTimeApplicant: true,
+        totalSubmissionsToCompany: 1,
+        items: [],
+      };
+      mockService.getApplicantCompanyHistory = vi.fn().mockResolvedValue(mockResult);
+
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const req = {
+        user: { id: 'recruiter-1', email: 'recruiter@enterprise.com', role: 'recruiter' },
+      } as never;
+      const res = {
+        status,
+        json,
+        locals: {
+          validated: {
+            params: { id: 'app-1' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.getCompanyHistory(req, res, next);
+
+      expect(mockService.getApplicantCompanyHistory).toHaveBeenCalledWith(
+        'recruiter-1',
+        'recruiter',
+        'app-1',
+      );
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('rejects unauthenticated requests with HTTP 401', async () => {
+      const req = {} as never;
+      const res = {
+        status: vi.fn(),
+        locals: {},
+      } as never;
+      const next = vi.fn();
+
+      await controller.getCompanyHistory(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          message: 'Authentication required',
+        }),
+      );
+    });
+
+    it('forwards error to next when service throws', async () => {
+      const error = new Error('Application not found');
+      mockService.getApplicantCompanyHistory = vi.fn().mockRejectedValue(error);
+
+      const req = {
+        user: { id: 'recruiter-1', email: 'recruiter@enterprise.com', role: 'recruiter' },
+      } as never;
+      const res = {
+        status: vi.fn(),
+        locals: {
+          validated: {
+            params: { id: 'app-1' },
+          },
+        },
+      } as never;
+      const next = vi.fn();
+
+      await controller.getCompanyHistory(req, res, next);
+
+      expect(next).toHaveBeenCalledWith(error);
+    });
+  });
 });
+
 
