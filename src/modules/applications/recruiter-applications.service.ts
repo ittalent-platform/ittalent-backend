@@ -10,8 +10,16 @@ import { documentsService, type DocumentsService, type DocumentFileResult } from
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
+  consumeEmailDeliveryStatus,
+  sendApplicationStatusUpdateEmail,
+} from '../../shared/services/email.service.js';
+import {
   APPLICATION_CONFIG,
+  APPLICATION_EMAIL_FAILED_LOG,
+  APPLICATION_MESSAGES,
   createEmptyStatusCounts,
+  isPermittedRecruiterTransition,
+  RECRUITER_PERMITTED_TRANSITIONS,
   RECRUITER_ROLES,
   STATUS_REVIEW_STAGE,
 } from './applications.constants.js';
@@ -33,6 +41,7 @@ import {
   type RecruiterNoteEntryDTO,
   type RecruiterNotesListResponse,
   type RecruiterStatusHistoryEntryDTO,
+  type UpdateRecruiterApplicationStatusBody,
 } from './recruiter-applications.schemas.js';
 
 const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
@@ -563,6 +572,147 @@ export class RecruiterApplicationsService {
       items,
       total: items.length,
     };
+  }
+
+  private async sendStatusNotification(
+    email: string,
+    jobTitle: string,
+    status: string,
+    message?: string,
+  ): Promise<void> {
+    try {
+      await sendApplicationStatusUpdateEmail(email, jobTitle, status, message);
+      if (consumeEmailDeliveryStatus(email) === false) {
+        console.error(APPLICATION_EMAIL_FAILED_LOG, { email });
+      }
+    } catch (error) {
+      console.error(APPLICATION_EMAIL_FAILED_LOG, { email, error });
+    }
+  }
+
+  async updateStatus(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+    input: UpdateRecruiterApplicationStatusBody,
+  ): Promise<RecruiterApplicationDetailDTO> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    const application = await this.repository.findByIdAndJobIds(
+      applicationId,
+      enterpriseJobIds,
+    );
+    if (!application) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    if (!isPermittedRecruiterTransition(application.status, input.status)) {
+      const allowedTargets = RECRUITER_PERMITTED_TRANSITIONS[application.status] ?? [];
+      const allowedMsg =
+        allowedTargets.length > 0
+          ? `Allowed next statuses from '${application.status}' are: ${allowedTargets.join(', ')}`
+          : `Application is in terminal status '${application.status}' and cannot be modified`;
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        `${APPLICATION_MESSAGES.INVALID_STATUS_TRANSITION}. ${allowedMsg}`,
+      );
+    }
+
+    if (input.status === 'interviewing') {
+      const hasScheduledInterview = await Interview.exists({
+        application_id: application._id,
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        status: 'scheduled',
+      });
+      if (!hasScheduledInterview) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          APPLICATION_MESSAGES.MISSING_INTERVIEW_SCHEDULE,
+        );
+      }
+    }
+
+    if (input.status === 'offered') {
+      const hasCompletedInterview = await Interview.exists({
+        application_id: application._id,
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        status: 'completed',
+      });
+      if (!hasCompletedInterview) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          APPLICATION_MESSAGES.MISSING_INTERVIEW_COMPLETED,
+        );
+      }
+    }
+
+    const jobDoc = await this.jobs.findJobById(String(application.job_id));
+    const openings = jobDoc?.openings ?? 1;
+    let hiredCount = 0;
+
+    if (input.status === 'hired') {
+      hiredCount = await this.repository.countHiredApplications(application.job_id);
+      if (hiredCount >= openings) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_409_CONFLICT,
+          APPLICATION_MESSAGES.ALL_OPENINGS_FILLED,
+        );
+      }
+    }
+
+    const updated = await this.repository.updateStatusAtomically(
+      applicationId,
+      enterpriseJobIds,
+      {
+        status: input.status,
+        changedBy: actorId,
+        actorRole: 'recruiter',
+        note: input.note,
+        messageToCandidate: input.messageToCandidate,
+        rejectionReason: input.rejectionReason,
+      },
+      input.expectedVersion,
+    );
+
+    if (!updated) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        APPLICATION_MESSAGES.STATUS_CONCURRENCY_CONFLICT,
+      );
+    }
+
+    if (input.status === 'hired') {
+      const newHiredCount = hiredCount + 1;
+      if (newHiredCount === openings) {
+        await Promise.all([
+          this.jobs.closeJobPosting(application.job_id),
+          this.repository.cascadePositionFilled(application.job_id, application._id, actorId),
+        ]);
+      }
+    }
+
+    const applicant = await this.users.findById(String(application.applicant_id));
+    if (applicant?.email) {
+      const jobTitle = jobDoc?.title ?? '';
+      void this.sendStatusNotification(
+        applicant.email,
+        jobTitle,
+        input.status,
+        input.messageToCandidate,
+      );
+    }
+
+    return this.getApplicationDetail(actorId, actorRole, applicationId);
   }
 }
 
