@@ -6,6 +6,7 @@ import {
   interviewListQueryValidator,
   interviewLookupQuerySchema,
   parseInterviewStatusFilter,
+  requestInterviewRescheduleBodySchema,
   updateInterviewBodyValidator,
   updateInterviewStatusBodySchema,
 } from '../../../src/modules/interviews/interviews.schemas.js';
@@ -83,6 +84,27 @@ describe('updateInterviewStatusBodySchema', () => {
   it('limits the note', () => {
     expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'x'.repeat(501) }).success).toBe(false);
     expect(updateInterviewStatusBodySchema.safeParse({ status: 'cancelled', note: 'Role closed' }).success).toBe(true);
+  });
+});
+
+describe('requestInterviewRescheduleBodySchema', () => {
+  const valid = { proposedDateTime: '2026-10-14T10:00:00+07:00', reason: 'I have a medical appointment.' };
+
+  it('accepts an offset date-time and trims the reason', () => {
+    expect(requestInterviewRescheduleBodySchema.parse({ ...valid, reason: '  Another time, please.  ' })).toEqual({
+      proposedDateTime: valid.proposedDateTime,
+      reason: 'Another time, please.',
+    });
+  });
+
+  it.each([
+    ['a missing proposed time', { reason: valid.reason }],
+    ['a time without an offset', { ...valid, proposedDateTime: '2026-10-14T10:00:00' }],
+    ['an empty reason', { ...valid, reason: '   ' }],
+    ['an oversized reason', { ...valid, reason: 'x'.repeat(501) }],
+    ['a client-set status', { ...valid, status: 'reschedule_requested' }],
+  ])('rejects %s', (_label, body) => {
+    expect(requestInterviewRescheduleBodySchema.safeParse(body).success).toBe(false);
   });
 });
 

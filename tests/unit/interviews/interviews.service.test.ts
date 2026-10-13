@@ -29,6 +29,7 @@ const IN_ONE_DAY = '2026-10-13T03:00:00.000Z';
 const HOUR_MS = 3_600_000;
 
 const recruiter: InterviewActor = { id: RECRUITER, role: 'recruiter' };
+const applicant: InterviewActor = { id: APPLICANT, role: 'user' };
 
 function user(id: string, overrides: Record<string, unknown> = {}): UserDoc {
   return {
@@ -89,6 +90,12 @@ function makeRepository(): Record<keyof InterviewsRepository, ReturnType<typeof 
     findById: vi.fn().mockResolvedValue(interview()),
     updateScheduled: vi.fn().mockImplementation(async () => interview()),
     transitionFromScheduled: vi.fn().mockImplementation(async (_id: string, status: InterviewStatus) => interview({ status })),
+    requestReschedule: vi.fn().mockImplementation(async (_id: string, _applicantId: string, record: { proposedDateTime: Date; reason: string }) =>
+      interview({
+        status: 'reschedule_requested',
+        reschedule_request: { proposed_time: record.proposedDateTime, reason: record.reason, requested_at: NOW },
+      }),
+    ),
     deleteNotCompleted: vi.fn().mockResolvedValue(interview()),
     findPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     findCalendar: vi.fn().mockResolvedValue({ items: [], total: 0 }),
@@ -469,6 +476,55 @@ describe('InterviewsService', () => {
     it('hides an interview of another enterprise', async () => {
       repository.findById!.mockResolvedValue(interview({ enterprise_id: OTHER_ENTERPRISE }));
       await expect(service.updateStatus(recruiter, INTERVIEW_ID, { status: 'cancelled' })).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe('requestReschedule', () => {
+    const body = { proposedDateTime: '2026-10-14T03:00:00.000Z', reason: 'Medical appointment' };
+
+    it('records the owner applicant response, persists it, and returns the pending request', async () => {
+      const result = await service.requestReschedule(applicant, INTERVIEW_ID, body);
+
+      expect(repository.requestReschedule).toHaveBeenCalledWith(INTERVIEW_ID, APPLICANT, {
+        proposedDateTime: new Date(body.proposedDateTime),
+        reason: body.reason,
+      });
+      expect(result).toMatchObject({
+        id: INTERVIEW_ID,
+        status: 'reschedule_requested',
+        rescheduleRequest: { proposedDateTime: body.proposedDateTime, reason: body.reason, requestedAt: NOW.toISOString() },
+      });
+    });
+
+    it.each(['recruiter', 'admin', 'applicant'])('rejects a %s before reading the interview', async (role) => {
+      await expect(service.requestReschedule({ id: APPLICANT, role }, INTERVIEW_ID, body)).rejects.toMatchObject({ statusCode: 403 });
+      expect(repository.findById).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing interview and a schedule owned by somebody else', async () => {
+      repository.findById!.mockResolvedValueOnce(null);
+      await expect(service.requestReschedule(applicant, INTERVIEW_ID, body)).rejects.toMatchObject({ statusCode: 404 });
+
+      repository.findById!.mockResolvedValueOnce(interview({ applicant_id: 'a000000000000000000000ff' }));
+      await expect(service.requestReschedule(applicant, INTERVIEW_ID, body)).rejects.toMatchObject({ statusCode: 403 });
+      expect(repository.requestReschedule).not.toHaveBeenCalled();
+    });
+
+    it.each<InterviewStatus>(['reschedule_requested', 'completed', 'cancelled', 'no_show'])(
+      'rejects a duplicate or invalid response while the interview is %s',
+      async (status) => {
+        repository.findById!.mockResolvedValue(interview({ status }));
+        await expect(service.requestReschedule(applicant, INTERVIEW_ID, body)).rejects.toMatchObject({ statusCode: 409 });
+        expect(repository.requestReschedule).not.toHaveBeenCalled();
+      },
+    );
+
+    it('reports a concurrent state transition without overwriting it', async () => {
+      repository.requestReschedule!.mockResolvedValue(null);
+      await expect(service.requestReschedule(applicant, INTERVIEW_ID, body)).rejects.toMatchObject({
+        statusCode: 409,
+        code: INTERVIEW_ERROR_CODES.STATE_CHANGED,
+      });
     });
   });
 

@@ -5,6 +5,8 @@ import type { UserRole } from '../../models/user.model.js';
 // Only a recruiter (HR) schedules, reads, changes and deletes the interviews of their enterprise. An interviewer is
 // also a recruiter, of the same enterprise.
 export const INTERVIEW_MANAGER_ROLE: UserRole = 'recruiter';
+// Applicants use the default user role in this backend, as they do for My Applications.
+export const INTERVIEW_APPLICANT_ROLE: UserRole = 'user';
 // Interviewers and applicants must have an active account.
 export const ACTIVE_USER_STATUS = 'active';
 
@@ -43,6 +45,7 @@ export const INTERVIEW_CONFIG = {
   LOCATION_MAX_LENGTH: 255,
   NOTES_MAX_LENGTH: 2000,
   NOTE_MAX_LENGTH: 500,
+  RESCHEDULE_REASON_MAX_LENGTH: 500,
   KEYWORD_MIN_LENGTH: 1,
   KEYWORD_MAX_LENGTH: 100,
   STATUS_FILTER_SEPARATOR: ',',
@@ -77,6 +80,9 @@ export const INTERVIEW_MESSAGES = {
   NOT_ENDED: 'An interview can only be marked completed or no-show once it has ended',
   STATE_CHANGED: 'The interview changed before this request could be applied',
   COMPLETED_NOT_DELETABLE: 'A completed interview cannot be deleted',
+  APPLICANT_ONLY: 'Only applicants can respond to interview schedules',
+  NOT_APPLICANT: 'You are not the applicant for this interview',
+  RESCHEDULE_REQUESTED: 'A reschedule request is already pending for this interview',
   INVALID_STATUS_FILTER: 'Status filter must be a comma-separated list of supported interview statuses',
   INVALID_MEETING_LINK: 'Meeting link must be a valid https URL',
   DUPLICATE_INTERVIEWERS: 'Interviewers must not be repeated',
@@ -97,6 +103,7 @@ export const INTERVIEW_ERROR_CODES = {
   NOT_ENDED: 'INTERVIEW_NOT_ENDED',
   STATE_CHANGED: 'INTERVIEW_STATE_CHANGED',
   COMPLETED_NOT_DELETABLE: 'INTERVIEW_COMPLETED',
+  RESCHEDULE_REQUESTED: 'INTERVIEW_RESCHEDULE_REQUESTED',
 } as const;
 
 export const INTERVIEW_EMAIL_FAILED_LOG = '[interviews:email:error]';
