@@ -189,5 +189,160 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('updateStatusAtomically (PR 5)', () => {
+    it('returns null if enterpriseJobIds is empty or applicationId is invalid', async () => {
+      const updateSpy = vi.spyOn(Application, 'findOneAndUpdate');
+      expect(
+        await repository.updateStatusAtomically('invalid-id', ['job1'], {
+          status: 'under_review',
+          changedBy: new Types.ObjectId().toString(),
+        }),
+      ).toBeNull();
+      expect(
+        await repository.updateStatusAtomically(new Types.ObjectId().toString(), [], {
+          status: 'under_review',
+          changedBy: new Types.ObjectId().toString(),
+        }),
+      ).toBeNull();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('updates status and appends history entry with returnDocument: after', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      const actorId = new Types.ObjectId().toString();
+      const mockUpdated = {
+        _id: new Types.ObjectId(validAppId),
+        status: 'under_review',
+        status_history: [
+          { status: 'submitted', changed_at: new Date() },
+          { status: 'under_review', changed_at: new Date(), changed_by: new Types.ObjectId(actorId) },
+        ],
+      };
+
+      const updateSpy = vi.spyOn(Application, 'findOneAndUpdate').mockReturnValue(mockMongooseQuery(mockUpdated) as never);
+
+      const result = await repository.updateStatusAtomically(
+        validAppId,
+        [validJobId],
+        {
+          status: 'under_review',
+          changedBy: actorId,
+          note: 'Cleared initial screening',
+          messageToCandidate: 'Under screening',
+        },
+      );
+
+      expect(result).toEqual(mockUpdated);
+      expect(updateSpy).toHaveBeenCalledWith(
+        {
+          _id: new Types.ObjectId(validAppId),
+          job_id: { $in: [new Types.ObjectId(validJobId)] },
+        },
+        {
+          $set: {
+            status: 'under_review',
+          },
+          $push: {
+            status_history: expect.objectContaining({
+              status: 'under_review',
+              actor_role: 'recruiter',
+              note: 'Cleared initial screening',
+              message_to_candidate: 'Under screening',
+            }),
+          },
+        },
+        { returnDocument: 'after' },
+      );
+    });
+
+    it('includes expectedVersion guard in filter when provided', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      const actorId = new Types.ObjectId().toString();
+
+      const updateSpy = vi.spyOn(Application, 'findOneAndUpdate').mockReturnValue(mockMongooseQuery(null) as never);
+
+      const result = await repository.updateStatusAtomically(
+        validAppId,
+        [validJobId],
+        {
+          status: 'interviewing',
+          changedBy: actorId,
+        },
+        3,
+      );
+
+      expect(result).toBeNull();
+      expect(updateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _id: new Types.ObjectId(validAppId),
+          $expr: { $eq: [{ $size: '$status_history' }, 3] },
+        }),
+        expect.any(Object),
+        { returnDocument: 'after' },
+      );
+    });
+  });
+
+  describe('countHiredApplications (PR 5)', () => {
+    it('returns 0 for invalid jobId', async () => {
+      const countSpy = vi.spyOn(Application, 'countDocuments');
+      expect(await repository.countHiredApplications('invalid-id')).toBe(0);
+      expect(countSpy).not.toHaveBeenCalled();
+    });
+
+    it('counts documents matching job_id and status hired', async () => {
+      const validJobId = new Types.ObjectId().toString();
+      const countSpy = vi.spyOn(Application, 'countDocuments').mockReturnValue({
+        exec: vi.fn().mockResolvedValue(2),
+      } as never);
+
+      const count = await repository.countHiredApplications(validJobId);
+      expect(count).toBe(2);
+      expect(countSpy).toHaveBeenCalledWith({
+        job_id: new Types.ObjectId(validJobId),
+        status: 'hired',
+      });
+    });
+  });
+
+  describe('cascadePositionFilled (PR 5)', () => {
+    it('returns 0 for invalid jobId', async () => {
+      const updateManySpy = vi.spyOn(Application, 'updateMany');
+      expect(await repository.cascadePositionFilled('invalid-id', new Types.ObjectId().toString())).toBe(0);
+      expect(updateManySpy).not.toHaveBeenCalled();
+    });
+
+    it('updates all active applications except excluded one to position_filled', async () => {
+      const validJobId = new Types.ObjectId().toString();
+      const excludedAppId = new Types.ObjectId().toString();
+
+      const updateManySpy = vi.spyOn(Application, 'updateMany').mockReturnValue({
+        exec: vi.fn().mockResolvedValue({ modifiedCount: 4 }),
+      } as never);
+
+      const modifiedCount = await repository.cascadePositionFilled(validJobId, excludedAppId);
+      expect(modifiedCount).toBe(4);
+      expect(updateManySpy).toHaveBeenCalledWith(
+        {
+          job_id: new Types.ObjectId(validJobId),
+          _id: { $ne: new Types.ObjectId(excludedAppId) },
+          status: { $in: ['submitted', 'under_review', 'interviewing', 'offered'] },
+        },
+        {
+          $set: { status: 'position_filled' },
+          $push: {
+            status_history: expect.objectContaining({
+              status: 'position_filled',
+              actor_role: 'system',
+              note: 'Position filled by another candidate',
+            }),
+          },
+        },
+      );
+    });
+  });
 });
 

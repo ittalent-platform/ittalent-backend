@@ -453,5 +453,17 @@ export class JobPostingsRepository {
     if (input.openings === null) result.openings = 1;
     return result;
   }
+
+  // Automates closing a published job posting when vacancies are fulfilled (BR-18)
+  async closeJobPosting(jobId: string | Types.ObjectId): Promise<boolean> {
+    if (!Types.ObjectId.isValid(jobId)) {
+      return false;
+    }
+    const result = await JobPosting.updateOne(
+      { _id: new Types.ObjectId(jobId), status: 'published' },
+      { $set: { status: 'closed', closed_at: new Date() } },
+    ).exec();
+    return result.modifiedCount > 0;
+  }
 }
 export const jobPostingsRepository = new JobPostingsRepository();

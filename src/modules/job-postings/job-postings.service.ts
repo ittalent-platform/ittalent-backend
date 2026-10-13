@@ -675,5 +675,9 @@ export class JobPostingsService {
   async findJobById(id: string): Promise<JobPostingDoc | null> {
     return this.repository.findById(id);
   }
+
+  async closeJobPosting(jobId: string | Types.ObjectId): Promise<boolean> {
+    return this.repository.closeJobPosting(jobId);
+  }
 }
 export const jobPostingsService = new JobPostingsService();
