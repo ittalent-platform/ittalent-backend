@@ -31,6 +31,7 @@ import {
   type RecruiterInterviewTimelineEntryDTO,
   type RecruiterNextInterviewDTO,
   type RecruiterNoteEntryDTO,
+  type RecruiterNotesListResponse,
   type RecruiterStatusHistoryEntryDTO,
 } from './recruiter-applications.schemas.js';
 
@@ -480,6 +481,88 @@ export class RecruiterApplicationsService {
     };
 
     return { fileResult, metadata };
+  }
+
+  async addNote(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+    content: string,
+  ): Promise<RecruiterNoteEntryDTO> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const author = await this.users.findById(actorId);
+    const authorName = author?.full_name || author?.email || 'Recruiter';
+
+    const note = await this.repository.addNoteToApplication(
+      applicationId,
+      enterpriseJobIds,
+      {
+        authorId: actorId,
+        authorName,
+        content,
+      },
+    );
+
+    if (!note) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    return {
+      authorId: String(note.author_id),
+      authorName: note.author_name,
+      content: note.content,
+      createdAt: note.created_at.toISOString(),
+    };
+  }
+
+  async listNotes(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+  ): Promise<RecruiterNotesListResponse> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const notes = await this.repository.findNotesByApplicationId(
+      applicationId,
+      enterpriseJobIds,
+    );
+
+    if (!notes) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const items: RecruiterNoteEntryDTO[] = notes.map((note) => ({
+      authorId: String(note.author_id),
+      authorName: note.author_name,
+      content: note.content,
+      createdAt: note.created_at.toISOString(),
+    }));
+
+    return {
+      items,
+      total: items.length,
+    };
   }
 }
 

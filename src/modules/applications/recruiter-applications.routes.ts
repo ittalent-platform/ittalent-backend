@@ -1,11 +1,14 @@
 import { Router } from 'express';
 
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { validateParams, validateQuery } from '../../middleware/validate.js';
+import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { RECRUITER_ROLES } from './applications.constants.js';
 import { applicationIdParamSchema } from './applications.schemas.js';
 import { recruiterApplicationsController } from './recruiter-applications.controller.js';
-import { recruiterApplicationListQueryValidator } from './recruiter-applications.schemas.js';
+import {
+  createRecruiterNoteBodySchema,
+  recruiterApplicationListQueryValidator,
+} from './recruiter-applications.schemas.js';
 
 export const recruiterApplicationsRouter = Router();
 
@@ -34,5 +37,24 @@ recruiterApplicationsRouter.get(
   authorize(...RECRUITER_ROLES),
   validateParams(applicationIdParamSchema),
   recruiterApplicationsController.downloadCv,
+);
+
+// UC-S2-AA-03: Add recruiter internal note to application
+recruiterApplicationsRouter.post(
+  '/recruiter/applications/:id/notes',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  validateBody(createRecruiterNoteBodySchema),
+  recruiterApplicationsController.addNote,
+);
+
+// UC-S2-AA-03: List recruiter internal notes for application
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id/notes',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.listNotes,
 );
 

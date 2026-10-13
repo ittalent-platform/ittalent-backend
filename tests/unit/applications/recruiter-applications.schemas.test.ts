@@ -8,6 +8,8 @@ import {
   recruiterApplicationListResponseSchema,
   recruiterApplicationDetailDtoSchema,
   recruiterApplicationCvMetadataDtoSchema,
+  createRecruiterNoteBodySchema,
+  recruiterNotesListResponseSchema,
 } from '../../../src/modules/applications/recruiter-applications.schemas.js';
 
 describe('Recruiter Applications Schemas (PR 2)', () => {
@@ -321,5 +323,68 @@ describe('Recruiter Applications Schemas (PR 2)', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('createRecruiterNoteBodySchema (PR 4)', () => {
+    it('parses valid note content and trims whitespace', () => {
+      const parsed = createRecruiterNoteBodySchema.parse({
+        content: '  Strong candidate for backend team.  ',
+      });
+      expect(parsed.content).toBe('Strong candidate for backend team.');
+    });
+
+    it('rejects empty or whitespace-only content', () => {
+      const emptyResult = createRecruiterNoteBodySchema.safeParse({ content: '' });
+      expect(emptyResult.success).toBe(false);
+
+      const whitespaceResult = createRecruiterNoteBodySchema.safeParse({ content: '   ' });
+      expect(whitespaceResult.success).toBe(false);
+    });
+
+    it('rejects note content exceeding maximum length', () => {
+      const tooLong = createRecruiterNoteBodySchema.safeParse({
+        content: 'a'.repeat(2001),
+      });
+      expect(tooLong.success).toBe(false);
+    });
+
+    it('rejects unrecognized properties due to strictObject', () => {
+      const extraProps = createRecruiterNoteBodySchema.safeParse({
+        content: 'Valid note content',
+        authorName: 'Sneaky Author',
+      });
+      expect(extraProps.success).toBe(false);
+    });
+  });
+
+  describe('recruiterNotesListResponseSchema (PR 4)', () => {
+    it('validates list response with items array and total count', () => {
+      const response = {
+        items: [
+          {
+            authorId: '507f1f77bcf86cd799439017',
+            authorName: 'Recruiter Lead',
+            content: 'Great cultural fit.',
+            createdAt: '2026-10-13T07:00:00.000Z',
+          },
+        ],
+        total: 1,
+      };
+
+      const parsed = recruiterNotesListResponseSchema.parse(response);
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.total).toBe(1);
+      expect(parsed.items[0]?.authorName).toBe('Recruiter Lead');
+    });
+
+    it('validates empty notes list response', () => {
+      const parsed = recruiterNotesListResponseSchema.parse({
+        items: [],
+        total: 0,
+      });
+      expect(parsed.items).toEqual([]);
+      expect(parsed.total).toBe(0);
+    });
+  });
 });
+
 

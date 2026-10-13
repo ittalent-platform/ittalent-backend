@@ -3,6 +3,7 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { applicationIdParamSchema } from './applications.schemas.js';
 import {
+  createRecruiterNoteBodySchema,
   recruiterApplicationCvMetadataDtoSchema,
   recruiterApplicationDetailDtoSchema,
   recruiterApplicationListQuerySchema,
@@ -12,6 +13,7 @@ import {
   recruiterInterviewTimelineEntrySchema,
   recruiterNextInterviewDtoSchema,
   recruiterNoteEntryDtoSchema,
+  recruiterNotesListResponseSchema,
   recruiterStatusHistoryEntryDtoSchema,
 } from './recruiter-applications.schemas.js';
 
@@ -33,10 +35,23 @@ export function registerRecruiterApplicationsOpenApi(
     'RecruiterInterviewTimelineEntryDTO',
     recruiterInterviewTimelineEntrySchema,
   );
-  registry.register('RecruiterNoteEntryDTO', recruiterNoteEntryDtoSchema);
+  const registeredNoteEntry = registry.register(
+    'RecruiterNoteEntryDTO',
+    recruiterNoteEntryDtoSchema,
+  );
   registry.register(
     'RecruiterStatusHistoryEntryDTO',
     recruiterStatusHistoryEntryDtoSchema,
+  );
+
+  const registeredCreateNoteBody = registry.register(
+    'CreateRecruiterNoteBody',
+    createRecruiterNoteBodySchema,
+  );
+
+  const registeredNotesListResponse = registry.register(
+    'RecruiterNotesListResponse',
+    recruiterNotesListResponseSchema,
   );
 
   const registeredDetailResponse = registry.register(
@@ -146,6 +161,78 @@ export function registerRecruiterApplicationsOpenApi(
       },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
         description: 'Application or CV not found (opaque 404)',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/recruiter/applications/{id}/notes',
+    tags: ['Recruiter Applications'],
+    summary: 'Add internal recruiter note to application',
+    description:
+      'Recruiter and Enterprise Admin only. Appends an internal note visible to hiring team members for the specified application. ' +
+      'Author attribution is securely derived from the authenticated recruiter session. ' +
+      'Enforces strict enterprise data isolation (opaque 404).',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: applicationIdParamSchema,
+      body: {
+        content: {
+          'application/json': { schema: registeredCreateNoteBody },
+        },
+      },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_201_CREATED]: {
+        description: 'Internal note successfully appended',
+        content: { 'application/json': { schema: registeredNoteEntry } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
+        description: 'Validation failed (e.g. malformed ObjectId, empty or >2000 characters note content)',
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
+        description: 'Authentication required',
+      },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: {
+        description:
+          'Caller is not a recruiter/enterprise administrator or lacks active enterprise assignment',
+      },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
+        description: 'Application not found or inaccessible (opaque 404)',
+      },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/recruiter/applications/{id}/notes',
+    tags: ['Recruiter Applications'],
+    summary: 'List internal recruiter notes for application',
+    description:
+      'Recruiter and Enterprise Admin only. Returns chronological internal notes recorded by hiring team members for this candidate application. ' +
+      'Enforces strict enterprise data isolation (opaque 404).',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: applicationIdParamSchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Chronological list of internal notes',
+        content: { 'application/json': { schema: registeredNotesListResponse } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
+        description: 'Malformed application ID parameter',
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
+        description: 'Authentication required',
+      },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: {
+        description:
+          'Caller is not a recruiter/enterprise administrator or lacks active enterprise assignment',
+      },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
+        description: 'Application not found or inaccessible (opaque 404)',
       },
     },
   });
