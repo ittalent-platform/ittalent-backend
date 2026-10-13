@@ -78,4 +78,116 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
       });
     });
   });
+
+  describe('addNoteToApplication (PR 4)', () => {
+    it('returns null if jobIds array is empty', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const updateSpy = vi.spyOn(Application, 'findOneAndUpdate');
+
+      const result = await repository.addNoteToApplication(validAppId, [], {
+        authorId: new Types.ObjectId().toString(),
+        authorName: 'Recruiter',
+        content: 'Test note',
+      });
+      expect(result).toBeNull();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns null if applicationId is invalid', async () => {
+      const updateSpy = vi.spyOn(Application, 'findOneAndUpdate');
+
+      const result = await repository.addNoteToApplication('invalid-id', [new Types.ObjectId().toString()], {
+        authorId: new Types.ObjectId().toString(),
+        authorName: 'Recruiter',
+        content: 'Test note',
+      });
+      expect(result).toBeNull();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('calls findOneAndUpdate with $push and returns new note entry on success', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      const authorId = new Types.ObjectId().toString();
+      const updateSpy = vi
+        .spyOn(Application, 'findOneAndUpdate')
+        .mockReturnValue(mockMongooseQuery({ _id: new Types.ObjectId(validAppId) }) as never);
+
+      const result = await repository.addNoteToApplication(
+        validAppId,
+        [validJobId],
+        { authorId, authorName: 'Lead Recruiter', content: 'Promising candidate' },
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.author_name).toBe('Lead Recruiter');
+      expect(result?.content).toBe('Promising candidate');
+      expect(result?.author_id).toEqual(new Types.ObjectId(authorId));
+      expect(result?.created_at).toBeInstanceOf(Date);
+      expect(updateSpy).toHaveBeenCalledWith(
+        {
+          _id: new Types.ObjectId(validAppId),
+          job_id: { $in: [new Types.ObjectId(validJobId)] },
+        },
+        {
+          $push: {
+            notes: expect.objectContaining({
+              author_name: 'Lead Recruiter',
+              content: 'Promising candidate',
+            }),
+          },
+        },
+        { new: true },
+      );
+    });
+
+    it('returns null if findOneAndUpdate does not match any document', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      vi.spyOn(Application, 'findOneAndUpdate').mockReturnValue(mockMongooseQuery(null) as never);
+
+      const result = await repository.addNoteToApplication(
+        validAppId,
+        [validJobId],
+        { authorId: new Types.ObjectId().toString(), authorName: 'Recruiter', content: 'Note' },
+      );
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findNotesByApplicationId (PR 4)', () => {
+    it('returns null if jobIds array is empty or applicationId is invalid', async () => {
+      const findOneSpy = vi.spyOn(Application, 'findOne');
+      expect(await repository.findNotesByApplicationId('invalid-id', ['job1'])).toBeNull();
+      expect(await repository.findNotesByApplicationId(new Types.ObjectId().toString(), [])).toBeNull();
+      expect(findOneSpy).not.toHaveBeenCalled();
+    });
+
+    it('queries application notes projection and returns notes array', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      const mockNotes = [
+        {
+          author_id: new Types.ObjectId(),
+          author_name: 'Recruiter 1',
+          content: 'Note 1',
+          created_at: new Date(),
+        },
+      ];
+      vi.spyOn(Application, 'findOne').mockReturnValue(mockMongooseQuery({ _id: new Types.ObjectId(validAppId), notes: mockNotes }) as never);
+
+      const result = await repository.findNotesByApplicationId(validAppId, [validJobId]);
+      expect(result).toEqual(mockNotes);
+    });
+
+    it('returns null if application does not exist or is not in enterprise job IDs', async () => {
+      const validAppId = new Types.ObjectId().toString();
+      const validJobId = new Types.ObjectId().toString();
+      vi.spyOn(Application, 'findOne').mockReturnValue(mockMongooseQuery(null) as never);
+
+      const result = await repository.findNotesByApplicationId(validAppId, [validJobId]);
+      expect(result).toBeNull();
+    });
+  });
 });
+

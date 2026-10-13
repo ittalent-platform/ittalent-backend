@@ -5,6 +5,7 @@ import {
   type ApplicationCertificateSnapshot,
   type ApplicationData,
   type ApplicationDoc,
+  type ApplicationNoteEntry,
   type ApplicationStatus,
   type ApplicationStatusHistoryEntry,
 } from '../../models/application.model.js';
@@ -366,6 +367,73 @@ export class ApplicationsRepository {
     })
       .lean<ApplicationDoc>()
       .exec();
+  }
+
+  // Atomically appends an internal recruiter note scoped strictly to enterprise job postings (BR-06).
+  async addNoteToApplication(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+    noteData: {
+      authorId: string | Types.ObjectId;
+      authorName: string;
+      content: string;
+    },
+  ): Promise<ApplicationNoteEntry | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const noteEntry: ApplicationNoteEntry = {
+      author_id: new Types.ObjectId(noteData.authorId),
+      author_name: noteData.authorName,
+      content: noteData.content,
+      created_at: new Date(),
+    };
+
+    const updated = await Application.findOneAndUpdate(
+      {
+        _id: new Types.ObjectId(applicationId),
+        job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+      },
+      {
+        $push: { notes: noteEntry },
+      },
+      { new: true },
+    )
+      .lean<ApplicationDoc>()
+      .exec();
+
+    if (!updated) {
+      return null;
+    }
+
+    return noteEntry;
+  }
+
+  // Retrieves notes array for an application strictly within the enterprise boundary (BR-06).
+  async findNotesByApplicationId(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationNoteEntry[] | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const application = await Application.findOne(
+      {
+        _id: new Types.ObjectId(applicationId),
+        job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+      },
+      { notes: 1 },
+    )
+      .lean<Pick<ApplicationDoc, '_id' | 'notes'>>()
+      .exec();
+
+    if (!application) {
+      return null;
+    }
+
+    return application.notes ?? [];
   }
 }
 
