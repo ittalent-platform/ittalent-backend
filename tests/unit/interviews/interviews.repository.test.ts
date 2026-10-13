@@ -198,6 +198,21 @@ describe('InterviewsRepository', () => {
       expect(update.mock.calls[0]?.[0]).toEqual({ _id: 'i1', status: 'scheduled' });
     });
 
+    it('records an applicant-owned reschedule request with an atomic scheduled-state guard', async () => {
+      const update = vi.spyOn(Interview, 'findOneAndUpdate').mockReturnValue(query(null) as never);
+      const proposedDateTime = new Date('2026-10-14T03:00:00.000Z');
+
+      await repository.requestReschedule('i1', APPLICANT, { proposedDateTime, reason: 'Medical appointment' });
+
+      const [filter, change] = update.mock.calls[0] as unknown as [Record<string, unknown>, Record<string, Record<string, unknown>>];
+      expect(filter).toEqual({ _id: 'i1', applicant_id: APPLICANT, status: 'scheduled' });
+      expect(change.$set).toMatchObject({
+        status: 'reschedule_requested',
+        reschedule_request: { proposed_time: proposedDateTime, reason: 'Medical appointment' },
+      });
+      expect(change.$push).toMatchObject({ status_history: { status: 'reschedule_requested' } });
+    });
+
     it('never deletes a completed interview', async () => {
       const remove = vi.spyOn(Interview, 'findOneAndDelete').mockReturnValue(query(null) as never);
       await repository.deleteNotCompleted('i1');

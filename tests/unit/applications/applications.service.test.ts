@@ -4,6 +4,7 @@ import type { ApplicationDoc, ApplicationStatus } from '../../../src/models/appl
 import { APPLICATION_ERROR_CODES } from '../../../src/modules/applications/applications.constants.js';
 import type { ApplicationsRepository } from '../../../src/modules/applications/applications.repository.js';
 import { ApplicationsService } from '../../../src/modules/applications/applications.service.js';
+import type { CertificateLinksService } from '../../../src/modules/certificate-links/certificate-links.service.js';
 import type { DocumentsService } from '../../../src/modules/documents/documents.service.js';
 import type { JobPostingsService } from '../../../src/modules/job-postings/job-postings.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
@@ -26,7 +27,7 @@ function application(status: ApplicationStatus, id = '507f1f77bcf86cd7994390aa')
 }
 
 describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
-  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
+  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; countCertificatesSent: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
   let service: ApplicationsService;
   let stillExists: ReturnType<typeof vi.fn>;
 
@@ -36,6 +37,7 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
       findLatestByJobAndApplicant: vi.fn().mockResolvedValue(null),
       countByJobAndApplicant: vi.fn().mockResolvedValue(1),
       countHiredByJobId: vi.fn().mockResolvedValue(0),
+      countCertificatesSent: vi.fn().mockResolvedValue(new Map()),
       deleteById: vi.fn().mockResolvedValue(undefined),
       create: vi.fn().mockImplementation(async (data: { reappliedFrom?: string }) => ({ ...application('submitted', '507f1f77bcf86cd7994390bb'), ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}) })),
     };
@@ -92,6 +94,48 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
     await expect(service.applyToJob(userId, body)).rejects.toMatchObject({ statusCode: 409, code: APPLICATION_ERROR_CODES.ALREADY_APPLIED });
   });
 
+  it('stores a copy of each ticked certificate, or nothing when one is no longer the applicant’s (BR-S4-LINK-003)', async () => {
+    const certificate = { _id: '507f1f77bcf86cd7994390cc', version: 2, name: 'PSM I', url: 'https://scrum.example/psm', issuer: 'Scrum.org' };
+    const resolveForApplication = vi.fn().mockResolvedValue([certificate]);
+    const withCertificates = new ApplicationsService(
+      repository as unknown as ApplicationsRepository,
+      { findById: vi.fn().mockResolvedValue({ email: 'a@example.com', status: 'active' }) } as unknown as UsersService,
+      { findPublicJobById: vi.fn().mockResolvedValue({ _id: jobId, title: 'Engineer', openings: 3 }), stillExists } as unknown as JobPostingsService,
+      { findOwnedByType: vi.fn().mockResolvedValue({ _id: cvId }) } as unknown as DocumentsService,
+      { resolveForApplication } as unknown as CertificateLinksService,
+    );
+    await withCertificates.applyToJob(userId, { ...body, certificateLinkIds: [certificate._id] });
+    expect(resolveForApplication).toHaveBeenCalledWith(userId, [certificate._id]);
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ certificates: [{ certificate_id: certificate._id, version: 2, name: 'PSM I', url: 'https://scrum.example/psm', issuer: 'Scrum.org' }] }));
+
+    resolveForApplication.mockRejectedValueOnce(Object.assign(new Error('gone'), { statusCode: 409, code: 'CERTIFICATE_UNAVAILABLE' }));
+    repository.create.mockClear();
+    await expect(withCertificates.applyToJob(userId, { ...body, certificateLinkIds: [certificate._id] })).rejects.toMatchObject({ code: 'CERTIFICATE_UNAVAILABLE' });
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('ApplicationsService document references', () => {
+  it('delegates document-reference checks to the applications repository', async () => {
+    const repository = { isDocumentReferenced: vi.fn().mockResolvedValue(true) };
+    const service = new ApplicationsService(
+      repository as unknown as ApplicationsRepository,
+    );
+
+    await expect(service.isDocumentReferenced(cvId)).resolves.toBe(true);
+    expect(repository.isDocumentReferenced).toHaveBeenCalledWith(cvId);
+  });
+});
+
+describe('ApplicationsService certificate sent counts', () => {
+  it('delegates certificate usage counts to the applications repository', async () => {
+    const sentCounts = new Map([['certificate-1', 3]]);
+    const repository = { countCertificatesSent: vi.fn().mockResolvedValue(sentCounts) };
+    const service = new ApplicationsService(repository as unknown as ApplicationsRepository);
+
+    await expect(service.countCertificatesSent(userId, ['certificate-1'])).resolves.toBe(sentCounts);
+    expect(repository.countCertificatesSent).toHaveBeenCalledWith(userId, ['certificate-1']);
+  });
 });
 
 // ---- UC-MYAPP-01..05: the candidate's own applications ----

@@ -7,6 +7,7 @@ import {
   consumeEmailDeliveryStatus,
   sendApplicationConfirmationEmail,
 } from '../../shared/services/email.service.js';
+import { certificateLinksService, type CertificateLinksService } from '../certificate-links/index.js';
 import { documentsService, type DocumentsService } from '../documents/documents.service.js';
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
@@ -48,6 +49,7 @@ export class ApplicationsService {
     private readonly users: UsersService = usersService,
     private readonly jobs: JobPostingsService = jobPostingsService,
     private readonly documents: DocumentsService = documentsService,
+    private readonly certificates: CertificateLinksService = certificateLinksService,
   ) {}
 
   private mapDto(application: ApplicationDoc): ApplicationDTO {
@@ -75,6 +77,16 @@ export class ApplicationsService {
     } catch (error) {
       console.error(APPLICATION_EMAIL_FAILED_LOG, error);
     }
+  }
+
+  // Cross-domain query used by DocumentsService before soft deletion. The repository remains
+  // the only layer that accesses the Application model.
+  async isDocumentReferenced(documentId: string): Promise<boolean> {
+    return this.repository.isDocumentReferenced(documentId);
+  }
+
+  async countCertificatesSent(applicantId: string, certificateIds: string[]): Promise<Map<string, number>> {
+    return this.repository.countCertificatesSent(applicantId, certificateIds);
   }
 
   async applyToJob(userId: string, input: CreateApplicationBody): Promise<ApplicationDTO> {
@@ -138,6 +150,9 @@ export class ApplicationsService {
       }
     }
 
+    // BR-S4-LINK-003: the ticked certificates must still be the applicant's own; the application keeps a copy.
+    const certificates = await this.certificates.resolveForApplication(userId, input.certificateLinkIds ?? []);
+
     const data: SubmitApplicationData = {
       jobId: job._id,
       applicantId: userId,
@@ -145,6 +160,15 @@ export class ApplicationsService {
       coverLetterId: input.coverLetterId,
       message: input.message,
       changedBy: userId,
+      certificates: certificates.map((item) => ({
+        certificate_id: item._id,
+        version: item.version,
+        name: item.name,
+        url: item.url,
+        ...(item.issuer ? { issuer: item.issuer } : {}),
+        ...(item.issued_date ? { issued_date: item.issued_date } : {}),
+        ...(item.expiry_date ? { expiry_date: item.expiry_date } : {}),
+      })),
     };
 
     // E5 / BR-APP-002: one active application per applicant/job. E6 / BR-APP-010: after a Withdrawn or
@@ -243,6 +267,15 @@ export class ApplicationsService {
       message: application.message ?? null,
       withdrawalReason: application.withdrawal_reason ?? null,
       attachments: documents,
+      certificates: (application.certificates ?? []).map((item) => ({
+        id: String(item.certificate_id),
+        version: item.version,
+        name: item.name,
+        url: item.url,
+        issuer: item.issuer ?? null,
+        issuedDate: item.issued_date ?? null,
+        expiryDate: item.expiry_date ?? null,
+      })),
       // The number of history entries: any status change (candidate or company) makes an older version stale.
       version: application.status_history.length,
       createdAt: application.createdAt.toISOString(),

@@ -112,6 +112,36 @@ export class JobPostingsRepository {
       .exec();
     return jobs.map((job) => String(job._id));
   }
+  // Ids of all jobs belonging to an enterprise, regardless of status.
+  async findJobIdsByEnterpriseId(enterpriseId: string): Promise<string[]> {
+    const jobs = await JobPosting.find(
+      { enterprise_id: new Types.ObjectId(enterpriseId) },
+      { _id: 1 },
+    )
+      .lean()
+      .exec();
+    return jobs.map((job) => String(job._id));
+  }
+  // Ids of jobs belonging to an enterprise whose title matches the keyword (case-insensitive).
+  async findJobIdsByTitleAndEnterpriseId(
+    enterpriseId: string,
+    keyword: string,
+  ): Promise<string[]> {
+    const pattern = new RegExp(
+      keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      'i',
+    );
+    const jobs = await JobPosting.find(
+      {
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        title: pattern,
+      },
+      { _id: 1 },
+    )
+      .lean()
+      .exec();
+    return jobs.map((job) => String(job._id));
+  }
   // A job accepts applications only while it is Published, not being deleted, before its deadline and
   // owned by an Active enterprise.
   async findOpenPublishedById(
@@ -422,6 +452,18 @@ export class JobPostingsRepository {
     if (input.level === null) result.level = 1;
     if (input.openings === null) result.openings = 1;
     return result;
+  }
+
+  // Automates closing a published job posting when vacancies are fulfilled (BR-18)
+  async closeJobPosting(jobId: string | Types.ObjectId): Promise<boolean> {
+    if (!Types.ObjectId.isValid(jobId)) {
+      return false;
+    }
+    const result = await JobPosting.updateOne(
+      { _id: new Types.ObjectId(jobId), status: 'published' },
+      { $set: { status: 'closed', closed_at: new Date() } },
+    ).exec();
+    return result.modifiedCount > 0;
   }
 }
 export const jobPostingsRepository = new JobPostingsRepository();

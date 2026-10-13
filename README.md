@@ -115,9 +115,33 @@ Successful responses are the resource/result objects directly (not wrapped in a 
 
 This slice scopes Application directly to the existing active `User` identity. The separate ApplicantProfile lifecycle required by the broader use-case specification is not yet present in this new repository; wiring profile creation/repair into registration and Apply belongs to the dependent applicant-profile/job-application work. This implementation does not claim to satisfy that wider precondition. Likewise, the current document's later BR-APP-008 reapply and Position filled branch conflict with the earlier agreed BR-APP-002/seven-status scope; resolve product policy before extending the schema or UI.
 
-The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Attachment metadata is exposed without file URLs: preview or download needs a future authorization-aware API.
+The demo seeder (`npm run seed:applications`) is idempotent. It creates a demo candidate (`candidate-myapps@example.com` / `Candidate123!`, local development only), 13 applications covering every status plus the enterprises, jobs and documents they reference, a Withdrawn/apply-again pair, and two more candidates (one with no applications, one whose application the demo candidate must never see). `SEED_RESET=true` rebuilds those candidates' applications. Databases created before apply-again (BR-APP-010) run `npm run migrate:application-indexes` once. Application responses expose attachment metadata without storage URLs; authorized preview and download use the document endpoints below.
 
+### Candidate Certificate Links
 
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/me/certificate-links` | Create a private certificate link with required `name` and safe external `http`/`https` `url`; optional `issuer`, `issuedDate`, and `expiryDate`. Requires an `Idempotency-Key` header. Exact retries return the original item with `200`; a new create returns `201`. |
+| `GET` | `/api/v1/me/certificate-links` | Return the caller's available links in stable newest-first pages (`page`, `limit`, optional `search` up to 100 characters matching name, issuer or link). Each item has `suggested` and `sentCount` (applications that carry a copy); the page has `suggestedTotal`. Empty pages are valid. |
+| `PATCH` | `/api/v1/me/certificate-links/:id` | Change metadata (`name`, `url`, `issuer`, `issuedDate`, `expiryDate`; `null` clears an optional field) and/or `suggested`, with `expectedVersion`. Metadata changes bump the version; a suggested-only change keeps it. Stale version → `409 VERSION_CONFLICT`. |
+| `DELETE` | `/api/v1/me/certificate-links/:id?expectedVersion=N` | Delete an owned link (`204`). Applications already sent keep their own copy. |
+
+Both operations require the current active, email-verified Candidate account (`user` role). Links are private User-owned claims, not authenticity-verified credentials. The backend stores metadata only and never fetches external URLs. Run `npm run migrate:certificate-link-indexes` against an existing deployment before enabling create requests so the unique owner/URL and owner/idempotency indexes are active. `POST /api/v1/applications` accepts optional `certificateLinkIds` (up to 20 of the applicant's own links; any other id → `409 CERTIFICATE_UNAVAILABLE`, nothing is created). The application stores a copy of each ticked certificate, returned as `certificates` in the candidate's application detail.
+
+---
+
+### Document Library API
+
+All document operations require the `user` role and are scoped to the authenticated owner. Active lists support `search` by filename, `type`, `is_default`, `sort_by`, `sort_order`, and pagination. Deletion is a soft delete and is rejected while an application references the document. If the deleted document was the default, the newest remaining active document of the same type is promoted. Administrators do not have document-management access in this sprint.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/documents/:id/download` | Stream an owned document as an attachment. |
+| `GET` | `/api/v1/documents/:id/preview` | Stream an owned PDF inline or return a DOC/DOCX viewer URL. |
+| `DELETE` | `/api/v1/documents/:id` | Soft-delete an owned, unreferenced document. |
+| `PATCH` | `/api/v1/documents/:id/default` | Make an owned active document the sole default for its type. |
+
+Run `npm run migrate:document-indexes` once after deployment to create the partial unique default-document index.
 ### Job Posting Lifecycle and History
 
 Recruiters can create a draft by sending `publication_status: "draft"`; omitting it preserves the existing create-and-publish behavior. `PATCH /api/v1/job-postings/:id` accepts `publication_status: "draft" | "published"`. Published jobs must contain all public fields and a non-expired deadline.
@@ -146,6 +170,7 @@ Recruiters can create a draft by sending `publication_status: "draft"`; omitting
 | `npm run test:integration` | Runs integration tests |
 | `npm run test:all` | Runs all unit and integration tests |
 | `npm run generate:client` | Generates TypeScript client from OpenAPI |
+| `npm run migrate:document-indexes` | Synchronizes document indexes, including one active default per owner and type |
 
 ---
 

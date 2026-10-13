@@ -1,7 +1,7 @@
 import type { Types } from 'mongoose';
 import { Schema, model } from 'mongoose';
 
-export const interviewStatuses = ['scheduled', 'completed', 'cancelled', 'no_show'] as const;
+export const interviewStatuses = ['scheduled', 'reschedule_requested', 'completed', 'cancelled', 'no_show'] as const;
 export type InterviewStatus = (typeof interviewStatuses)[number];
 
 export const interviewModes = ['online', 'onsite'] as const;
@@ -12,6 +12,12 @@ export interface InterviewStatusHistoryEntry {
   changed_at: Date;
   changed_by: Types.ObjectId;
   note?: string;
+}
+
+export interface InterviewRescheduleRequest {
+  proposed_time: Date;
+  reason: string;
+  requested_at: Date;
 }
 
 export interface InterviewData {
@@ -33,6 +39,8 @@ export interface InterviewData {
   location?: string;
   notes?: string;
   status: InterviewStatus;
+  // Present only while the applicant's request for another time is pending recruiter review.
+  reschedule_request?: InterviewRescheduleRequest;
   // Append-only: one entry per accepted status change, starting with the creation.
   status_history: InterviewStatusHistoryEntry[];
 }
@@ -43,6 +51,15 @@ const statusHistorySchema = new Schema<InterviewStatusHistoryEntry>(
     changed_at: { type: Date, required: true },
     changed_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     note: { type: String, trim: true },
+  },
+  { _id: false },
+);
+
+const rescheduleRequestSchema = new Schema<InterviewRescheduleRequest>(
+  {
+    proposed_time: { type: Date, required: true },
+    reason: { type: String, required: true, trim: true },
+    requested_at: { type: Date, required: true },
   },
   { _id: false },
 );
@@ -63,6 +80,7 @@ const interviewSchema = new Schema<InterviewData>(
     location: { type: String, trim: true },
     notes: { type: String, trim: true },
     status: { type: String, enum: interviewStatuses, default: 'scheduled', required: true },
+    reschedule_request: { type: rescheduleRequestSchema, required: false },
     status_history: { type: [statusHistorySchema], default: [] },
   },
   { timestamps: true, collection: 'interviews' },
