@@ -18,7 +18,9 @@ export const usersRouter = Router();
 usersRouter.post(
   '/',
   authenticate,
-  authorize('admin', 'recruiter', 'enterprise_admin'),
+  // System admins create accounts via the invitation flow (POST /users in userInvitationsRouter, takes username).
+  (req, _res, next) => (req.user?.role === 'admin' ? next('route') : next()),
+  authorize('recruiter', 'enterprise_admin'),
   validateBody(createEmployeeBodySchema),
   usersController.createEmployee,
 );
