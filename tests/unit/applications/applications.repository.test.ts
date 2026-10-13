@@ -344,5 +344,53 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
       );
     });
   });
+
+  describe('findApplicantSubmissionsByJobIds (PR 6)', () => {
+    it('returns empty array when jobIds is empty', async () => {
+      const findSpy = vi.spyOn(Application, 'find');
+      const result = await repository.findApplicantSubmissionsByJobIds(
+        new Types.ObjectId().toString(),
+        [],
+      );
+      expect(result).toEqual([]);
+      expect(findSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns empty array when applicantId is invalid', async () => {
+      const findSpy = vi.spyOn(Application, 'find');
+      const result = await repository.findApplicantSubmissionsByJobIds(
+        'not-an-objectid',
+        [new Types.ObjectId().toString()],
+      );
+      expect(result).toEqual([]);
+      expect(findSpy).not.toHaveBeenCalled();
+    });
+
+    it('queries applications for applicant within specified company job IDs sorted by createdAt descending', async () => {
+      const applicantId = new Types.ObjectId().toString();
+      const job1Id = new Types.ObjectId().toString();
+      const job2Id = new Types.ObjectId().toString();
+
+      const mockDocs = [
+        { _id: new Types.ObjectId(), applicant_id: new Types.ObjectId(applicantId), job_id: new Types.ObjectId(job1Id) },
+        { _id: new Types.ObjectId(), applicant_id: new Types.ObjectId(applicantId), job_id: new Types.ObjectId(job2Id) },
+      ];
+
+      const execMock = vi.fn().mockResolvedValue(mockDocs);
+      const leanMock = vi.fn().mockReturnValue({ exec: execMock });
+      const sortMock = vi.fn().mockReturnValue({ lean: leanMock });
+      const findSpy = vi.spyOn(Application, 'find').mockReturnValue({ sort: sortMock } as never);
+
+      const result = await repository.findApplicantSubmissionsByJobIds(applicantId, [job1Id, job2Id]);
+
+      expect(result).toEqual(mockDocs);
+      expect(findSpy).toHaveBeenCalledWith({
+        applicant_id: new Types.ObjectId(applicantId),
+        job_id: { $in: [new Types.ObjectId(job1Id), new Types.ObjectId(job2Id)] },
+      });
+      expect(sortMock).toHaveBeenCalledWith({ createdAt: -1 });
+    });
+  });
 });
+
 
