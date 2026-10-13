@@ -531,6 +531,24 @@ export class ApplicationsRepository {
 
     return result.modifiedCount;
   }
+
+  // Finds all applications submitted by an applicant strictly within the company's job postings (UC-S2-AA-07, BR-06).
+  async findApplicantSubmissionsByJobIds(
+    applicantId: string | Types.ObjectId,
+    jobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationDoc[]> {
+    if (jobIds.length === 0 || !Types.ObjectId.isValid(applicantId)) {
+      return [];
+    }
+
+    return Application.find({
+      applicant_id: new Types.ObjectId(applicantId),
+      job_id: { $in: jobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    })
+      .sort({ createdAt: -1 })
+      .lean<ApplicationDoc[]>()
+      .exec();
+  }
 }
 
 export const applicationsRepository = new ApplicationsRepository();

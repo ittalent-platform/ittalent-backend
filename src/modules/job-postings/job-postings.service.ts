@@ -676,6 +676,10 @@ export class JobPostingsService {
     return this.repository.findById(id);
   }
 
+  async findJobsByIds(ids: string[]): Promise<JobPostingDoc[]> {
+    return this.repository.findManyByIds(ids);
+  }
+
   async closeJobPosting(jobId: string | Types.ObjectId): Promise<boolean> {
     return this.repository.closeJobPosting(jobId);
   }

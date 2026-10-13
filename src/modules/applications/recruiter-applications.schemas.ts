@@ -288,3 +288,41 @@ export type UpdateRecruiterApplicationStatusBody = z.infer<
   typeof updateRecruiterApplicationStatusBodySchema
 >;
 
+export const recruiterCompanyApplicationHistoryItemDtoSchema = z.object({
+  id: z.string(),
+  job: z.object({
+    id: z.string(),
+    title: z.string(),
+    location: z.string().nullable(),
+    employmentType: z.string().nullable(),
+    status: z.string(),
+  }),
+  status: z.enum(applicationStatuses),
+  reviewStage: z.enum(REVIEW_STAGES).nullable(),
+  submittedDocuments: z.array(z.enum(recruiterApplicationDocumentTypes)),
+  rejectionReason: z.string().nullable(),
+  withdrawalReason: z.string().nullable(),
+  notesCount: z.number().int().min(0),
+  submittedAt: z.string(),
+  latestStatusAt: z.string(),
+  isCurrentApplication: z.boolean(),
+});
+export type RecruiterCompanyApplicationHistoryItemDTO = z.infer<
+  typeof recruiterCompanyApplicationHistoryItemDtoSchema
+>;
+
+export const recruiterApplicantCompanyHistoryResponseSchema = z.object({
+  applicant: z.object({
+    id: z.string(),
+    fullName: z.string().nullable(),
+    email: z.string(),
+    phone: z.string().nullable(),
+  }),
+  isFirstTimeApplicant: z.boolean(),
+  totalSubmissionsToCompany: z.number().int().min(0),
+  items: z.array(recruiterCompanyApplicationHistoryItemDtoSchema),
+});
+export type RecruiterApplicantCompanyHistoryResponse = z.infer<
+  typeof recruiterApplicantCompanyHistoryResponseSchema
+>;
+

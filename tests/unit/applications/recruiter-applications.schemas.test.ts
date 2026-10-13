@@ -11,6 +11,8 @@ import {
   createRecruiterNoteBodySchema,
   recruiterNotesListResponseSchema,
   updateRecruiterApplicationStatusBodySchema,
+  recruiterCompanyApplicationHistoryItemDtoSchema,
+  recruiterApplicantCompanyHistoryResponseSchema,
 } from '../../../src/modules/applications/recruiter-applications.schemas.js';
 import {
   isPermittedRecruiterTransition,
@@ -499,6 +501,88 @@ describe('Recruiter Applications Schemas (PR 2)', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('recruiterCompanyApplicationHistoryItemDtoSchema & recruiterApplicantCompanyHistoryResponseSchema (PR 6)', () => {
+    const validItem = {
+      id: '507f1f77bcf86cd799439011',
+      job: {
+        id: '507f1f77bcf86cd799439012',
+        title: 'Senior Backend Engineer',
+        location: 'Hà Nội',
+        employmentType: 'Full-time',
+        status: 'published',
+      },
+      status: 'under_review' as const,
+      reviewStage: 'screening' as const,
+      submittedDocuments: ['cv' as const],
+      rejectionReason: null,
+      withdrawalReason: null,
+      notesCount: 2,
+      submittedAt: '2026-10-10T10:00:00.000Z',
+      latestStatusAt: '2026-10-11T14:00:00.000Z',
+      isCurrentApplication: true,
+    };
+
+    it('parses valid company application history item', () => {
+      const parsed = recruiterCompanyApplicationHistoryItemDtoSchema.parse(validItem);
+      expect(parsed.id).toBe('507f1f77bcf86cd799439011');
+      expect(parsed.job.title).toBe('Senior Backend Engineer');
+      expect(parsed.isCurrentApplication).toBe(true);
+      expect(parsed.notesCount).toBe(2);
+    });
+
+    it('parses complete recruiter applicant company history response', () => {
+      const response = {
+        applicant: {
+          id: '507f1f77bcf86cd799439013',
+          fullName: 'Lê Văn B',
+          email: 'applicantB@example.com',
+          phone: '+84987654321',
+        },
+        isFirstTimeApplicant: false,
+        totalSubmissionsToCompany: 2,
+        items: [
+          validItem,
+          {
+            ...validItem,
+            id: '507f1f77bcf86cd799439099',
+            status: 'rejected' as const,
+            reviewStage: 'rejected' as const,
+            rejectionReason: 'Position closed before interview',
+            isCurrentApplication: false,
+          },
+        ],
+      };
+
+      const parsed = recruiterApplicantCompanyHistoryResponseSchema.parse(response);
+      expect(parsed.applicant.email).toBe('applicantB@example.com');
+      expect(parsed.isFirstTimeApplicant).toBe(false);
+      expect(parsed.totalSubmissionsToCompany).toBe(2);
+      expect(parsed.items).toHaveLength(2);
+      expect(parsed.items[1]?.isCurrentApplication).toBe(false);
+      expect(parsed.items[1]?.rejectionReason).toBe('Position closed before interview');
+    });
+
+    it('parses first-time applicant response with 1 submission', () => {
+      const response = {
+        applicant: {
+          id: '507f1f77bcf86cd799439013',
+          fullName: null,
+          email: 'first-time@example.com',
+          phone: null,
+        },
+        isFirstTimeApplicant: true,
+        totalSubmissionsToCompany: 1,
+        items: [validItem],
+      };
+
+      const parsed = recruiterApplicantCompanyHistoryResponseSchema.parse(response);
+      expect(parsed.isFirstTimeApplicant).toBe(true);
+      expect(parsed.totalSubmissionsToCompany).toBe(1);
+      expect(parsed.items).toHaveLength(1);
+    });
+  });
 });
+
 
 

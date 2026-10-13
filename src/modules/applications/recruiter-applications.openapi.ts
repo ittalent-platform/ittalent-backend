@@ -11,6 +11,8 @@ import {
   recruiterApplicationSummaryDtoSchema,
   recruiterAttachmentDtoSchema,
   recruiterInterviewTimelineEntrySchema,
+  recruiterApplicantCompanyHistoryResponseSchema,
+  recruiterCompanyApplicationHistoryItemDtoSchema,
   recruiterNextInterviewDtoSchema,
   recruiterNoteEntryDtoSchema,
   recruiterNotesListResponseSchema,
@@ -287,4 +289,48 @@ export function registerRecruiterApplicationsOpenApi(
       },
     },
   });
+
+  registry.register(
+    'RecruiterCompanyApplicationHistoryItemDTO',
+    recruiterCompanyApplicationHistoryItemDtoSchema,
+  );
+  const registeredCompanyHistoryResponse = registry.register(
+    'RecruiterApplicantCompanyHistoryResponse',
+    recruiterApplicantCompanyHistoryResponseSchema,
+  );
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/recruiter/applications/{id}/company-history',
+    tags: ['Recruiter Applications'],
+    summary: 'View candidate cross-job application history for company',
+    description:
+      'Recruiter and Enterprise Admin only. Returns chronological history of all applications submitted by the candidate ' +
+      'across all job postings published by the caller\'s enterprise. Enforces strict multi-tenant candidate data privacy ' +
+      '(submissions to competitor companies remain hidden). Indicates if candidate is a first-time applicant (UC-S2-AA-07, BR-06).',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: applicationIdParamSchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Candidate cross-job company application history',
+        content: { 'application/json': { schema: registeredCompanyHistoryResponse } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
+        description: 'Malformed application ID parameter',
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
+        description: 'Authentication required',
+      },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: {
+        description:
+          'Caller is not a recruiter/enterprise administrator or lacks active enterprise assignment',
+      },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
+        description: 'Application not found or inaccessible (opaque 404)',
+      },
+    },
+  });
 }
+

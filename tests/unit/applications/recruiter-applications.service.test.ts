@@ -23,6 +23,7 @@ describe('RecruiterApplicationsService', () => {
     updateStatusAtomically: vi.fn(),
     countHiredApplications: vi.fn(),
     cascadePositionFilled: vi.fn(),
+    findApplicantSubmissionsByJobIds: vi.fn(),
   };
 
   const usersService = {
@@ -37,6 +38,7 @@ describe('RecruiterApplicationsService', () => {
     findJobIdsByTitleAndEnterpriseId: vi.fn(),
     findJobById: vi.fn(),
     findSummariesByIds: vi.fn(),
+    findJobsByIds: vi.fn(),
     closeJobPosting: vi.fn(),
   };
 
@@ -698,4 +700,194 @@ describe('RecruiterApplicationsService', () => {
       );
     });
   });
+
+  describe('getApplicantCompanyHistory (PR 6: UC-S2-AA-07)', () => {
+    const actorId = new Types.ObjectId().toString();
+    const enterpriseId = new Types.ObjectId().toString();
+    const appId = new Types.ObjectId().toString();
+    const applicantId = new Types.ObjectId().toString();
+    const job1Id = new Types.ObjectId().toString();
+    const job2Id = new Types.ObjectId().toString();
+
+    it('rejects unauthorized role', async () => {
+      await expect(
+        service.getApplicantCompanyHistory(actorId, 'candidate', appId),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('Recruiter or enterprise administrator role required'),
+      });
+    });
+
+    it('rejects recruiter without enterprise assignment', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(null);
+      await expect(
+        service.getApplicantCompanyHistory(actorId, 'recruiter', appId),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: expect.stringContaining('Active enterprise assignment required'),
+      });
+    });
+
+    it('throws 404 when target application not found or outside enterprise scope (BR-06)', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([job1Id]);
+      repository.findByIdAndJobIds.mockResolvedValue(null);
+
+      await expect(
+        service.getApplicantCompanyHistory(actorId, 'recruiter', appId),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: 'Application not found',
+      });
+    });
+
+    it('returns history with isFirstTimeApplicant: true when candidate has only 1 submission', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([job1Id]);
+
+      const mockApp = {
+        _id: new Types.ObjectId(appId),
+        job_id: new Types.ObjectId(job1Id),
+        applicant_id: new Types.ObjectId(applicantId),
+        cv_id: new Types.ObjectId(),
+        status: 'under_review',
+        status_history: [
+          { status: 'submitted', changed_at: new Date('2026-10-01T10:00:00.000Z') },
+          { status: 'under_review', changed_at: new Date('2026-10-02T10:00:00.000Z') },
+        ],
+        notes: [{ content: 'Good fit' }],
+        createdAt: new Date('2026-10-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-10-02T10:00:00.000Z'),
+      };
+      repository.findByIdAndJobIds.mockResolvedValue(mockApp);
+      usersService.findById.mockResolvedValue({
+        _id: new Types.ObjectId(applicantId),
+        full_name: 'Nguyễn Văn A',
+        email: 'applicant@example.com',
+        phone: '+84900000001',
+      });
+      repository.findApplicantSubmissionsByJobIds.mockResolvedValue([mockApp]);
+      jobPostingsService.findSummariesByIds.mockResolvedValue(
+        new Map([
+          [
+            job1Id,
+            {
+              id: job1Id,
+              title: 'Frontend Engineer',
+              location: 'Hà Nội',
+              employmentType: 'Full-time',
+              status: 'published',
+            },
+          ],
+        ]),
+      );
+      jobPostingsService.findJobsByIds.mockResolvedValue([
+        { _id: new Types.ObjectId(job1Id), status: 'published' },
+      ]);
+
+      const result = await service.getApplicantCompanyHistory(actorId, 'recruiter', appId);
+
+      expect(result.applicant.email).toBe('applicant@example.com');
+      expect(result.isFirstTimeApplicant).toBe(true);
+      expect(result.totalSubmissionsToCompany).toBe(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.id).toBe(appId);
+      expect(result.items[0]?.isCurrentApplication).toBe(true);
+      expect(result.items[0]?.job.title).toBe('Frontend Engineer');
+      expect(result.items[0]?.reviewStage).toBe('screening');
+      expect(result.items[0]?.submittedDocuments).toEqual(['cv']);
+      expect(result.items[0]?.notesCount).toBe(1);
+    });
+
+    it('returns history with isFirstTimeApplicant: false when candidate has multiple submissions across company jobs', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([job1Id, job2Id]);
+
+      const mockAppCurrent = {
+        _id: new Types.ObjectId(appId),
+        job_id: new Types.ObjectId(job1Id),
+        applicant_id: new Types.ObjectId(applicantId),
+        cv_id: new Types.ObjectId(),
+        status: 'interviewing',
+        status_history: [
+          { status: 'submitted', changed_at: new Date('2026-10-05T10:00:00.000Z') },
+          { status: 'interviewing', changed_at: new Date('2026-10-06T10:00:00.000Z') },
+        ],
+        notes: [],
+        createdAt: new Date('2026-10-05T10:00:00.000Z'),
+        updatedAt: new Date('2026-10-06T10:00:00.000Z'),
+      };
+      const pastAppId = new Types.ObjectId().toString();
+      const mockAppPast = {
+        _id: new Types.ObjectId(pastAppId),
+        job_id: new Types.ObjectId(job2Id),
+        applicant_id: new Types.ObjectId(applicantId),
+        cv_id: new Types.ObjectId(),
+        cover_letter_id: new Types.ObjectId(),
+        status: 'rejected',
+        status_history: [
+          { status: 'submitted', changed_at: new Date('2026-09-01T10:00:00.000Z') },
+          {
+            status: 'rejected',
+            rejection_reason: 'Budget constraints',
+            changed_at: new Date('2026-09-10T10:00:00.000Z'),
+          },
+        ],
+        notes: [],
+        createdAt: new Date('2026-09-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-09-10T10:00:00.000Z'),
+      };
+
+      repository.findByIdAndJobIds.mockResolvedValue(mockAppCurrent);
+      usersService.findById.mockResolvedValue({
+        _id: new Types.ObjectId(applicantId),
+        full_name: 'Trần Thị B',
+        email: 'b@example.com',
+        phone: null,
+      });
+      repository.findApplicantSubmissionsByJobIds.mockResolvedValue([mockAppCurrent, mockAppPast]);
+      jobPostingsService.findSummariesByIds.mockResolvedValue(
+        new Map([
+          [
+            job1Id,
+            {
+              id: job1Id,
+              title: 'Senior Backend Engineer',
+              location: 'TP.HCM',
+              employmentType: 'Full-time',
+              status: 'published',
+            },
+          ],
+          [
+            job2Id,
+            {
+              id: job2Id,
+              title: 'DevOps Engineer',
+              location: 'Remote',
+              employmentType: 'Contract',
+              status: 'closed',
+            },
+          ],
+        ]),
+      );
+      jobPostingsService.findJobsByIds.mockResolvedValue([
+        { _id: new Types.ObjectId(job1Id), status: 'published' },
+        { _id: new Types.ObjectId(job2Id), status: 'closed' },
+      ]);
+
+      const result = await service.getApplicantCompanyHistory(actorId, 'recruiter', appId);
+
+      expect(result.isFirstTimeApplicant).toBe(false);
+      expect(result.totalSubmissionsToCompany).toBe(2);
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0]?.id).toBe(appId);
+      expect(result.items[0]?.isCurrentApplication).toBe(true);
+      expect(result.items[1]?.id).toBe(pastAppId);
+      expect(result.items[1]?.isCurrentApplication).toBe(false);
+      expect(result.items[1]?.job.title).toBe('DevOps Engineer');
+      expect(result.items[1]?.rejectionReason).toBe('Budget constraints');
+      expect(result.items[1]?.submittedDocuments).toEqual(['cv', 'cover_letter']);
+    });
+  });
 });
+
