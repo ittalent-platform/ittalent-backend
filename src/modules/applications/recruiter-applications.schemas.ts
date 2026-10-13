@@ -228,3 +228,26 @@ export const recruiterApplicationCvMetadataDtoSchema = z.object({
 export type RecruiterApplicationCvMetadataDTO = z.infer<
   typeof recruiterApplicationCvMetadataDtoSchema
 >;
+
+export const createRecruiterNoteBodySchema = z.strictObject({
+  content: z
+    .string()
+    .trim()
+    .min(1, 'Note content cannot be empty')
+    .max(
+      APPLICATION_CONFIG.NOTE_MAX_LENGTH,
+      `Note content cannot exceed ${APPLICATION_CONFIG.NOTE_MAX_LENGTH} characters`,
+    ),
+});
+export type CreateRecruiterNoteBody = z.infer<
+  typeof createRecruiterNoteBodySchema
+>;
+
+export const recruiterNotesListResponseSchema = z.object({
+  items: z.array(recruiterNoteEntryDtoSchema),
+  total: z.number().int().min(0),
+});
+export type RecruiterNotesListResponse = z.infer<
+  typeof recruiterNotesListResponseSchema
+>;
+
