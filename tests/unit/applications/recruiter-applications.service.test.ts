@@ -13,11 +13,13 @@ function mockMongooseQuery(result: unknown): Record<string, ReturnType<typeof vi
   return chain;
 }
 
-describe('RecruiterApplicationsService (PR 3: Detail & CV Download)', () => {
+describe('RecruiterApplicationsService', () => {
   const repository = {
     findByIdAndJobIds: vi.fn(),
     findPageForRecruiter: vi.fn(),
     countByStatusForRecruiter: vi.fn(),
+    addNoteToApplication: vi.fn(),
+    findNotesByApplicationId: vi.fn(),
   };
 
   const usersService = {
@@ -248,6 +250,209 @@ describe('RecruiterApplicationsService (PR 3: Detail & CV Download)', () => {
       expect(result.metadata.documentId).toBe(cvId);
       expect(result.metadata.fileName).toBe('cv.pdf');
       expect(result.metadata.size).toBe(51200);
+    });
+  });
+
+  describe('addNote', () => {
+    const actorId = new Types.ObjectId().toString();
+    const enterpriseId = new Types.ObjectId().toString();
+    const appId = new Types.ObjectId().toString();
+    const jobId = new Types.ObjectId().toString();
+
+    it('rejects with 403 when actor does not have recruiter role', async () => {
+      await expect(
+        service.addNote(actorId, 'candidate', appId, 'Valid note'),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: 'Recruiter or enterprise administrator role required',
+      });
+    });
+
+    it('rejects with 403 when recruiter has no active enterprise assignment', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(null);
+
+      await expect(
+        service.addNote(actorId, 'recruiter', appId, 'Valid note'),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: 'Active enterprise assignment required',
+      });
+    });
+
+    it('throws 404 if enterprise has no job postings', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([]);
+
+      await expect(
+        service.addNote(actorId, 'recruiter', appId, 'Valid note'),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: 'Application not found',
+      });
+    });
+
+    it('throws opaque 404 if application is not found or not owned by enterprise', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+      usersService.findById.mockResolvedValue({
+        _id: new Types.ObjectId(actorId),
+        full_name: 'Lead Recruiter',
+        email: 'recruiter@enterprise.com',
+      });
+      repository.addNoteToApplication.mockResolvedValue(null);
+
+      await expect(
+        service.addNote(actorId, 'recruiter', appId, 'Valid note'),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: 'Application not found',
+      });
+    });
+
+    it('successfully creates note and resolves author name from user profile', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+      usersService.findById.mockResolvedValue({
+        _id: new Types.ObjectId(actorId),
+        full_name: 'Senior Recruiter',
+        email: 'sr@enterprise.com',
+      });
+
+      const createdAt = new Date('2026-10-12T11:00:00.000Z');
+      repository.addNoteToApplication.mockResolvedValue({
+        author_id: new Types.ObjectId(actorId),
+        author_name: 'Senior Recruiter',
+        content: 'Promising candidate',
+        created_at: createdAt,
+      });
+
+      const result = await service.addNote(actorId, 'recruiter', appId, 'Promising candidate');
+
+      expect(repository.addNoteToApplication).toHaveBeenCalledWith(
+        appId,
+        [jobId],
+        {
+          authorId: actorId,
+          authorName: 'Senior Recruiter',
+          content: 'Promising candidate',
+        },
+      );
+      expect(result).toEqual({
+        authorId: actorId,
+        authorName: 'Senior Recruiter',
+        content: 'Promising candidate',
+        createdAt: createdAt.toISOString(),
+      });
+    });
+
+    it('falls back to email or Recruiter when full_name is absent', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+      usersService.findById.mockResolvedValue({
+        _id: new Types.ObjectId(actorId),
+        email: 'anon@enterprise.com',
+      });
+
+      const createdAt = new Date('2026-10-12T11:00:00.000Z');
+      repository.addNoteToApplication.mockResolvedValue({
+        author_id: new Types.ObjectId(actorId),
+        author_name: 'anon@enterprise.com',
+        content: 'Note without name',
+        created_at: createdAt,
+      });
+
+      const result = await service.addNote(actorId, 'recruiter', appId, 'Note without name');
+
+      expect(repository.addNoteToApplication).toHaveBeenCalledWith(
+        appId,
+        [jobId],
+        {
+          authorId: actorId,
+          authorName: 'anon@enterprise.com',
+          content: 'Note without name',
+        },
+      );
+      expect(result.authorName).toBe('anon@enterprise.com');
+    });
+  });
+
+  describe('listNotes', () => {
+    const actorId = new Types.ObjectId().toString();
+    const enterpriseId = new Types.ObjectId().toString();
+    const appId = new Types.ObjectId().toString();
+    const jobId = new Types.ObjectId().toString();
+
+    it('rejects with 403 when actor does not have recruiter role', async () => {
+      await expect(
+        service.listNotes(actorId, 'candidate', appId),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: 'Recruiter or enterprise administrator role required',
+      });
+    });
+
+    it('rejects with 403 when recruiter has no active enterprise assignment', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(null);
+
+      await expect(
+        service.listNotes(actorId, 'recruiter', appId),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        message: 'Active enterprise assignment required',
+      });
+    });
+
+    it('throws 404 if enterprise has no job postings', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([]);
+
+      await expect(
+        service.listNotes(actorId, 'recruiter', appId),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: 'Application not found',
+      });
+    });
+
+    it('throws opaque 404 if application is not found or not owned by enterprise', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+      repository.findNotesByApplicationId.mockResolvedValue(null);
+
+      await expect(
+        service.listNotes(actorId, 'recruiter', appId),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message: 'Application not found',
+      });
+    });
+
+    it('returns formatted notes list when application belongs to enterprise', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+
+      const createdAt = new Date('2026-10-12T11:00:00.000Z');
+      repository.findNotesByApplicationId.mockResolvedValue([
+        {
+          author_id: new Types.ObjectId(actorId),
+          author_name: 'Lead Recruiter',
+          content: 'First interview went well',
+          created_at: createdAt,
+        },
+      ]);
+
+      const result = await service.listNotes(actorId, 'recruiter', appId);
+
+      expect(repository.findNotesByApplicationId).toHaveBeenCalledWith(appId, [jobId]);
+      expect(result.total).toBe(1);
+      expect(result.items).toEqual([
+        {
+          authorId: actorId,
+          authorName: 'Lead Recruiter',
+          content: 'First interview went well',
+          createdAt: createdAt.toISOString(),
+        },
+      ]);
     });
   });
 });
