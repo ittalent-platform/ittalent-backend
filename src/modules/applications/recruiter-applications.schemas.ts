@@ -10,6 +10,7 @@ import {
   APPLICATION_MESSAGES,
   APPLICATION_SORT_FIELDS,
   APPLICATION_SORT_ORDERS,
+  RECRUITER_TARGET_STATUSES,
   REVIEW_STAGES,
 } from './applications.constants.js';
 
@@ -249,5 +250,41 @@ export const recruiterNotesListResponseSchema = z.object({
 });
 export type RecruiterNotesListResponse = z.infer<
   typeof recruiterNotesListResponseSchema
+>;
+
+export const updateRecruiterApplicationStatusBodySchema = z.strictObject({
+  status: z.enum(RECRUITER_TARGET_STATUSES),
+  note: z
+    .string()
+    .trim()
+    .max(
+      APPLICATION_CONFIG.NOTE_MAX_LENGTH,
+      `Note cannot exceed ${APPLICATION_CONFIG.NOTE_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  messageToCandidate: z
+    .string()
+    .trim()
+    .max(
+      APPLICATION_CONFIG.MESSAGE_TO_CANDIDATE_MAX_LENGTH,
+      `Message to candidate cannot exceed ${APPLICATION_CONFIG.MESSAGE_TO_CANDIDATE_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  rejectionReason: z
+    .string()
+    .trim()
+    .min(
+      APPLICATION_CONFIG.REASON_MIN_LENGTH,
+      `Rejection reason must be at least ${APPLICATION_CONFIG.REASON_MIN_LENGTH} characters`,
+    )
+    .max(
+      APPLICATION_CONFIG.REASON_MAX_LENGTH,
+      `Rejection reason cannot exceed ${APPLICATION_CONFIG.REASON_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  expectedVersion: z.number().int().min(0).optional(),
+});
+export type UpdateRecruiterApplicationStatusBody = z.infer<
+  typeof updateRecruiterApplicationStatusBodySchema
 >;
 

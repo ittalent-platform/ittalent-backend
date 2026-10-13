@@ -29,6 +29,7 @@ export const APPLICATION_CONFIG = {
   CERTIFICATES_MAX: 20,
   MESSAGE_TO_CANDIDATE_MAX_LENGTH: 1000,
   REASON_MIN_LENGTH: 5,
+  REASON_MAX_LENGTH: 1000,
   NOTE_MAX_LENGTH: 2000,
   KEYWORD_MIN_LENGTH: 1,
   KEYWORD_MAX_LENGTH: 100,
@@ -59,7 +60,44 @@ export const APPLICATION_MESSAGES = {
   INVALID_STATUS_FILTER: 'Status filter must be a comma-separated list of supported statuses',
   WITHDRAWAL_NOT_ALLOWED: 'Only submitted or under-review applications can be withdrawn',
   WITHDRAWAL_CONFLICT: 'Application state changed before the withdrawal could be applied',
+  INVALID_STATUS_TRANSITION: 'Invalid status transition',
+  MISSING_INTERVIEW_SCHEDULE: 'An active interview must be scheduled before transitioning to interviewing',
+  MISSING_INTERVIEW_COMPLETED: 'At least one interview must be completed before making an offer',
+  ALL_OPENINGS_FILLED: 'All vacancies for this job posting have been filled',
+  TERMINAL_STATUS_MODIFICATION: 'Cannot modify application in terminal status',
+  STATUS_CONCURRENCY_CONFLICT: 'Application status changed before the update could be applied',
 } as const;
+
+export const RECRUITER_TARGET_STATUSES = [
+  'under_review',
+  'interviewing',
+  'offered',
+  'hired',
+  'rejected',
+] as const;
+export type RecruiterTargetStatus = (typeof RECRUITER_TARGET_STATUSES)[number];
+
+// BR-17: Permitted recruiter workflow transitions. Terminal states permit no further transitions.
+export const RECRUITER_PERMITTED_TRANSITIONS: Record<
+  ApplicationStatus,
+  readonly RecruiterTargetStatus[]
+> = {
+  submitted: ['under_review', 'rejected'],
+  under_review: ['interviewing', 'rejected'],
+  interviewing: ['offered', 'rejected'],
+  offered: ['hired', 'rejected'],
+  hired: [],
+  rejected: [],
+  withdrawn: [],
+  position_filled: [],
+};
+
+export function isPermittedRecruiterTransition(
+  from: ApplicationStatus,
+  to: ApplicationStatus,
+): boolean {
+  return (RECRUITER_PERMITTED_TRANSITIONS[from] as readonly ApplicationStatus[] ?? []).includes(to);
+}
 
 export const APPLICATION_ERROR_CODES = {
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',

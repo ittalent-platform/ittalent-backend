@@ -15,6 +15,7 @@ import {
   recruiterNoteEntryDtoSchema,
   recruiterNotesListResponseSchema,
   recruiterStatusHistoryEntryDtoSchema,
+  updateRecruiterApplicationStatusBodySchema,
 } from './recruiter-applications.schemas.js';
 
 export function registerRecruiterApplicationsOpenApi(
@@ -233,6 +234,56 @@ export function registerRecruiterApplicationsOpenApi(
       },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
         description: 'Application not found or inaccessible (opaque 404)',
+      },
+    },
+  });
+
+  const registeredUpdateStatusBody = registry.register(
+    'UpdateRecruiterApplicationStatusBody',
+    updateRecruiterApplicationStatusBodySchema,
+  );
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/recruiter/applications/{id}/status',
+    tags: ['Recruiter Applications'],
+    summary: 'Update applicant application status workflow',
+    description:
+      'Recruiter and Enterprise Admin only. Advances application through hiring stages (under_review, interviewing, offered, hired) ' +
+      'or rejects (rejected). Enforces forward progression (BR-17), interview prerequisites (BR-37), vacancy limit checks (BR-18, EX5), ' +
+      'auto-closing job posting and cascading position_filled when final opening is filled, and logs audit history (BR-24). ' +
+      'Enforces strict enterprise data isolation (opaque 404).',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: applicationIdParamSchema,
+      body: {
+        content: {
+          'application/json': { schema: registeredUpdateStatusBody },
+        },
+      },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Application status successfully updated',
+        content: { 'application/json': { schema: registeredDetailResponse } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
+        description:
+          'Validation failed (e.g. invalid target status, non-permitted transition, missing interview prerequisite, or rejection reason out of bounds)',
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
+        description: 'Authentication required',
+      },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: {
+        description:
+          'Caller is not a recruiter/enterprise administrator or lacks active enterprise assignment',
+      },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: {
+        description: 'Application not found or inaccessible (opaque 404)',
+      },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: {
+        description:
+          'Vacancy limit reached (cannot hire more applicants than job openings) or optimistic concurrency conflict',
       },
     },
   });

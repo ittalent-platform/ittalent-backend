@@ -60,6 +60,15 @@ export interface FindRecruiterApplicationsPageParams {
   filters: RecruiterApplicationListFilters;
 }
 
+export interface UpdateRecruiterStatusData {
+  status: ApplicationStatus;
+  changedBy: string | Types.ObjectId;
+  actorRole?: string | undefined;
+  note?: string | undefined;
+  messageToCandidate?: string | undefined;
+  rejectionReason?: string | undefined;
+}
+
 export interface SubmitApplicationData {
   jobId: Types.ObjectId | string;
   applicantId: Types.ObjectId | string;
@@ -434,6 +443,93 @@ export class ApplicationsRepository {
     }
 
     return application.notes ?? [];
+  }
+
+  // Atomically updates application recruitment status and appends audit record (BR-17, BR-24)
+  async updateStatusAtomically(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+    data: UpdateRecruiterStatusData,
+    expectedVersion?: number,
+  ): Promise<ApplicationDoc | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const filter: Record<string, unknown> = {
+      _id: new Types.ObjectId(applicationId),
+      job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    };
+
+    if (typeof expectedVersion === 'number') {
+      filter.$expr = { $eq: [{ $size: '$status_history' }, expectedVersion] };
+    }
+
+    const historyEntry: ApplicationStatusHistoryEntry = {
+      status: data.status,
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(data.changedBy),
+      actor_role: data.actorRole ?? 'recruiter',
+      ...(data.note ? { note: data.note } : {}),
+      ...(data.messageToCandidate ? { message_to_candidate: data.messageToCandidate } : {}),
+      ...(data.rejectionReason ? { rejection_reason: data.rejectionReason } : {}),
+    };
+
+    const update: Record<string, unknown> = {
+      $set: {
+        status: data.status,
+        ...(data.rejectionReason ? { rejection_reason: data.rejectionReason } : {}),
+      },
+      $push: { status_history: historyEntry },
+    };
+
+    return Application.findOneAndUpdate(filter, update, { returnDocument: 'after' })
+      .lean<ApplicationDoc>()
+      .exec();
+  }
+
+  // Counts currently hired applications for a specific job posting (BR-18, EX5)
+  async countHiredApplications(jobId: string | Types.ObjectId): Promise<number> {
+    if (!Types.ObjectId.isValid(jobId)) {
+      return 0;
+    }
+    return Application.countDocuments({
+      job_id: new Types.ObjectId(jobId),
+      status: 'hired',
+    }).exec();
+  }
+
+  // Cascades position_filled status to remaining active applications when openings are filled (BR-18)
+  async cascadePositionFilled(
+    jobId: string | Types.ObjectId,
+    excludedApplicationId: string | Types.ObjectId,
+    changedBy: string | Types.ObjectId = '000000000000000000000000',
+  ): Promise<number> {
+    if (!Types.ObjectId.isValid(jobId) || !Types.ObjectId.isValid(changedBy)) {
+      return 0;
+    }
+
+    const historyEntry: ApplicationStatusHistoryEntry = {
+      status: 'position_filled',
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(changedBy),
+      actor_role: 'system',
+      note: 'Position filled by another candidate',
+    };
+
+    const result = await Application.updateMany(
+      {
+        job_id: new Types.ObjectId(jobId),
+        _id: { $ne: new Types.ObjectId(excludedApplicationId) },
+        status: { $in: ['submitted', 'under_review', 'interviewing', 'offered'] },
+      },
+      {
+        $set: { status: 'position_filled' },
+        $push: { status_history: historyEntry },
+      },
+    ).exec();
+
+    return result.modifiedCount;
   }
 }
 

@@ -10,7 +10,12 @@ import {
   recruiterApplicationCvMetadataDtoSchema,
   createRecruiterNoteBodySchema,
   recruiterNotesListResponseSchema,
+  updateRecruiterApplicationStatusBodySchema,
 } from '../../../src/modules/applications/recruiter-applications.schemas.js';
+import {
+  isPermittedRecruiterTransition,
+  RECRUITER_PERMITTED_TRANSITIONS,
+} from '../../../src/modules/applications/applications.constants.js';
 
 describe('Recruiter Applications Schemas (PR 2)', () => {
   describe('parseRecruiterStatusFilter', () => {
@@ -383,6 +388,115 @@ describe('Recruiter Applications Schemas (PR 2)', () => {
       });
       expect(parsed.items).toEqual([]);
       expect(parsed.total).toBe(0);
+    });
+  });
+
+  describe('isPermittedRecruiterTransition (PR 5: BR-17)', () => {
+    it('allows valid progressive transitions', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'under_review')).toBe(true);
+      expect(isPermittedRecruiterTransition('under_review', 'interviewing')).toBe(true);
+      expect(isPermittedRecruiterTransition('interviewing', 'offered')).toBe(true);
+      expect(isPermittedRecruiterTransition('offered', 'hired')).toBe(true);
+    });
+
+    it('allows rejection from any active non-terminal status', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('under_review', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('interviewing', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('offered', 'rejected')).toBe(true);
+    });
+
+    it('disallows skipping stages or backward transitions', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'interviewing')).toBe(false);
+      expect(isPermittedRecruiterTransition('submitted', 'hired')).toBe(false);
+      expect(isPermittedRecruiterTransition('interviewing', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('offered', 'interviewing')).toBe(false);
+    });
+
+    it('disallows any transitions from terminal states', () => {
+      expect(isPermittedRecruiterTransition('hired', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('rejected', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('withdrawn', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('position_filled', 'under_review')).toBe(false);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.hired).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.rejected).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.withdrawn).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.position_filled).toEqual([]);
+    });
+  });
+
+  describe('updateRecruiterApplicationStatusBodySchema (PR 5)', () => {
+    it('parses valid status update request with minimal fields', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'under_review',
+      });
+      expect(parsed.status).toBe('under_review');
+      expect(parsed.note).toBeUndefined();
+    });
+
+    it('parses valid status update with note, candidate message, and expectedVersion', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'interviewing',
+        note: 'Candidate cleared phone screening.',
+        messageToCandidate: 'Congratulations! We would like to invite you for an interview.',
+        expectedVersion: 2,
+      });
+      expect(parsed.status).toBe('interviewing');
+      expect(parsed.note).toBe('Candidate cleared phone screening.');
+      expect(parsed.messageToCandidate).toBe(
+        'Congratulations! We would like to invite you for an interview.',
+      );
+      expect(parsed.expectedVersion).toBe(2);
+    });
+
+    it('parses valid status update to rejected with rejectionReason', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'rejected',
+        rejectionReason: 'Candidate does not meet minimum technical experience requirements.',
+      });
+      expect(parsed.status).toBe('rejected');
+      expect(parsed.rejectionReason).toBe(
+        'Candidate does not meet minimum technical experience requirements.',
+      );
+    });
+
+    it('rejects status values that recruiters cannot manually set', () => {
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'submitted' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'withdrawn' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'position_filled' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'invalid_status' }).success,
+      ).toBe(false);
+    });
+
+    it('rejects rejectionReason shorter than minimum length', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'rejected',
+        rejectionReason: 'Nope', // only 4 chars, min is 5
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects note exceeding maximum length', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'under_review',
+        note: 'x'.repeat(2001),
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects unrecognized extra fields', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'under_review',
+        unknownField: 'test',
+      });
+      expect(result.success).toBe(false);
     });
   });
 });
