@@ -135,7 +135,7 @@ export class AuthService {
       expiresAt: new Date(Date.now() + env.EMAIL_VERIFICATION_WINDOW_MS),
     });
 
-    const verificationUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/verify-email?token=${rawToken}`;
+    const verificationUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/verify-email?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
     let verificationEmailSent = true;
     try {
       await sendVerificationEmail(user.email, verificationUrl);
@@ -204,7 +204,7 @@ export class AuthService {
       expiresAt: new Date(Date.now() + env.EMAIL_VERIFICATION_WINDOW_MS),
     });
 
-    const verificationUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/verify-email?token=${rawToken}`;
+    const verificationUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/verify-email?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
     let verificationEmailSent = true;
     try {
       await sendVerificationEmail(user.email, verificationUrl);
