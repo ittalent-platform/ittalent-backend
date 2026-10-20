@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { SSE_HEARTBEAT_INTERVAL_MS } from './notifications.constants.js';
+import { notificationBus, type NotificationBus } from './notifications.bus.js';
 import {
   notificationsService,
   type NotificationsService,
@@ -13,7 +15,10 @@ import type {
 } from './notifications.schemas.js';
 
 export class NotificationsController {
-  constructor(private readonly service: NotificationsService = notificationsService) {}
+  constructor(
+    private readonly service: NotificationsService = notificationsService,
+    private readonly bus: NotificationBus = notificationBus,
+  ) {}
 
   listMine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -32,6 +37,32 @@ export class NotificationsController {
     } catch (error) {
       next(error);
     }
+  };
+
+  streamNotifications = (req: Request, res: Response): void => {
+    const userId = req.user!.id;
+
+    res.writeHead(HTTP_STATUS.HTTP_200_OK, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    res.write('event: connected\ndata: {"status":"connected"}\n\n');
+
+    const unsubscribe = this.bus.subscribeUser(userId, (notification) => {
+      res.write(`event: notification\ndata: ${JSON.stringify(notification)}\n\n`);
+    });
+
+    const heartbeatTimer = setInterval(() => {
+      res.write(': ping\n\n');
+    }, SSE_HEARTBEAT_INTERVAL_MS);
+
+    req.on('close', () => {
+      clearInterval(heartbeatTimer);
+      unsubscribe();
+    });
   };
 
   markAllAsRead = async (req: Request, res: Response, next: NextFunction): Promise<void> => {

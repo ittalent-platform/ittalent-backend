@@ -8,6 +8,7 @@ describe('Notifications OpenAPI contract', () => {
     const doc = createOpenApiDocument();
 
     expect(doc.paths['/api/v1/notifications']?.get).toBeDefined();
+    expect(doc.paths['/api/v1/notifications/stream']?.get).toBeDefined();
     expect(doc.paths['/api/v1/notifications/unread-count']?.get).toBeDefined();
     expect(doc.paths['/api/v1/notifications/read-all']?.patch).toBeDefined();
     expect(doc.paths['/api/v1/notifications/{id}/read']?.patch).toBeDefined();
@@ -19,6 +20,10 @@ describe('Notifications OpenAPI contract', () => {
     const getInbox = doc.paths['/api/v1/notifications']?.get;
     expect(getInbox?.responses[HTTP_STATUS.HTTP_200_OK]).toBeDefined();
     expect(getInbox?.security).toEqual([{ bearerAuth: [] }]);
+
+    const getStream = doc.paths['/api/v1/notifications/stream']?.get;
+    expect(getStream?.responses[HTTP_STATUS.HTTP_200_OK]).toBeDefined();
+    expect(getStream?.security).toEqual([{ bearerAuth: [] }]);
 
     const deleteOne = doc.paths['/api/v1/notifications/{id}']?.delete;
     expect(deleteOne?.responses[HTTP_STATUS.HTTP_200_OK]).toBeDefined();

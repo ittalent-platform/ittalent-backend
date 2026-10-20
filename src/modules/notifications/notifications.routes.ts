@@ -7,6 +7,7 @@ import {
   deviceTokenParamSchema,
   notificationIdParamSchema,
   notificationListQuerySchema,
+  notificationStreamQuerySchema,
   registerDeviceTokenBodySchema,
 } from './notifications.schemas.js';
 
@@ -15,6 +16,7 @@ export const notificationsRouter = Router();
 notificationsRouter.use(authenticate);
 
 notificationsRouter.get('/', validateQuery(notificationListQuerySchema), notificationsController.listMine);
+notificationsRouter.get('/stream', validateQuery(notificationStreamQuerySchema), notificationsController.streamNotifications);
 notificationsRouter.get('/unread-count', notificationsController.getUnreadCount);
 notificationsRouter.patch('/read-all', notificationsController.markAllAsRead);
 notificationsRouter.patch('/:id/read', validateParams(notificationIdParamSchema), notificationsController.markOneAsRead);

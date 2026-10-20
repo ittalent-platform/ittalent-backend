@@ -43,6 +43,29 @@ describe('auth middleware', () => {
       });
     });
 
+    it('attaches user when token is supplied in query parameters', () => {
+      const token = jwt.sign(
+        { sub: 'user-123', email: 'test@example.com', role: 'user' },
+        env.JWT_ACCESS_SECRET,
+      );
+      const req = {
+        headers: {},
+        query: { token },
+      } as never;
+      const res = {} as never;
+      const next = vi.fn();
+
+      authenticate(req, res, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect((req as { user?: unknown }).user).toEqual({
+        id: 'user-123',
+        email: 'test@example.com',
+        role: 'user',
+        authVersion: 0,
+      });
+    });
+
     it('retains the current session epoch from the signed token', () => {
       const token = jwt.sign({ sub: 'user-123', email: 'test@example.com', role: 'user', av: 3 }, env.JWT_ACCESS_SECRET);
       const req = { headers: { authorization: `Bearer ${token}` } } as never;

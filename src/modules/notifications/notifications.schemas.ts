@@ -24,6 +24,10 @@ export const notificationListQuerySchema = z.strictObject({
   category: z.enum(notificationCategories).optional(),
 });
 
+export const notificationStreamQuerySchema = z.object({
+  token: z.string().optional(),
+});
+
 export const notificationItemSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -87,6 +91,7 @@ export const createNotificationInputSchema = z.object({
 
 export type NotificationIdParam = z.infer<typeof notificationIdParamSchema>;
 export type NotificationListQuery = z.infer<typeof notificationListQuerySchema>;
+export type NotificationStreamQuery = z.infer<typeof notificationStreamQuerySchema>;
 export type NotificationItemDto = z.infer<typeof notificationItemSchema>;
 export type NotificationListResponse = z.infer<typeof notificationListResponseSchema>;
 export type UnreadCountResponse = z.infer<typeof unreadCountResponseSchema>;
