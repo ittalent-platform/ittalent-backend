@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 import type { HttpError } from '../../../src/shared/errors/http-error.js';
 import { NOTIFICATION_MESSAGES } from '../../../src/modules/notifications/notifications.constants.js';
+import type { NotificationBus } from '../../../src/modules/notifications/notifications.bus.js';
 import type { NotificationsRepository } from '../../../src/modules/notifications/notifications.repository.js';
 import { NotificationsService } from '../../../src/modules/notifications/notifications.service.js';
 
@@ -20,6 +21,10 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
     upsertDeviceToken: ReturnType<typeof vi.fn>;
     deleteDeviceToken: ReturnType<typeof vi.fn>;
     findDeviceTokensByUser: ReturnType<typeof vi.fn>;
+  };
+  let mockBus: {
+    emitNotification: ReturnType<typeof vi.fn>;
+    subscribeUser: ReturnType<typeof vi.fn>;
   };
   let service: NotificationsService;
   const userId = new Types.ObjectId().toString();
@@ -38,7 +43,14 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
       deleteDeviceToken: vi.fn(),
       findDeviceTokensByUser: vi.fn(),
     };
-    service = new NotificationsService(mockRepository as unknown as NotificationsRepository);
+    mockBus = {
+      emitNotification: vi.fn(),
+      subscribeUser: vi.fn(),
+    };
+    service = new NotificationsService(
+      mockRepository as unknown as NotificationsRepository,
+      mockBus as unknown as NotificationBus,
+    );
   });
 
   describe('listMine (UC-S2-NOTI-01)', () => {
@@ -218,12 +230,13 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
   });
 
   describe('dispatch', () => {
-    it('creates notification and returns formatted DTO', async () => {
+    it('creates notification, emits it via notification bus, and returns formatted DTO', async () => {
       const docId = new Types.ObjectId();
       const createdAt = new Date();
 
       mockRepository.create.mockResolvedValue({
         _id: docId,
+        recipient_id: new Types.ObjectId(userId),
         title: 'Status changed',
         message: 'Under review',
         type: 'application_status_changed',
@@ -248,6 +261,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
         message: 'Under review',
         type: 'application_status_changed',
       });
+      expect(mockBus.emitNotification).toHaveBeenCalledWith(userId, result);
       expect(result.id).toBe(docId.toString());
       expect(result.title).toBe('Status changed');
     });

@@ -1,6 +1,7 @@
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { NOTIFICATION_MESSAGES } from './notifications.constants.js';
+import { notificationBus, type NotificationBus } from './notifications.bus.js';
 import {
   notificationsRepository,
   type NotificationsRepository,
@@ -18,7 +19,10 @@ import type {
 } from './notifications.schemas.js';
 
 export class NotificationsService {
-  constructor(private readonly repository: NotificationsRepository = notificationsRepository) {}
+  constructor(
+    private readonly repository: NotificationsRepository = notificationsRepository,
+    private readonly bus: NotificationBus = notificationBus,
+  ) {}
 
   async listMine(userId: string, query: NotificationListQuery): Promise<NotificationListResponse> {
     const { items, total, unreadCount } = await this.repository.findPage(userId, query);
@@ -119,7 +123,7 @@ export class NotificationsService {
 
   async dispatch(input: CreateNotificationInput): Promise<NotificationItemDto> {
     const created = await this.repository.create(input);
-    return {
+    const dto: NotificationItemDto = {
       id: created._id.toString(),
       title: created.title,
       message: created.message,
@@ -131,6 +135,10 @@ export class NotificationsService {
       readAt: created.read_at ? new Date(created.read_at).toISOString() : null,
       createdAt: created.createdAt ? new Date(created.createdAt).toISOString() : new Date().toISOString(),
     };
+
+    this.bus.emitNotification(created.recipient_id.toString(), dto);
+
+    return dto;
   }
 
   async registerDeviceToken(userId: string, body: RegisterDeviceTokenBody): Promise<void> {
