@@ -281,7 +281,7 @@ export class AuthService {
         expiresAt: new Date(Date.now() + env.RESET_PASSWORD_TOKEN_WINDOW_SECONDS * TIME_MS.ONE_SECOND),
       });
 
-      const resetUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/reset-password?token=${rawToken}`;
+      const resetUrl = `${env.APP_BASE_URL.replace(/\/$/, '')}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
       await sendResetPasswordEmail(user.email, resetUrl);
     }
 
