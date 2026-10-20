@@ -10,6 +10,7 @@ import {
   notificationItemSchema,
   notificationListQuerySchema,
   notificationListResponseSchema,
+  notificationStreamQuerySchema,
   registerDeviceTokenBodySchema,
   unreadCountResponseSchema,
 } from './notifications.schemas.js';
@@ -37,6 +38,31 @@ export function registerNotificationsOpenApi(registry: OpenAPIRegistry): void {
         content: { 'application/json': { schema: registeredListResponse } },
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid query filters or pagination parameters' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/notifications/stream',
+    tags: ['Notifications'],
+    summary: 'Stream live notifications via Server-Sent Events',
+    description:
+      'Establishes a persistent Server-Sent Events (SSE) connection to receive real-time notifications. Supports both Authorization Bearer header and ?token= query parameter for native EventSource clients.',
+    security: [{ bearerAuth: [] }],
+    request: { query: notificationStreamQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Server-Sent Events stream initiated',
+        content: {
+          'text/event-stream': {
+            schema: {
+              type: 'string',
+              description: 'Stream of SSE events including "connected", "notification", and heartbeat ping comments',
+            },
+          },
+        },
+      },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
     },
   });
