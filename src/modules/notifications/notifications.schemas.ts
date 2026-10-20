@@ -4,6 +4,7 @@ import { objectIdSchema } from '../../shared/schemas/object-id.schemas.js';
 import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js';
 import {
   devicePlatforms,
+  NOTIFICATION_LIMITS,
   notificationCategories,
   notificationTypes,
 } from './notifications.constants.js';
@@ -66,18 +67,18 @@ export const deleteAllNotificationsResponseSchema = z.object({
 });
 
 export const registerDeviceTokenBodySchema = z.strictObject({
-  token: z.string().min(1).max(500),
+  token: z.string().min(1).max(NOTIFICATION_LIMITS.TOKEN_MAX),
   platform: z.enum(devicePlatforms),
 });
 
 export const deviceTokenParamSchema = z.strictObject({
-  token: z.string().min(1).max(500),
+  token: z.string().min(1).max(NOTIFICATION_LIMITS.TOKEN_MAX),
 });
 
 export const createNotificationInputSchema = z.object({
   recipientId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid recipient ID format'),
-  title: z.string().min(1).max(200),
-  message: z.string().min(1).max(2000),
+  title: z.string().min(1).max(NOTIFICATION_LIMITS.TITLE_MAX),
+  message: z.string().min(1).max(NOTIFICATION_LIMITS.MESSAGE_MAX),
   type: z.enum(notificationTypes),
   category: z.enum(notificationCategories).optional().default('info'),
   actionUrl: z.string().nullable().optional(),

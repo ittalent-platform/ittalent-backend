@@ -5,7 +5,16 @@ import type { NotificationsService } from '../../../src/modules/notifications/no
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 
 describe('NotificationsController', () => {
-  let mockService: Partial<NotificationsService>;
+  let mockService: {
+    listMine: ReturnType<typeof vi.fn>;
+    getUnreadCount: ReturnType<typeof vi.fn>;
+    markAllAsRead: ReturnType<typeof vi.fn>;
+    markOneAsRead: ReturnType<typeof vi.fn>;
+    deleteNotification: ReturnType<typeof vi.fn>;
+    deleteAllNotifications: ReturnType<typeof vi.fn>;
+    registerDeviceToken: ReturnType<typeof vi.fn>;
+    unregisterDeviceToken: ReturnType<typeof vi.fn>;
+  };
   let controller: NotificationsController;
 
   const userId = '507f1f77bcf86cd799439011';
@@ -22,20 +31,20 @@ describe('NotificationsController', () => {
       registerDeviceToken: vi.fn(),
       unregisterDeviceToken: vi.fn(),
     };
-    controller = new NotificationsController(mockService as NotificationsService);
+    controller = new NotificationsController(mockService as unknown as NotificationsService);
   });
 
   it('listMine delegates to service and returns 200 with JSON', async () => {
     const mockList = { items: [], unreadCount: 0, page: 1, limit: 20, total: 0, totalPages: 0 };
-    (mockService.listMine as any).mockResolvedValue(mockList);
+    mockService.listMine.mockResolvedValue(mockList);
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.listMine(
-      { user: { id: userId }, query: {} } as any,
-      { status, locals: { validated: { query: { page: 1, limit: 20 } } } } as any,
+      { user: { id: userId }, query: {} } as never,
+      { status, locals: { validated: { query: { page: 1, limit: 20 } } } } as never,
       next,
     );
 
@@ -46,15 +55,15 @@ describe('NotificationsController', () => {
   });
 
   it('getUnreadCount delegates to service and returns 200', async () => {
-    (mockService.getUnreadCount as any).mockResolvedValue({ unreadCount: 3 });
+    mockService.getUnreadCount.mockResolvedValue({ unreadCount: 3 });
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.getUnreadCount(
-      { user: { id: userId } } as any,
-      { status, locals: {} } as any,
+      { user: { id: userId } } as never,
+      { status, locals: {} } as never,
       next,
     );
 
@@ -65,15 +74,15 @@ describe('NotificationsController', () => {
 
   it('markAllAsRead delegates to service and returns 200', async () => {
     const mockRes = { updatedCount: 2, unreadCount: 0, message: 'All notifications marked as read' };
-    (mockService.markAllAsRead as any).mockResolvedValue(mockRes);
+    mockService.markAllAsRead.mockResolvedValue(mockRes);
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.markAllAsRead(
-      { user: { id: userId } } as any,
-      { status, locals: {} } as any,
+      { user: { id: userId } } as never,
+      { status, locals: {} } as never,
       next,
     );
 
@@ -84,15 +93,15 @@ describe('NotificationsController', () => {
 
   it('markOneAsRead delegates to service and returns 200', async () => {
     const mockItem = { id: notificationId, isRead: true };
-    (mockService.markOneAsRead as any).mockResolvedValue(mockItem);
+    mockService.markOneAsRead.mockResolvedValue(mockItem);
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.markOneAsRead(
-      { user: { id: userId }, params: { id: notificationId } } as any,
-      { status, locals: { validated: { params: { id: notificationId } } } } as any,
+      { user: { id: userId }, params: { id: notificationId } } as never,
+      { status, locals: { validated: { params: { id: notificationId } } } } as never,
       next,
     );
 
@@ -103,15 +112,15 @@ describe('NotificationsController', () => {
 
   it('deleteNotification delegates to service and returns 200', async () => {
     const mockRes = { success: true, message: 'Notification deleted successfully' };
-    (mockService.deleteNotification as any).mockResolvedValue(mockRes);
+    mockService.deleteNotification.mockResolvedValue(mockRes);
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.deleteNotification(
-      { user: { id: userId }, params: { id: notificationId } } as any,
-      { status, locals: { validated: { params: { id: notificationId } } } } as any,
+      { user: { id: userId }, params: { id: notificationId } } as never,
+      { status, locals: { validated: { params: { id: notificationId } } } } as never,
       next,
     );
 
@@ -122,15 +131,15 @@ describe('NotificationsController', () => {
 
   it('deleteAllNotifications delegates to service and returns 200', async () => {
     const mockRes = { deletedCount: 5, message: 'All notifications deleted successfully' };
-    (mockService.deleteAllNotifications as any).mockResolvedValue(mockRes);
+    mockService.deleteAllNotifications.mockResolvedValue(mockRes);
 
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
     const next = vi.fn();
 
     await controller.deleteAllNotifications(
-      { user: { id: userId } } as any,
-      { status, locals: {} } as any,
+      { user: { id: userId } } as never,
+      { status, locals: {} } as never,
       next,
     );
 
@@ -140,15 +149,15 @@ describe('NotificationsController', () => {
   });
 
   it('registerDeviceToken delegates to service and returns 204', async () => {
-    (mockService.registerDeviceToken as any).mockResolvedValue(undefined);
+    mockService.registerDeviceToken.mockResolvedValue(undefined);
 
     const send = vi.fn();
     const status = vi.fn().mockReturnValue({ send });
     const next = vi.fn();
 
     await controller.registerDeviceToken(
-      { user: { id: userId }, body: { token: 't1', platform: 'ios' } } as any,
-      { status, locals: { validated: { body: { token: 't1', platform: 'ios' } } } } as any,
+      { user: { id: userId }, body: { token: 't1', platform: 'ios' } } as never,
+      { status, locals: { validated: { body: { token: 't1', platform: 'ios' } } } } as never,
       next,
     );
 
@@ -158,15 +167,15 @@ describe('NotificationsController', () => {
   });
 
   it('unregisterDeviceToken delegates to service and returns 204', async () => {
-    (mockService.unregisterDeviceToken as any).mockResolvedValue(true);
+    mockService.unregisterDeviceToken.mockResolvedValue(true);
 
     const send = vi.fn();
     const status = vi.fn().mockReturnValue({ send });
     const next = vi.fn();
 
     await controller.unregisterDeviceToken(
-      { user: { id: userId }, params: { token: 't1' } } as any,
-      { status, locals: { validated: { params: { token: 't1' } } } } as any,
+      { user: { id: userId }, params: { token: 't1' } } as never,
+      { status, locals: { validated: { params: { token: 't1' } } } } as never,
       next,
     );
 
@@ -177,13 +186,13 @@ describe('NotificationsController', () => {
 
   it('forwards exceptions to next', async () => {
     const error = new Error('Database failure');
-    (mockService.listMine as any).mockRejectedValue(error);
+    mockService.listMine.mockRejectedValue(error);
 
     const next = vi.fn();
 
     await controller.listMine(
-      { user: { id: userId }, query: {} } as any,
-      { status: vi.fn(), locals: {} } as any,
+      { user: { id: userId }, query: {} } as never,
+      { status: vi.fn(), locals: {} } as never,
       next,
     );
 

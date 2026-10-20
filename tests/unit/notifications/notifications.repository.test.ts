@@ -29,14 +29,14 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
         limit: limitMock,
         lean: leanMock,
         exec: execFindMock,
-      } as any);
+      } as never);
 
       let countCall = 0;
       vi.spyOn(Notification, 'countDocuments').mockImplementation(() => {
         countCall += 1;
         return {
           exec: vi.fn().mockResolvedValue(countCall === 1 ? 10 : 2),
-        } as any;
+        } as never;
       });
 
       const result = await repo.findPage(userId, { page: 2, limit: 10, isRead: false });
@@ -60,7 +60,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
       const userId = new Types.ObjectId().toString();
       vi.spyOn(Notification, 'countDocuments').mockReturnValue({
         exec: vi.fn().mockResolvedValue(5),
-      } as any);
+      } as never);
 
       const count = await repo.countUnread(userId);
 
@@ -82,7 +82,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
       vi.spyOn(Notification, 'findOne').mockReturnValue({
         lean: vi.fn().mockReturnThis(),
         exec: vi.fn().mockResolvedValue(mockDoc),
-      } as any);
+      } as never);
 
       const result = await repo.findByIdAndUser(userId, notificationId);
 
@@ -102,7 +102,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
 
       vi.spyOn(Notification, 'updateOne').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
-      } as any);
+      } as never);
 
       const success = await repo.markOneAsRead(userId, notificationId);
 
@@ -129,7 +129,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
 
       vi.spyOn(Notification, 'updateMany').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ modifiedCount: 4 }),
-      } as any);
+      } as never);
 
       const count = await repo.markAllAsRead(userId);
 
@@ -157,7 +157,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
 
       vi.spyOn(Notification, 'updateOne').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
-      } as any);
+      } as never);
 
       const success = await repo.softDeleteOne(userId, notificationId);
 
@@ -183,7 +183,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
 
       vi.spyOn(Notification, 'updateMany').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ modifiedCount: 8 }),
-      } as any);
+      } as never);
 
       const count = await repo.softDeleteAll(userId);
 
@@ -207,7 +207,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
       const userId = new Types.ObjectId().toString();
       vi.spyOn(DeviceToken, 'updateOne').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
-      } as any);
+      } as never);
 
       await repo.upsertDeviceToken(userId, 'fcm-token-123', 'android');
 
@@ -228,7 +228,7 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
       const userId = new Types.ObjectId().toString();
       vi.spyOn(DeviceToken, 'deleteOne').mockReturnValue({
         exec: vi.fn().mockResolvedValue({ deletedCount: 1 }),
-      } as any);
+      } as never);
 
       const deleted = await repo.deleteDeviceToken(userId, 'fcm-token-123');
       expect(deleted).toBe(true);

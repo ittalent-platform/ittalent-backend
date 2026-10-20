@@ -15,3 +15,9 @@ export const NOTIFICATION_MESSAGES = {
 } as const;
 
 export const SSE_HEARTBEAT_INTERVAL_MS = 25_000;
+
+export const NOTIFICATION_LIMITS = {
+  TITLE_MAX: 200,
+  MESSAGE_MAX: 2000,
+  TOKEN_MAX: 500,
+} as const;

@@ -8,7 +8,19 @@ import type { NotificationsRepository } from '../../../src/modules/notifications
 import { NotificationsService } from '../../../src/modules/notifications/notifications.service.js';
 
 describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
-  let mockRepository: Partial<NotificationsRepository>;
+  let mockRepository: {
+    findPage: ReturnType<typeof vi.fn>;
+    countUnread: ReturnType<typeof vi.fn>;
+    findByIdAndUser: ReturnType<typeof vi.fn>;
+    markOneAsRead: ReturnType<typeof vi.fn>;
+    markAllAsRead: ReturnType<typeof vi.fn>;
+    softDeleteOne: ReturnType<typeof vi.fn>;
+    softDeleteAll: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+    upsertDeviceToken: ReturnType<typeof vi.fn>;
+    deleteDeviceToken: ReturnType<typeof vi.fn>;
+    findDeviceTokensByUser: ReturnType<typeof vi.fn>;
+  };
   let service: NotificationsService;
   const userId = new Types.ObjectId().toString();
 
@@ -24,8 +36,9 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
       create: vi.fn(),
       upsertDeviceToken: vi.fn(),
       deleteDeviceToken: vi.fn(),
+      findDeviceTokensByUser: vi.fn(),
     };
-    service = new NotificationsService(mockRepository as NotificationsRepository);
+    service = new NotificationsService(mockRepository as unknown as NotificationsRepository);
   });
 
   describe('listMine (UC-S2-NOTI-01)', () => {
@@ -33,7 +46,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
       const mockDocId = new Types.ObjectId();
       const createdAt = new Date('2026-05-22T10:00:00.000Z');
 
-      (mockRepository.findPage as any).mockResolvedValue({
+      mockRepository.findPage.mockResolvedValue({
         items: [
           {
             _id: mockDocId,
@@ -74,7 +87,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
     });
 
     it('handles empty inbox gracefully (AC.1)', async () => {
-      (mockRepository.findPage as any).mockResolvedValue({
+      mockRepository.findPage.mockResolvedValue({
         items: [],
         total: 0,
         unreadCount: 0,
@@ -91,7 +104,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
   describe('getUnreadCount', () => {
     it('retrieves unread badge count', async () => {
-      (mockRepository.countUnread as any).mockResolvedValue(4);
+      mockRepository.countUnread.mockResolvedValue(4);
 
       const result = await service.getUnreadCount(userId);
 
@@ -102,7 +115,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
   describe('markAllAsRead (UC-S2-NOTI-02)', () => {
     it('marks all active notifications as read and resets unread count', async () => {
-      (mockRepository.markAllAsRead as any).mockResolvedValue(5);
+      mockRepository.markAllAsRead.mockResolvedValue(5);
 
       const response = await service.markAllAsRead(userId);
 
@@ -113,7 +126,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
     });
 
     it('returns empty message when no notifications needed updating (AC.1)', async () => {
-      (mockRepository.markAllAsRead as any).mockResolvedValue(0);
+      mockRepository.markAllAsRead.mockResolvedValue(0);
 
       const response = await service.markAllAsRead(userId);
 
@@ -136,8 +149,8 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
         createdAt: new Date(),
       };
 
-      (mockRepository.findByIdAndUser as any).mockResolvedValue(mockDoc);
-      (mockRepository.markOneAsRead as any).mockResolvedValue(true);
+      mockRepository.findByIdAndUser.mockResolvedValue(mockDoc);
+      mockRepository.markOneAsRead.mockResolvedValue(true);
 
       const result = await service.markOneAsRead(userId, notiId);
 
@@ -149,7 +162,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
     it('throws 404 when notification does not exist or belongs to another user (BR-23)', async () => {
       const notiId = new Types.ObjectId().toString();
-      (mockRepository.findByIdAndUser as any).mockResolvedValue(null);
+      mockRepository.findByIdAndUser.mockResolvedValue(null);
 
       await expect(service.markOneAsRead(userId, notiId)).rejects.toMatchObject({
         statusCode: HTTP_STATUS.HTTP_404_NOT_FOUND,
@@ -161,8 +174,8 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
   describe('deleteNotification (UC-S2-NOTI-03)', () => {
     it('soft deletes notification when user owns it', async () => {
       const notiId = new Types.ObjectId().toString();
-      (mockRepository.findByIdAndUser as any).mockResolvedValue({ _id: notiId });
-      (mockRepository.softDeleteOne as any).mockResolvedValue(true);
+      mockRepository.findByIdAndUser.mockResolvedValue({ _id: notiId });
+      mockRepository.softDeleteOne.mockResolvedValue(true);
 
       const response = await service.deleteNotification(userId, notiId);
 
@@ -174,7 +187,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
     it('throws 404 when trying to delete notification of another user (BR-23)', async () => {
       const notiId = new Types.ObjectId().toString();
-      (mockRepository.findByIdAndUser as any).mockResolvedValue(null);
+      mockRepository.findByIdAndUser.mockResolvedValue(null);
 
       await expect(service.deleteNotification(userId, notiId)).rejects.toMatchObject({
         statusCode: HTTP_STATUS.HTTP_404_NOT_FOUND,
@@ -185,7 +198,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
   describe('deleteAllNotifications (UC-S2-NOTI-04)', () => {
     it('soft deletes all active notifications for the user', async () => {
-      (mockRepository.softDeleteAll as any).mockResolvedValue(3);
+      mockRepository.softDeleteAll.mockResolvedValue(3);
 
       const response = await service.deleteAllNotifications(userId);
 
@@ -195,7 +208,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
     });
 
     it('handles already empty inbox gracefully (AC.2)', async () => {
-      (mockRepository.softDeleteAll as any).mockResolvedValue(0);
+      mockRepository.softDeleteAll.mockResolvedValue(0);
 
       const response = await service.deleteAllNotifications(userId);
 
@@ -209,7 +222,7 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
       const docId = new Types.ObjectId();
       const createdAt = new Date();
 
-      (mockRepository.create as any).mockResolvedValue({
+      mockRepository.create.mockResolvedValue({
         _id: docId,
         title: 'Status changed',
         message: 'Under review',

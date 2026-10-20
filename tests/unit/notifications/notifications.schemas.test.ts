@@ -53,7 +53,7 @@ describe('Notifications schemas', () => {
       const valid = notificationListQuerySchema.safeParse({ type: 'interview_scheduled' });
       expect(valid.success).toBe(true);
 
-      const invalid = notificationListQuerySchema.safeParse({ type: 'unknown_type' as any });
+      const invalid = notificationListQuerySchema.safeParse({ type: 'unknown_type' as never });
       expect(invalid.success).toBe(false);
     });
   });
@@ -94,7 +94,7 @@ describe('Notifications schemas', () => {
     it('rejects invalid platform', () => {
       const result = registerDeviceTokenBodySchema.safeParse({
         token: 'sample-token-value',
-        platform: 'windows' as any,
+        platform: 'windows' as never,
       });
       expect(result.success).toBe(false);
     });

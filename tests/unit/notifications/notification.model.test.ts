@@ -47,11 +47,11 @@ describe('Notification and DeviceToken models', () => {
 
     it('fails validation when required fields are missing', async () => {
       const doc = new Notification({});
-      let error: any;
+      let error: { errors: Record<string, unknown> } | undefined;
       try {
         await doc.validate();
       } catch (err) {
-        error = err;
+        error = err as { errors: Record<string, unknown> };
       }
       expect(error).toBeDefined();
       expect(error?.errors.recipient_id).toBeDefined();
@@ -65,13 +65,13 @@ describe('Notification and DeviceToken models', () => {
         recipient_id: new Types.ObjectId(),
         title: 'Test',
         message: 'Test message',
-        type: 'invalid_type' as any,
+        type: 'invalid_type' as never,
       });
-      let error: any;
+      let error: { errors: Record<string, unknown> } | undefined;
       try {
         await doc.validate();
       } catch (err) {
-        error = err;
+        error = err as { errors: Record<string, unknown> };
       }
       expect(error).toBeDefined();
       expect(error?.errors.type).toBeDefined();
@@ -99,11 +99,11 @@ describe('Notification and DeviceToken models', () => {
 
     it('fails validation when required fields are missing', async () => {
       const doc = new DeviceToken({});
-      let error: any;
+      let error: { errors: Record<string, unknown> } | undefined;
       try {
         await doc.validate();
       } catch (err) {
-        error = err;
+        error = err as { errors: Record<string, unknown> };
       }
       expect(error).toBeDefined();
       expect(error?.errors.user_id).toBeDefined();
