@@ -93,4 +93,5 @@ export type MarkAllReadResponse = z.infer<typeof markAllReadResponseSchema>;
 export type DeleteNotificationResponse = z.infer<typeof deleteNotificationResponseSchema>;
 export type DeleteAllNotificationsResponse = z.infer<typeof deleteAllNotificationsResponseSchema>;
 export type RegisterDeviceTokenBody = z.infer<typeof registerDeviceTokenBodySchema>;
+export type DeviceTokenParam = z.infer<typeof deviceTokenParamSchema>;
 export type CreateNotificationInput = z.input<typeof createNotificationInputSchema>;
