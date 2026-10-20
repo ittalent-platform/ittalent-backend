@@ -111,6 +111,26 @@ export class AuthController {
         params.set('code', code);
       }
 
+      // If client explicitly requests JSON (API client / mobile app)
+      const acceptHeader = req.headers?.accept ?? '';
+      const isJsonPreferred =
+        typeof req.accepts === 'function' &&
+        Boolean(req.accepts('json')) &&
+        (acceptHeader.includes('application/json') || req.xhr || !acceptHeader.includes('text/html'));
+
+      if (isJsonPreferred) {
+        const isSuccess = stage === 'success' || stage === 'already-verified';
+        res.status(HTTP_STATUS.HTTP_200_OK).json({
+          success: isSuccess,
+          stage,
+          code,
+          message: isSuccess
+            ? 'Email verified successfully'
+            : (code ?? 'Email verification failed'),
+        });
+        return;
+      }
+
       const redirectUrl = getEmailVerificationRedirectUrl(params.toString());
       res.redirect(HTTP_STATUS.HTTP_302_FOUND, redirectUrl);
     } catch (error) {
