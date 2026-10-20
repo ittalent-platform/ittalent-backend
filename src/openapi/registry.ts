@@ -11,6 +11,7 @@ import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.o
 import { registerEnterpriseRegistrationsOpenApi } from '../modules/enterprise-registrations/enterprise-registrations.openapi.js';
 import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
 import { registerInterviewsOpenApi } from '../modules/interviews/interviews.openapi.js';
+import { registerNotificationsOpenApi } from '../modules/notifications/notifications.openapi.js';
 import { registerJobPostingsOpenApi } from '../modules/job-postings/job-postings.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 import { registerUserInvitationsOpenApi } from '../modules/user-invitations/user-invitations.openapi.js';
@@ -39,3 +40,4 @@ registerApplicationsOpenApi(registry);
 registerCertificateLinksOpenApi(registry);
 registerRecruiterApplicationsOpenApi(registry);
 registerInterviewsOpenApi(registry);
+registerNotificationsOpenApi(registry);
