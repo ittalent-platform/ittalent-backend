@@ -319,6 +319,28 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     });
   });
 
+  // The recruiter screens only hide Invite / Edit / Status for recruiters; the API is what refuses them (web PR #53, review point 5).
+  describe('recruiter write attempts', () => {
+    it('refuses a recruiter who invites, edits a colleague or changes a status, and leaves the colleague untouched', async () => {
+      const enterprise_id = new Types.ObjectId();
+      const actorId = await seed(`${marker}-rw-actor`, { role: 'recruiter', enterprise_id, email_verified: true });
+      const colleagueId = await seed(`${marker}-rw-colleague`, { role: 'recruiter', enterprise_id, email_verified: true, full_name: 'Colleague Name' });
+      const token = sign('recruiter', String(actorId));
+      const call = async (method: string, path: string, body: unknown) => (await fetch(`${baseUrl}/api/v1/users${path}`, {
+        method,
+        headers: { 'content-type': 'application/json', ...auth(token) },
+        body: JSON.stringify(body),
+      })).status;
+
+      expect(await call('POST', '', { fullName: 'New Recruiter', email: `${marker}-rw-new@example.test`, role: 'recruiter' })).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+      expect(await call('PATCH', `/${colleagueId}`, { fullName: 'Hacked Name', expectedVersion: 0 })).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+      expect(await call('PATCH', `/${colleagueId}/status`, { status: 'suspended', reason: 'Not allowed to do this', expectedVersion: 0 })).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+
+      expect(await User.findById(colleagueId)).toMatchObject({ full_name: 'Colleague Name', status: 'active' });
+      expect(await User.countDocuments({ email: `${marker}-rw-new@example.test` })).toBe(0);
+    });
+  });
+
   describe('edit', () => {
     it('updates fullName and phone through the administrator PATCH endpoint', async () => {
       const current = await User.findById(oldest).lean();
