@@ -26,7 +26,7 @@ function isPrivateIpv6(hostname: string): boolean {
     || /^fe[89ab]/.test(address) || address.startsWith('ff') || address.startsWith('::ffff:');
 }
 
-function isSafeExternalUrl(value: string): boolean {
+export function isSafeExternalUrl(value: string): boolean {
   try {
     const url = new URL(value);
     if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return false;
