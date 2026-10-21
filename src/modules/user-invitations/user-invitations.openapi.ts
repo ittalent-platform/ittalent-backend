@@ -31,8 +31,8 @@ export function registerUserInvitationsOpenApi(registry: OpenAPIRegistry): void 
     deliveryStatus: z.enum(['sent', 'failed']),
     expiresAt: z.string().datetime(),
   }));
-  const createBody = registry.register('CreateAdminUserRequest', createAdminUserBodySchema);
-  const createResult = registry.register('CreateAdminUserResponse', z.object({
+  registry.register('CreateAdminUserRequest', createAdminUserBodySchema);
+  registry.register('CreateAdminUserResponse', z.object({
     user: userDtoSchema,
     invitation: z.object({ expiresAt: z.string().datetime(), deliveryStatus: z.enum(['sent', 'failed']) }),
   }));
@@ -40,15 +40,27 @@ export function registerUserInvitationsOpenApi(registry: OpenAPIRegistry): void 
   const previewQuery = registry.register('InvitationPreviewQuery', invitationPreviewQuerySchema);
   const cancelBody = registry.register('CancelInvitationRequest', cancelInvitationBodySchema);
 
+  // One operation for both callers (the document keeps a single operation per path and method):
+  // a System Administrator invites any role (CreateAdminUserRequest); an Enterprise Administrator
+  // provisions a recruiter in their own company (CreateEmployeeRequest, UC-10).
   registry.registerPath({
-    method: 'post', path: '/api/v1/users', tags: ['Users'], summary: 'Create a Candidate, HR or Enterprise Administrator account and send an invitation',
+    method: 'post', path: '/api/v1/users', tags: ['Users', 'Employees'], summary: 'Create an account',
+    description: 'System Administrators create a Candidate, HR or Enterprise Administrator account and send an invitation. Enterprise Administrators create a recruiter account under their own company.',
     security: [{ bearerAuth: [] }],
-    request: { body: { required: true, content: { 'application/json': { schema: createBody } } } },
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: { oneOf: [{ $ref: '#/components/schemas/CreateAdminUserRequest' }, { $ref: '#/components/schemas/CreateEmployeeRequest' }] } } },
+      },
+    },
     responses: {
-      [HTTP_STATUS.HTTP_201_CREATED]: { description: 'Account created; invitation delivery status may be sent or failed', content: { 'application/json': { schema: createResult } } },
+      [HTTP_STATUS.HTTP_201_CREATED]: {
+        description: 'Account created. A System Administrator gets the invitation result (delivery status may be sent or failed); an Enterprise Administrator gets the new user',
+        content: { 'application/json': { schema: { oneOf: [{ $ref: '#/components/schemas/CreateAdminUserResponse' }, { $ref: '#/components/schemas/UserDTO' }] } } },
+      },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid role, user fields, or company context' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
-      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator or Enterprise Administrator required' },
       [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Email or username conflict, enterprise unavailable, or enterprise onboarding pending' },
       [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Account storage unavailable' },
     },

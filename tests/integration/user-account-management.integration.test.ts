@@ -305,6 +305,13 @@ describe('System administrator account management full flows', () => {
     expect(employeeList.status).toBe(HTTP_STATUS.HTTP_200_OK);
     const listed = (employeeList.body as { items: Array<{ enterpriseId: string | null }> }).items;
     expect(listed.every((entry) => entry.enterpriseId === String(enterpriseId))).toBe(true);
+    // They can read and edit their own account even though they are not a recruiter.
+    const authHeaders = { authorization: `Bearer ${access}`, 'content-type': 'application/json' };
+    const ownAccount = await request(`/users/${id}`, { headers: authHeaders });
+    expect(ownAccount.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect((await request(`/users/${id}/history`, { headers: authHeaders })).status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const renamed = await request(`/users/${id}`, { method: 'PATCH', headers: authHeaders, body: JSON.stringify({ fullName: 'Ent Admin Renamed', expectedVersion: (ownAccount.body as { version?: number }).version ?? 0 }) });
+    expect(renamed.status).toBe(HTTP_STATUS.HTTP_200_OK);
     const foreign = new Types.ObjectId();
     const tampered = await request(`/recruiter/job-postings?enterprise_id=${foreign}`, { headers: { authorization: `Bearer ${access}` } });
     expect(tampered.status).toBe(HTTP_STATUS.HTTP_200_OK);

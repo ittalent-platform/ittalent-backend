@@ -140,6 +140,15 @@ describe('Applications schemas', () => {
       expect(withdrawApplicationBodySchema.safeParse({ expectedVersion: 0, reason: 'enough' }).success).toBe(true);
     });
 
+    it('treats a blank reason as no reason instead of a too-short one', () => {
+      for (const reason of ['', '   ']) {
+        const parsed = withdrawApplicationBodySchema.safeParse({ expectedVersion: 0, reason });
+        expect(parsed.success).toBe(true);
+        expect(parsed.success && parsed.data.reason).toBeUndefined();
+      }
+      expect(withdrawApplicationBodySchema.safeParse({ expectedVersion: 0, reason: '  hello  ' }).data?.reason).toBe('hello');
+    });
+
     it('rejects reason over max length', () => {
       expect(
         withdrawApplicationBodySchema.safeParse({
