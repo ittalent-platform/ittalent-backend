@@ -1,11 +1,15 @@
 import { Router } from 'express';
 
 import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { validateParams, validateQuery } from '../../middleware/validate.js';
+import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { RECRUITER_ROLES } from './applications.constants.js';
 import { applicationIdParamSchema } from './applications.schemas.js';
 import { recruiterApplicationsController } from './recruiter-applications.controller.js';
-import { recruiterApplicationListQueryValidator } from './recruiter-applications.schemas.js';
+import {
+  createRecruiterNoteBodySchema,
+  recruiterApplicationListQueryValidator,
+  updateRecruiterApplicationStatusBodySchema,
+} from './recruiter-applications.schemas.js';
 
 export const recruiterApplicationsRouter = Router();
 
@@ -34,5 +38,42 @@ recruiterApplicationsRouter.get(
   authorize(...RECRUITER_ROLES),
   validateParams(applicationIdParamSchema),
   recruiterApplicationsController.downloadCv,
+);
+
+// UC-S2-AA-03: Add recruiter internal note to application
+recruiterApplicationsRouter.post(
+  '/recruiter/applications/:id/notes',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  validateBody(createRecruiterNoteBodySchema),
+  recruiterApplicationsController.addNote,
+);
+
+// UC-S2-AA-03: List recruiter internal notes for application
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id/notes',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.listNotes,
+);
+// UC-S2-AA-03: Update recruiter application status workflow (BR-17, BR-18, BR-24, BR-37)
+recruiterApplicationsRouter.patch(
+  '/recruiter/applications/:id/status',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  validateBody(updateRecruiterApplicationStatusBodySchema),
+  recruiterApplicationsController.updateStatus,
+);
+
+// UC-S2-AA-07: Enterprise recruiter candidate cross-job company application history
+recruiterApplicationsRouter.get(
+  '/recruiter/applications/:id/company-history',
+  authenticate,
+  authorize(...RECRUITER_ROLES),
+  validateParams(applicationIdParamSchema),
+  recruiterApplicationsController.getCompanyHistory,
 );
 

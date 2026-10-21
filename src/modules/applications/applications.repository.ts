@@ -5,6 +5,7 @@ import {
   type ApplicationCertificateSnapshot,
   type ApplicationData,
   type ApplicationDoc,
+  type ApplicationNoteEntry,
   type ApplicationStatus,
   type ApplicationStatusHistoryEntry,
 } from '../../models/application.model.js';
@@ -57,6 +58,15 @@ export interface FindRecruiterApplicationsPageParams {
   sortBy: ApplicationSortField;
   sortOrder: ApplicationSortOrder;
   filters: RecruiterApplicationListFilters;
+}
+
+export interface UpdateRecruiterStatusData {
+  status: ApplicationStatus;
+  changedBy: string | Types.ObjectId;
+  actorRole?: string | undefined;
+  note?: string | undefined;
+  messageToCandidate?: string | undefined;
+  rejectionReason?: string | undefined;
 }
 
 export interface SubmitApplicationData {
@@ -365,6 +375,178 @@ export class ApplicationsRepository {
       job_id: { $in: jobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
     })
       .lean<ApplicationDoc>()
+      .exec();
+  }
+
+  // Atomically appends an internal recruiter note scoped strictly to enterprise job postings (BR-06).
+  async addNoteToApplication(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+    noteData: {
+      authorId: string | Types.ObjectId;
+      authorName: string;
+      content: string;
+    },
+  ): Promise<ApplicationNoteEntry | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const noteEntry: ApplicationNoteEntry = {
+      author_id: new Types.ObjectId(noteData.authorId),
+      author_name: noteData.authorName,
+      content: noteData.content,
+      created_at: new Date(),
+    };
+
+    const updated = await Application.findOneAndUpdate(
+      {
+        _id: new Types.ObjectId(applicationId),
+        job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+      },
+      {
+        $push: { notes: noteEntry },
+      },
+      { returnDocument: 'after' },
+    )
+      .lean<ApplicationDoc>()
+      .exec();
+
+    if (!updated) {
+      return null;
+    }
+
+    return noteEntry;
+  }
+
+  // Retrieves notes array for an application strictly within the enterprise boundary (BR-06).
+  async findNotesByApplicationId(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationNoteEntry[] | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const application = await Application.findOne(
+      {
+        _id: new Types.ObjectId(applicationId),
+        job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+      },
+      { notes: 1 },
+    )
+      .lean<Pick<ApplicationDoc, '_id' | 'notes'>>()
+      .exec();
+
+    if (!application) {
+      return null;
+    }
+
+    return application.notes ?? [];
+  }
+
+  // Atomically updates application recruitment status and appends audit record (BR-17, BR-24)
+  async updateStatusAtomically(
+    applicationId: string | Types.ObjectId,
+    enterpriseJobIds: (string | Types.ObjectId)[],
+    data: UpdateRecruiterStatusData,
+    expectedVersion?: number,
+  ): Promise<ApplicationDoc | null> {
+    if (enterpriseJobIds.length === 0 || !Types.ObjectId.isValid(applicationId)) {
+      return null;
+    }
+
+    const filter: Record<string, unknown> = {
+      _id: new Types.ObjectId(applicationId),
+      job_id: { $in: enterpriseJobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    };
+
+    if (typeof expectedVersion === 'number') {
+      filter.$expr = { $eq: [{ $size: '$status_history' }, expectedVersion] };
+    }
+
+    const historyEntry: ApplicationStatusHistoryEntry = {
+      status: data.status,
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(data.changedBy),
+      actor_role: data.actorRole ?? 'recruiter',
+      ...(data.note ? { note: data.note } : {}),
+      ...(data.messageToCandidate ? { message_to_candidate: data.messageToCandidate } : {}),
+      ...(data.rejectionReason ? { rejection_reason: data.rejectionReason } : {}),
+    };
+
+    const update: Record<string, unknown> = {
+      $set: {
+        status: data.status,
+        ...(data.rejectionReason ? { rejection_reason: data.rejectionReason } : {}),
+      },
+      $push: { status_history: historyEntry },
+    };
+
+    return Application.findOneAndUpdate(filter, update, { returnDocument: 'after' })
+      .lean<ApplicationDoc>()
+      .exec();
+  }
+
+  // Counts currently hired applications for a specific job posting (BR-18, EX5)
+  async countHiredApplications(jobId: string | Types.ObjectId): Promise<number> {
+    if (!Types.ObjectId.isValid(jobId)) {
+      return 0;
+    }
+    return Application.countDocuments({
+      job_id: new Types.ObjectId(jobId),
+      status: 'hired',
+    }).exec();
+  }
+
+  // Cascades position_filled status to remaining active applications when openings are filled (BR-18)
+  async cascadePositionFilled(
+    jobId: string | Types.ObjectId,
+    excludedApplicationId: string | Types.ObjectId,
+    changedBy: string | Types.ObjectId = '000000000000000000000000',
+  ): Promise<number> {
+    if (!Types.ObjectId.isValid(jobId) || !Types.ObjectId.isValid(changedBy)) {
+      return 0;
+    }
+
+    const historyEntry: ApplicationStatusHistoryEntry = {
+      status: 'position_filled',
+      changed_at: new Date(),
+      changed_by: new Types.ObjectId(changedBy),
+      actor_role: 'system',
+      note: 'Position filled by another candidate',
+    };
+
+    const result = await Application.updateMany(
+      {
+        job_id: new Types.ObjectId(jobId),
+        _id: { $ne: new Types.ObjectId(excludedApplicationId) },
+        status: { $in: ['submitted', 'under_review', 'interviewing', 'offered'] },
+      },
+      {
+        $set: { status: 'position_filled' },
+        $push: { status_history: historyEntry },
+      },
+    ).exec();
+
+    return result.modifiedCount;
+  }
+
+  // Finds all applications submitted by an applicant strictly within the company's job postings (UC-S2-AA-07, BR-06).
+  async findApplicantSubmissionsByJobIds(
+    applicantId: string | Types.ObjectId,
+    jobIds: (string | Types.ObjectId)[],
+  ): Promise<ApplicationDoc[]> {
+    if (jobIds.length === 0 || !Types.ObjectId.isValid(applicantId)) {
+      return [];
+    }
+
+    return Application.find({
+      applicant_id: new Types.ObjectId(applicantId),
+      job_id: { $in: jobIds.map((id) => (typeof id === 'string' ? new Types.ObjectId(id) : id)) },
+    })
+      .sort({ createdAt: -1 })
+      .lean<ApplicationDoc[]>()
       .exec();
   }
 }

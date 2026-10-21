@@ -10,6 +10,7 @@ import { enterpriseRegistrationsRouter } from './enterprise-registrations/index.
 import { enterprisesRouter } from './enterprises/index.js';
 import { healthRouter } from './health/index.js';
 import { interviewsRouter } from './interviews/index.js';
+import { notificationsRouter } from './notifications/index.js';
 import { jobPostingsRouter } from './job-postings/index.js';
 import { usersRouter } from './users/index.js';
 import { userInvitationsRouter } from './user-invitations/user-invitations.routes.js';
@@ -31,6 +32,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use(certificateLinksRouter);
   apiV1Router.use(recruiterApplicationsRouter);
   apiV1Router.use('/interviews', interviewsRouter);
+  apiV1Router.use('/notifications', notificationsRouter);
 
   app.use(healthRouter);
   app.use('/api/v1', apiV1Router);

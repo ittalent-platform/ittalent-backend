@@ -8,7 +8,16 @@ import {
   recruiterApplicationListResponseSchema,
   recruiterApplicationDetailDtoSchema,
   recruiterApplicationCvMetadataDtoSchema,
+  createRecruiterNoteBodySchema,
+  recruiterNotesListResponseSchema,
+  updateRecruiterApplicationStatusBodySchema,
+  recruiterCompanyApplicationHistoryItemDtoSchema,
+  recruiterApplicantCompanyHistoryResponseSchema,
 } from '../../../src/modules/applications/recruiter-applications.schemas.js';
+import {
+  isPermittedRecruiterTransition,
+  RECRUITER_PERMITTED_TRANSITIONS,
+} from '../../../src/modules/applications/applications.constants.js';
 
 describe('Recruiter Applications Schemas (PR 2)', () => {
   describe('parseRecruiterStatusFilter', () => {
@@ -321,5 +330,259 @@ describe('Recruiter Applications Schemas (PR 2)', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('createRecruiterNoteBodySchema (PR 4)', () => {
+    it('parses valid note content and trims whitespace', () => {
+      const parsed = createRecruiterNoteBodySchema.parse({
+        content: '  Strong candidate for backend team.  ',
+      });
+      expect(parsed.content).toBe('Strong candidate for backend team.');
+    });
+
+    it('rejects empty or whitespace-only content', () => {
+      const emptyResult = createRecruiterNoteBodySchema.safeParse({ content: '' });
+      expect(emptyResult.success).toBe(false);
+
+      const whitespaceResult = createRecruiterNoteBodySchema.safeParse({ content: '   ' });
+      expect(whitespaceResult.success).toBe(false);
+    });
+
+    it('rejects note content exceeding maximum length', () => {
+      const tooLong = createRecruiterNoteBodySchema.safeParse({
+        content: 'a'.repeat(2001),
+      });
+      expect(tooLong.success).toBe(false);
+    });
+
+    it('rejects unrecognized properties due to strictObject', () => {
+      const extraProps = createRecruiterNoteBodySchema.safeParse({
+        content: 'Valid note content',
+        authorName: 'Sneaky Author',
+      });
+      expect(extraProps.success).toBe(false);
+    });
+  });
+
+  describe('recruiterNotesListResponseSchema (PR 4)', () => {
+    it('validates list response with items array and total count', () => {
+      const response = {
+        items: [
+          {
+            authorId: '507f1f77bcf86cd799439017',
+            authorName: 'Recruiter Lead',
+            content: 'Great cultural fit.',
+            createdAt: '2026-10-13T07:00:00.000Z',
+          },
+        ],
+        total: 1,
+      };
+
+      const parsed = recruiterNotesListResponseSchema.parse(response);
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.total).toBe(1);
+      expect(parsed.items[0]?.authorName).toBe('Recruiter Lead');
+    });
+
+    it('validates empty notes list response', () => {
+      const parsed = recruiterNotesListResponseSchema.parse({
+        items: [],
+        total: 0,
+      });
+      expect(parsed.items).toEqual([]);
+      expect(parsed.total).toBe(0);
+    });
+  });
+
+  describe('isPermittedRecruiterTransition (PR 5: BR-17)', () => {
+    it('allows valid progressive transitions', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'under_review')).toBe(true);
+      expect(isPermittedRecruiterTransition('under_review', 'interviewing')).toBe(true);
+      expect(isPermittedRecruiterTransition('interviewing', 'offered')).toBe(true);
+      expect(isPermittedRecruiterTransition('offered', 'hired')).toBe(true);
+    });
+
+    it('allows rejection from any active non-terminal status', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('under_review', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('interviewing', 'rejected')).toBe(true);
+      expect(isPermittedRecruiterTransition('offered', 'rejected')).toBe(true);
+    });
+
+    it('disallows skipping stages or backward transitions', () => {
+      expect(isPermittedRecruiterTransition('submitted', 'interviewing')).toBe(false);
+      expect(isPermittedRecruiterTransition('submitted', 'hired')).toBe(false);
+      expect(isPermittedRecruiterTransition('interviewing', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('offered', 'interviewing')).toBe(false);
+    });
+
+    it('disallows any transitions from terminal states', () => {
+      expect(isPermittedRecruiterTransition('hired', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('rejected', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('withdrawn', 'under_review')).toBe(false);
+      expect(isPermittedRecruiterTransition('position_filled', 'under_review')).toBe(false);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.hired).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.rejected).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.withdrawn).toEqual([]);
+      expect(RECRUITER_PERMITTED_TRANSITIONS.position_filled).toEqual([]);
+    });
+  });
+
+  describe('updateRecruiterApplicationStatusBodySchema (PR 5)', () => {
+    it('parses valid status update request with minimal fields', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'under_review',
+      });
+      expect(parsed.status).toBe('under_review');
+      expect(parsed.note).toBeUndefined();
+    });
+
+    it('parses valid status update with note, candidate message, and expectedVersion', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'interviewing',
+        note: 'Candidate cleared phone screening.',
+        messageToCandidate: 'Congratulations! We would like to invite you for an interview.',
+        expectedVersion: 2,
+      });
+      expect(parsed.status).toBe('interviewing');
+      expect(parsed.note).toBe('Candidate cleared phone screening.');
+      expect(parsed.messageToCandidate).toBe(
+        'Congratulations! We would like to invite you for an interview.',
+      );
+      expect(parsed.expectedVersion).toBe(2);
+    });
+
+    it('parses valid status update to rejected with rejectionReason', () => {
+      const parsed = updateRecruiterApplicationStatusBodySchema.parse({
+        status: 'rejected',
+        rejectionReason: 'Candidate does not meet minimum technical experience requirements.',
+      });
+      expect(parsed.status).toBe('rejected');
+      expect(parsed.rejectionReason).toBe(
+        'Candidate does not meet minimum technical experience requirements.',
+      );
+    });
+
+    it('rejects status values that recruiters cannot manually set', () => {
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'submitted' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'withdrawn' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'position_filled' }).success,
+      ).toBe(false);
+      expect(
+        updateRecruiterApplicationStatusBodySchema.safeParse({ status: 'invalid_status' }).success,
+      ).toBe(false);
+    });
+
+    it('rejects rejectionReason shorter than minimum length', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'rejected',
+        rejectionReason: 'Nope', // only 4 chars, min is 5
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects note exceeding maximum length', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'under_review',
+        note: 'x'.repeat(2001),
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects unrecognized extra fields', () => {
+      const result = updateRecruiterApplicationStatusBodySchema.safeParse({
+        status: 'under_review',
+        unknownField: 'test',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('recruiterCompanyApplicationHistoryItemDtoSchema & recruiterApplicantCompanyHistoryResponseSchema (PR 6)', () => {
+    const validItem = {
+      id: '507f1f77bcf86cd799439011',
+      job: {
+        id: '507f1f77bcf86cd799439012',
+        title: 'Senior Backend Engineer',
+        location: 'Hà Nội',
+        employmentType: 'Full-time',
+        status: 'published',
+      },
+      status: 'under_review' as const,
+      reviewStage: 'screening' as const,
+      submittedDocuments: ['cv' as const],
+      rejectionReason: null,
+      withdrawalReason: null,
+      notesCount: 2,
+      submittedAt: '2026-10-10T10:00:00.000Z',
+      latestStatusAt: '2026-10-11T14:00:00.000Z',
+      isCurrentApplication: true,
+    };
+
+    it('parses valid company application history item', () => {
+      const parsed = recruiterCompanyApplicationHistoryItemDtoSchema.parse(validItem);
+      expect(parsed.id).toBe('507f1f77bcf86cd799439011');
+      expect(parsed.job.title).toBe('Senior Backend Engineer');
+      expect(parsed.isCurrentApplication).toBe(true);
+      expect(parsed.notesCount).toBe(2);
+    });
+
+    it('parses complete recruiter applicant company history response', () => {
+      const response = {
+        applicant: {
+          id: '507f1f77bcf86cd799439013',
+          fullName: 'Lê Văn B',
+          email: 'applicantB@example.com',
+          phone: '+84987654321',
+        },
+        isFirstTimeApplicant: false,
+        totalSubmissionsToCompany: 2,
+        items: [
+          validItem,
+          {
+            ...validItem,
+            id: '507f1f77bcf86cd799439099',
+            status: 'rejected' as const,
+            reviewStage: 'rejected' as const,
+            rejectionReason: 'Position closed before interview',
+            isCurrentApplication: false,
+          },
+        ],
+      };
+
+      const parsed = recruiterApplicantCompanyHistoryResponseSchema.parse(response);
+      expect(parsed.applicant.email).toBe('applicantB@example.com');
+      expect(parsed.isFirstTimeApplicant).toBe(false);
+      expect(parsed.totalSubmissionsToCompany).toBe(2);
+      expect(parsed.items).toHaveLength(2);
+      expect(parsed.items[1]?.isCurrentApplication).toBe(false);
+      expect(parsed.items[1]?.rejectionReason).toBe('Position closed before interview');
+    });
+
+    it('parses first-time applicant response with 1 submission', () => {
+      const response = {
+        applicant: {
+          id: '507f1f77bcf86cd799439013',
+          fullName: null,
+          email: 'first-time@example.com',
+          phone: null,
+        },
+        isFirstTimeApplicant: true,
+        totalSubmissionsToCompany: 1,
+        items: [validItem],
+      };
+
+      const parsed = recruiterApplicantCompanyHistoryResponseSchema.parse(response);
+      expect(parsed.isFirstTimeApplicant).toBe(true);
+      expect(parsed.totalSubmissionsToCompany).toBe(1);
+      expect(parsed.items).toHaveLength(1);
+    });
+  });
 });
+
+
 

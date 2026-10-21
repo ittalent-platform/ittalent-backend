@@ -10,8 +10,16 @@ import { documentsService, type DocumentsService, type DocumentFileResult } from
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
+  consumeEmailDeliveryStatus,
+  sendApplicationStatusUpdateEmail,
+} from '../../shared/services/email.service.js';
+import {
   APPLICATION_CONFIG,
+  APPLICATION_EMAIL_FAILED_LOG,
+  APPLICATION_MESSAGES,
   createEmptyStatusCounts,
+  isPermittedRecruiterTransition,
+  RECRUITER_PERMITTED_TRANSITIONS,
   RECRUITER_ROLES,
   STATUS_REVIEW_STAGE,
 } from './applications.constants.js';
@@ -29,9 +37,13 @@ import {
   type RecruiterApplicationSummaryDTO,
   type RecruiterAttachmentDTO,
   type RecruiterInterviewTimelineEntryDTO,
+  type RecruiterApplicantCompanyHistoryResponse,
+  type RecruiterCompanyApplicationHistoryItemDTO,
   type RecruiterNextInterviewDTO,
   type RecruiterNoteEntryDTO,
+  type RecruiterNotesListResponse,
   type RecruiterStatusHistoryEntryDTO,
+  type UpdateRecruiterApplicationStatusBody,
 } from './recruiter-applications.schemas.js';
 
 const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
@@ -481,6 +493,324 @@ export class RecruiterApplicationsService {
 
     return { fileResult, metadata };
   }
+
+  async addNote(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+    content: string,
+  ): Promise<RecruiterNoteEntryDTO> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const author = await this.users.findById(actorId);
+    const authorName = author?.full_name || author?.email || 'Recruiter';
+
+    const note = await this.repository.addNoteToApplication(
+      applicationId,
+      enterpriseJobIds,
+      {
+        authorId: actorId,
+        authorName,
+        content,
+      },
+    );
+
+    if (!note) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    return {
+      authorId: String(note.author_id),
+      authorName: note.author_name,
+      content: note.content,
+      createdAt: note.created_at.toISOString(),
+    };
+  }
+
+  async listNotes(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+  ): Promise<RecruiterNotesListResponse> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const notes = await this.repository.findNotesByApplicationId(
+      applicationId,
+      enterpriseJobIds,
+    );
+
+    if (!notes) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        'Application not found',
+      );
+    }
+
+    const items: RecruiterNoteEntryDTO[] = notes.map((note) => ({
+      authorId: String(note.author_id),
+      authorName: note.author_name,
+      content: note.content,
+      createdAt: note.created_at.toISOString(),
+    }));
+
+    return {
+      items,
+      total: items.length,
+    };
+  }
+
+  private async sendStatusNotification(
+    email: string,
+    jobTitle: string,
+    status: string,
+    message?: string,
+  ): Promise<void> {
+    try {
+      await sendApplicationStatusUpdateEmail(email, jobTitle, status, message);
+      if (consumeEmailDeliveryStatus(email) === false) {
+        console.error(APPLICATION_EMAIL_FAILED_LOG, { email });
+      }
+    } catch (error) {
+      console.error(APPLICATION_EMAIL_FAILED_LOG, { email, error });
+    }
+  }
+
+  async updateStatus(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+    input: UpdateRecruiterApplicationStatusBody,
+  ): Promise<RecruiterApplicationDetailDTO> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    const application = await this.repository.findByIdAndJobIds(
+      applicationId,
+      enterpriseJobIds,
+    );
+    if (!application) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    if (!isPermittedRecruiterTransition(application.status, input.status)) {
+      const allowedTargets = RECRUITER_PERMITTED_TRANSITIONS[application.status] ?? [];
+      const allowedMsg =
+        allowedTargets.length > 0
+          ? `Allowed next statuses from '${application.status}' are: ${allowedTargets.join(', ')}`
+          : `Application is in terminal status '${application.status}' and cannot be modified`;
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        `${APPLICATION_MESSAGES.INVALID_STATUS_TRANSITION}. ${allowedMsg}`,
+      );
+    }
+
+    if (input.status === 'interviewing') {
+      const hasActiveInterview = await Interview.exists({
+        application_id: application._id,
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        status: { $in: ['scheduled', 'completed'] },
+      });
+      if (!hasActiveInterview) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          APPLICATION_MESSAGES.MISSING_INTERVIEW_SCHEDULE,
+        );
+      }
+    }
+
+    if (input.status === 'offered') {
+      const hasCompletedInterview = await Interview.exists({
+        application_id: application._id,
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        status: 'completed',
+      });
+      if (!hasCompletedInterview) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          APPLICATION_MESSAGES.MISSING_INTERVIEW_COMPLETED,
+        );
+      }
+    }
+
+    const jobDoc = await this.jobs.findJobById(String(application.job_id));
+    const openings = jobDoc?.openings ?? 1;
+    let hiredCount = 0;
+
+    if (input.status === 'hired') {
+      hiredCount = await this.repository.countHiredApplications(application.job_id);
+      if (hiredCount >= openings) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_409_CONFLICT,
+          APPLICATION_MESSAGES.ALL_OPENINGS_FILLED,
+        );
+      }
+    }
+
+    const updated = await this.repository.updateStatusAtomically(
+      applicationId,
+      enterpriseJobIds,
+      {
+        status: input.status,
+        changedBy: actorId,
+        actorRole: 'recruiter',
+        note: input.note,
+        messageToCandidate: input.messageToCandidate,
+        rejectionReason: input.rejectionReason,
+      },
+      input.expectedVersion,
+    );
+
+    if (!updated) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        APPLICATION_MESSAGES.STATUS_CONCURRENCY_CONFLICT,
+      );
+    }
+
+    if (input.status === 'hired') {
+      const newHiredCount = hiredCount + 1;
+      if (newHiredCount === openings) {
+        await Promise.all([
+          this.jobs.closeJobPosting(application.job_id),
+          this.repository.cascadePositionFilled(application.job_id, application._id, actorId),
+        ]);
+      }
+    }
+
+    const applicant = await this.users.findById(String(application.applicant_id));
+    if (applicant?.email) {
+      const jobTitle = jobDoc?.title ?? '';
+      void this.sendStatusNotification(
+        applicant.email,
+        jobTitle,
+        input.status,
+        input.messageToCandidate,
+      );
+    }
+
+    return this.getApplicationDetail(actorId, actorRole, applicationId);
+  }
+
+  async getApplicantCompanyHistory(
+    actorId: string,
+    actorRole: string,
+    applicationId: string,
+  ): Promise<RecruiterApplicantCompanyHistoryResponse> {
+    const { enterpriseId } = await this.assertRecruiterScope(actorId, actorRole);
+    const enterpriseJobIds = await this.resolveEnterpriseJobIds(enterpriseId);
+    if (enterpriseJobIds.length === 0) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    const application = await this.repository.findByIdAndJobIds(
+      applicationId,
+      enterpriseJobIds,
+    );
+    if (!application) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_404_NOT_FOUND,
+        APPLICATION_MESSAGES.NOT_FOUND,
+      );
+    }
+
+    const applicantId = String(application.applicant_id);
+    const [applicantUser, submissions] = await Promise.all([
+      this.users.findById(applicantId),
+      this.repository.findApplicantSubmissionsByJobIds(applicantId, enterpriseJobIds),
+    ]);
+
+    const uniqueJobIds = [...new Set(submissions.map((sub) => String(sub.job_id)))];
+    const [jobsMap, jobsDocs] = await Promise.all([
+      this.jobs.findSummariesByIds(uniqueJobIds),
+      this.jobs.findJobsByIds(uniqueJobIds),
+    ]);
+    const jobStatusMap = new Map<string, string>(
+      jobsDocs.map((doc) => [String(doc._id), doc.status]),
+    );
+
+    const isFirstTimeApplicant = submissions.length <= 1;
+
+    const items: RecruiterCompanyApplicationHistoryItemDTO[] = submissions.map((sub) => {
+      const jobSummary = jobsMap.get(String(sub.job_id));
+      const jobStatus = jobStatusMap.get(String(sub.job_id)) ?? 'closed';
+      const submittedDocuments: ('cv' | 'cover_letter')[] = [];
+      if (sub.cv_id) submittedDocuments.push('cv');
+      if (sub.cover_letter_id) submittedDocuments.push('cover_letter');
+
+      const history = sub.status_history ?? [];
+      const latestStatusAt = (
+        history.length > 0 ? history[history.length - 1]!.changed_at : sub.updatedAt
+      ).toISOString();
+
+      let rejectionReason: string | null = null;
+      if (sub.status === 'rejected') {
+        const lastRejectedEntry = [...history].reverse().find((h) => h.status === 'rejected');
+        rejectionReason = lastRejectedEntry?.rejection_reason ?? null;
+      }
+
+      return {
+        id: String(sub._id),
+        job: {
+          id: String(sub.job_id),
+          title: jobSummary?.title ?? '',
+          location: jobSummary?.location ?? null,
+          employmentType: jobSummary?.employmentType ?? null,
+          status: jobStatus,
+        },
+        status: sub.status,
+        reviewStage: STATUS_REVIEW_STAGE[sub.status] ?? null,
+        submittedDocuments,
+        rejectionReason,
+        withdrawalReason: sub.withdrawal_reason ?? null,
+        notesCount: Array.isArray(sub.notes) ? sub.notes.length : 0,
+        submittedAt: sub.createdAt.toISOString(),
+        latestStatusAt,
+        isCurrentApplication: String(sub._id) === applicationId,
+      };
+    });
+
+    return {
+      applicant: {
+        id: applicantId,
+        fullName: applicantUser?.full_name ?? null,
+        email: applicantUser?.email ?? '',
+        phone: applicantUser?.phone ?? null,
+      },
+      isFirstTimeApplicant,
+      totalSubmissionsToCompany: submissions.length,
+      items,
+    };
+  }
 }
 
 export const recruiterApplicationsService = new RecruiterApplicationsService();
+

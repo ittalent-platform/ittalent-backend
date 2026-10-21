@@ -10,7 +10,11 @@ import {
   type RecruiterApplicationsService,
 } from './recruiter-applications.service.js';
 import type { ApplicationIdParam } from './applications.schemas.js';
-import type { RecruiterApplicationListQuery } from './recruiter-applications.schemas.js';
+import type {
+  CreateRecruiterNoteBody,
+  RecruiterApplicationListQuery,
+  UpdateRecruiterApplicationStatusBody,
+} from './recruiter-applications.schemas.js';
 
 export class RecruiterApplicationsController {
   constructor(
@@ -125,7 +129,106 @@ export class RecruiterApplicationsController {
       next(error);
     }
   };
+
+  addNote: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          'Authentication required',
+        );
+      }
+
+      const params = (res.locals.validated?.params ?? req.params) as ApplicationIdParam;
+      const body = (res.locals.validated?.body ?? req.body) as CreateRecruiterNoteBody;
+
+      const result = await this.service.addNote(
+        user.id,
+        user.role,
+        params.id,
+        body.content,
+      );
+
+      res.status(HTTP_STATUS.HTTP_201_CREATED).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listNotes: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          'Authentication required',
+        );
+      }
+
+      const params = (res.locals.validated?.params ?? req.params) as ApplicationIdParam;
+      const result = await this.service.listNotes(
+        user.id,
+        user.role,
+        params.id,
+      );
+
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateStatus: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          'Authentication required',
+        );
+      }
+
+      const params = (res.locals.validated?.params ?? req.params) as ApplicationIdParam;
+      const body = (res.locals.validated?.body ?? req.body) as UpdateRecruiterApplicationStatusBody;
+
+      const result = await this.service.updateStatus(
+        user.id,
+        user.role,
+        params.id,
+        body,
+      );
+
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getCompanyHistory: RequestHandler = async (req, res, next) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          'Authentication required',
+        );
+      }
+
+      const params = (res.locals.validated?.params ?? req.params) as ApplicationIdParam;
+      const result = await this.service.getApplicantCompanyHistory(
+        user.id,
+        user.role,
+        params.id,
+      );
+
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const recruiterApplicationsController =
   new RecruiterApplicationsController();
+

@@ -16,13 +16,16 @@ interface JwtPayload {
 
 export const authenticate: RequestHandler = (req: Request, _res: Response, next: NextFunction): void => {
   const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice('Bearer '.length).trim()
+    : typeof req.query?.token === 'string'
+      ? req.query.token.trim()
+      : undefined;
 
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!token) {
     next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication token missing or malformed'));
     return;
   }
-
-  const token = authHeader.slice('Bearer '.length).trim();
 
   try {
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtPayload;

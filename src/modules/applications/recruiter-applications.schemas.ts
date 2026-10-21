@@ -10,6 +10,7 @@ import {
   APPLICATION_MESSAGES,
   APPLICATION_SORT_FIELDS,
   APPLICATION_SORT_ORDERS,
+  RECRUITER_TARGET_STATUSES,
   REVIEW_STAGES,
 } from './applications.constants.js';
 
@@ -151,7 +152,7 @@ export const recruiterInterviewTimelineEntrySchema = z.object({
   mode: z.enum(['online', 'onsite']),
   meetingLink: z.string().nullable(),
   location: z.string().nullable(),
-  status: z.enum(['scheduled', 'completed', 'cancelled', 'no_show']),
+  status: z.enum(['scheduled', 'reschedule_requested', 'completed', 'cancelled', 'no_show']),
   notes: z.string().nullable(),
 });
 export type RecruiterInterviewTimelineEntryDTO = z.infer<
@@ -228,3 +229,100 @@ export const recruiterApplicationCvMetadataDtoSchema = z.object({
 export type RecruiterApplicationCvMetadataDTO = z.infer<
   typeof recruiterApplicationCvMetadataDtoSchema
 >;
+
+export const createRecruiterNoteBodySchema = z.strictObject({
+  content: z
+    .string()
+    .trim()
+    .min(1, 'Note content cannot be empty')
+    .max(
+      APPLICATION_CONFIG.NOTE_MAX_LENGTH,
+      `Note content cannot exceed ${APPLICATION_CONFIG.NOTE_MAX_LENGTH} characters`,
+    ),
+});
+export type CreateRecruiterNoteBody = z.infer<
+  typeof createRecruiterNoteBodySchema
+>;
+
+export const recruiterNotesListResponseSchema = z.object({
+  items: z.array(recruiterNoteEntryDtoSchema),
+  total: z.number().int().min(0),
+});
+export type RecruiterNotesListResponse = z.infer<
+  typeof recruiterNotesListResponseSchema
+>;
+
+export const updateRecruiterApplicationStatusBodySchema = z.strictObject({
+  status: z.enum(RECRUITER_TARGET_STATUSES),
+  note: z
+    .string()
+    .trim()
+    .max(
+      APPLICATION_CONFIG.NOTE_MAX_LENGTH,
+      `Note cannot exceed ${APPLICATION_CONFIG.NOTE_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  messageToCandidate: z
+    .string()
+    .trim()
+    .max(
+      APPLICATION_CONFIG.MESSAGE_TO_CANDIDATE_MAX_LENGTH,
+      `Message to candidate cannot exceed ${APPLICATION_CONFIG.MESSAGE_TO_CANDIDATE_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  rejectionReason: z
+    .string()
+    .trim()
+    .min(
+      APPLICATION_CONFIG.REASON_MIN_LENGTH,
+      `Rejection reason must be at least ${APPLICATION_CONFIG.REASON_MIN_LENGTH} characters`,
+    )
+    .max(
+      APPLICATION_CONFIG.REASON_MAX_LENGTH,
+      `Rejection reason cannot exceed ${APPLICATION_CONFIG.REASON_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  expectedVersion: z.number().int().min(0).optional(),
+});
+export type UpdateRecruiterApplicationStatusBody = z.infer<
+  typeof updateRecruiterApplicationStatusBodySchema
+>;
+
+export const recruiterCompanyApplicationHistoryItemDtoSchema = z.object({
+  id: z.string(),
+  job: z.object({
+    id: z.string(),
+    title: z.string(),
+    location: z.string().nullable(),
+    employmentType: z.string().nullable(),
+    status: z.string(),
+  }),
+  status: z.enum(applicationStatuses),
+  reviewStage: z.enum(REVIEW_STAGES).nullable(),
+  submittedDocuments: z.array(z.enum(recruiterApplicationDocumentTypes)),
+  rejectionReason: z.string().nullable(),
+  withdrawalReason: z.string().nullable(),
+  notesCount: z.number().int().min(0),
+  submittedAt: z.string(),
+  latestStatusAt: z.string(),
+  isCurrentApplication: z.boolean(),
+});
+export type RecruiterCompanyApplicationHistoryItemDTO = z.infer<
+  typeof recruiterCompanyApplicationHistoryItemDtoSchema
+>;
+
+export const recruiterApplicantCompanyHistoryResponseSchema = z.object({
+  applicant: z.object({
+    id: z.string(),
+    fullName: z.string().nullable(),
+    email: z.string(),
+    phone: z.string().nullable(),
+  }),
+  isFirstTimeApplicant: z.boolean(),
+  totalSubmissionsToCompany: z.number().int().min(0),
+  items: z.array(recruiterCompanyApplicationHistoryItemDtoSchema),
+});
+export type RecruiterApplicantCompanyHistoryResponse = z.infer<
+  typeof recruiterApplicantCompanyHistoryResponseSchema
+>;
+

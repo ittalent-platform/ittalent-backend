@@ -104,6 +104,31 @@ describe('AuthController', () => {
       );
     });
 
+    it('returns 200 JSON when client specifies application/json in Accept header', async () => {
+      mockService.verifyEmail = vi.fn().mockResolvedValue({ stage: 'success' });
+      const status = vi.fn().mockReturnThis();
+      const json = vi.fn();
+      const req = {
+        query: { token: 'valid-token' },
+        headers: { accept: 'application/json' },
+        accepts: vi.fn().mockReturnValue('json'),
+      } as never;
+      const res = { status, json, locals: {} } as never;
+      const next = vi.fn();
+
+      await controller.verifyEmail(req, res, next);
+
+      expect(mockService.verifyEmail).toHaveBeenCalledWith('valid-token');
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          stage: 'success',
+          message: 'Email verified successfully',
+        }),
+      );
+    });
+
     it('redirects with stage=already-verified and code on previously used token', async () => {
       mockService.verifyEmail = vi.fn().mockResolvedValue({
         stage: 'already-verified',

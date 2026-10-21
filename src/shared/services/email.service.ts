@@ -139,6 +139,31 @@ export async function sendApplicationConfirmationEmail(
   });
 }
 
+export async function sendApplicationStatusUpdateEmail(
+  to: string,
+  jobTitle: string,
+  status: string,
+  messageToCandidate?: string,
+): Promise<void> {
+  const safeTitle = escapeHtml(jobTitle);
+  const safeStatus = escapeHtml(status);
+  const candidateMessageHtml = messageToCandidate
+    ? `<p><strong>Note from the hiring team:</strong></p><blockquote><p>${escapeHtml(messageToCandidate)}</p></blockquote>`
+    : '';
+
+  await sendEmail({
+    to,
+    subject: `Application update for ${safeTitle}`,
+    html: `
+      <p>Hello,</p>
+      <p>Your application status for <strong>${safeTitle}</strong> has been updated to: <strong>${safeStatus}</strong>.</p>
+      ${candidateMessageHtml}
+      <p>You can check your application progress anytime on your ITTalent candidate portal.</p>
+      <p>Best regards,<br/>The ITTalent Platform Team</p>
+    `,
+  });
+}
+
 export async function sendEnterpriseRegistrationMagicLink(
   to: string,
   representativeName: string,
