@@ -1,6 +1,7 @@
 import type { Types } from 'mongoose';
 
 import type { ApplicationDoc, ApplicationStatus, ApplicationStatusHistoryEntry } from '../../models/application.model.js';
+import type { JobPostingDoc } from '../../models/job-posting.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import {
@@ -10,6 +11,7 @@ import {
 import { certificateLinksService, type CertificateLinksService } from '../certificate-links/index.js';
 import { documentsService, type DocumentsService } from '../documents/documents.service.js';
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   APPLICATION_EMAIL_FAILED_LOG,
@@ -50,6 +52,7 @@ export class ApplicationsService {
     private readonly jobs: JobPostingsService = jobPostingsService,
     private readonly documents: DocumentsService = documentsService,
     private readonly certificates: CertificateLinksService = certificateLinksService,
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   private mapDto(application: ApplicationDoc): ApplicationDTO {
@@ -76,6 +79,60 @@ export class ApplicationsService {
       }
     } catch (error) {
       console.error(APPLICATION_EMAIL_FAILED_LOG, error);
+    }
+  }
+
+  private async sendApplicationNotifications(
+    applicantId: string,
+    job: JobPostingDoc,
+    applicationId: Types.ObjectId | string,
+  ): Promise<void> {
+    try {
+      await this.notifications.dispatch({
+        recipientId: applicantId,
+        title: 'Application Submitted',
+        message: `Your application for "${job.title}" has been successfully submitted.`,
+        type: 'application_submitted',
+        category: 'success',
+        actionUrl: `/applications/${String(applicationId)}`,
+        data: {
+          applicationId: String(applicationId),
+          jobPostingId: String(job._id),
+          jobTitle: job.title,
+        },
+      });
+
+      const recipientIds = new Set<string>();
+      if (job.posted_by_user_id) {
+        recipientIds.add(String(job.posted_by_user_id));
+      }
+      try {
+        const enterpriseRecruiters = await this.users.findRecruitersByEnterpriseId(String(job.enterprise_id));
+        for (const recruiter of enterpriseRecruiters) {
+          recipientIds.add(String(recruiter._id));
+        }
+      } catch (err) {
+        console.error('Failed to resolve enterprise recruiters for application notification', err);
+      }
+
+      for (const recruiterId of recipientIds) {
+        await this.notifications.dispatch({
+          recipientId: recruiterId,
+          title: 'New Application Received',
+          message: `A new application has been submitted for "${job.title}".`,
+          type: 'application_submitted',
+          category: 'info',
+          actionUrl: `/recruiter/applications/${String(applicationId)}`,
+          data: {
+            applicationId: String(applicationId),
+            jobPostingId: String(job._id),
+            jobTitle: job.title,
+            applicantId,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to dispatch application notifications', error);
     }
   }
 
@@ -207,6 +264,7 @@ export class ApplicationsService {
     }
 
     await this.sendConfirmation(user.email, job.title);
+    await this.sendApplicationNotifications(userId, job, application._id);
 
     return this.mapDto(application);
   }
