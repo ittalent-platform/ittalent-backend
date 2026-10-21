@@ -6,6 +6,7 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError, isHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
 import { usersRepository, type UsersRepository, type CreateManagedUserInput, type CreateUserData } from './users.repository.js';
 import {
@@ -88,6 +89,7 @@ export class UsersService {
       const { enterprisesService } = await import('../enterprises/enterprises.service.js');
       return enterprisesService.incrementAdminMutationVersion(id, session);
     },
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   async serializeIdentityRequests(id: Types.ObjectId, session: mongoose.ClientSession): Promise<void> {
@@ -318,6 +320,28 @@ export class UsersService {
     return this.mapUserDto(result);
   }
 
+  private async sendAccountSecurityAlert(
+    userId: string,
+    title: string,
+    message: string,
+    category: 'info' | 'warning',
+    data?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.notifications.dispatch({
+        recipientId: userId,
+        title,
+        message,
+        type: 'account_alert',
+        category,
+        actionUrl: '/profile',
+        data,
+      });
+    } catch (error) {
+      console.error('Failed to dispatch account security alert notification', error);
+    }
+  }
+
   async updateStatus(actor: ActorContext, id: string, body: StatusUpdateBody, emergency = false): Promise<UserDTO> {
     const actorCtx = parseActor(actor);
     if (actorCtx.id.toLowerCase() === id.toLowerCase() && body.status === 'suspended') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
@@ -357,6 +381,15 @@ export class UsersService {
       }));
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    if (body.status === 'suspended') {
+      await this.sendAccountSecurityAlert(
+        id,
+        'Account Suspended',
+        body.reason ? `Your account has been suspended. Reason: ${body.reason}` : 'Your account has been suspended by an administrator.',
+        'warning',
+        { status: 'suspended', reason: body.reason ?? null, emergency },
+      );
+    }
     return this.mapUserDto(updated);
   }
 
@@ -396,6 +429,13 @@ export class UsersService {
       });
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    await this.sendAccountSecurityAlert(
+      id,
+      'Role Updated',
+      `Your account role has been updated to "${body.role}".`,
+      'info',
+      { newRole: body.role, reason: body.reason ?? null },
+    );
     return this.mapUserDto(updated);
   }
 

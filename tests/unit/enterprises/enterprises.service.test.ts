@@ -4,11 +4,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { EnterpriseDoc } from '../../../src/models/enterprise.model.js';
 import type { EnterprisesRepository } from '../../../src/modules/enterprises/enterprises.repository.js';
 import { EnterprisesService } from '../../../src/modules/enterprises/enterprises.service.js';
+import type { NotificationsService } from '../../../src/modules/notifications/notifications.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
 
 describe('EnterprisesService', () => {
   let mockRepo: Partial<EnterprisesRepository>;
   let mockUsersService: Partial<UsersService>;
+  let mockNotificationsService: { dispatch: ReturnType<typeof vi.fn> };
   let service: EnterprisesService;
 
   const sampleEnterpriseId = new mongoose.Types.ObjectId();
@@ -70,8 +72,16 @@ describe('EnterprisesService', () => {
     mockUsersService = {
       getEnterpriseId: vi.fn().mockResolvedValue(null),
       assignEnterprise: vi.fn().mockResolvedValue({ _id: sampleCreatorId }),
+      findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]),
     };
-    service = new EnterprisesService(mockRepo as EnterprisesRepository, mockUsersService as UsersService);
+    mockNotificationsService = {
+      dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }),
+    };
+    service = new EnterprisesService(
+      mockRepo as EnterprisesRepository,
+      mockUsersService as UsersService,
+      mockNotificationsService as unknown as NotificationsService,
+    );
   });
 
   describe('createEnterprise', () => {
@@ -297,6 +307,43 @@ describe('EnterprisesService', () => {
       );
 
       expect(result.status).toBe('suspended');
+    });
+
+    it('dispatches enterprise_status_changed notification with warning to enterprise recruiters on suspension', async () => {
+      const mockRecruiter = { _id: new mongoose.Types.ObjectId() };
+      mockUsersService.findRecruitersByEnterpriseId = vi.fn().mockResolvedValue([mockRecruiter]);
+      mockRepo.findById = vi.fn().mockResolvedValue({
+        ...mockEnterpriseDoc,
+        status: 'active',
+      } as EnterpriseDoc);
+      mockRepo.updateById = vi.fn().mockResolvedValue({
+        ...mockEnterpriseDoc,
+        status: 'suspended',
+        status_reason: 'Suspension test',
+      } as EnterpriseDoc);
+      mockRepo.countActiveJobs = vi.fn().mockResolvedValue(0);
+
+      await service.updateEnterpriseStatus(
+        sampleEnterpriseId.toString(),
+        {
+          status: 'suspended',
+          reason: 'Suspension test',
+        },
+        sampleAdminId.toString(),
+      );
+
+      expect(mockNotificationsService.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: mockRecruiter._id.toString(),
+          type: 'enterprise_status_changed',
+          category: 'warning',
+          data: expect.objectContaining({
+            enterpriseId: sampleEnterpriseId.toString(),
+            status: 'suspended',
+            reason: 'Suspension test',
+          }),
+        }),
+      );
     });
 
     it('throws 400 bad request on invalid status transition', async () => {
