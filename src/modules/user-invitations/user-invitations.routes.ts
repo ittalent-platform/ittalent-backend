@@ -11,7 +11,7 @@ import { USER_INVITATION_MESSAGES } from './user-invitations.constants.js';
 
 export const userInvitationsRouter = Router();
 
-userInvitationsRouter.post('/users', authenticate, authorizeCurrentSystemAdmin, validateBody(createAdminUserBodySchema), userInvitationsController.createAccount);
+userInvitationsRouter.post('/users', authenticate, (req, _res, next) => req.user?.role === 'admin' ? next() : next('router'), authorizeCurrentSystemAdmin, validateBody(createAdminUserBodySchema), userInvitationsController.createAccount);
 userInvitationsRouter.get('/users/:id/invitation', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), userInvitationsController.status);
 userInvitationsRouter.post('/users/:id/invitation-deliveries', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), userInvitationsController.resend);
 userInvitationsRouter.patch('/users/:id/invitation', authenticate, authorizeCurrentSystemAdmin, validateParams(userIdParamSchema), validateBody(cancelInvitationBodySchema), userInvitationsController.cancel);

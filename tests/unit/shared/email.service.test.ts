@@ -31,8 +31,8 @@ describe('EmailService', () => {
   });
 
   describe('sendEmail in dev mode', () => {
-    it('logs email and marks delivery status as true when no BREVO_API_KEY is configured', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    it('logs email but marks delivery as failed when no BREVO_API_KEY is configured', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendEmail({
         to: 'test@example.com',
@@ -41,12 +41,12 @@ describe('EmailService', () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({ to: 'test@example.com', subject: 'Test Subject' }),
       );
 
       const status = consumeEmailDeliveryStatus('test@example.com');
-      expect(status).toBe(true);
+      expect(status).toBe(false);
 
       // Subsequent consumption should return undefined (single consumption)
       expect(consumeEmailDeliveryStatus('test@example.com')).toBeUndefined();
@@ -55,41 +55,41 @@ describe('EmailService', () => {
 
   describe('sendVerificationEmail', () => {
     it('sends verification email with escaped url', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendVerificationEmail('user@example.com', 'http://localhost:5173/verify-email?token=abc');
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({
           to: 'user@example.com',
           subject: 'Verify your ITTalent email',
         }),
       );
-      expect(consumeEmailDeliveryStatus('user@example.com')).toBe(true);
+      expect(consumeEmailDeliveryStatus('user@example.com')).toBe(false);
     });
   });
 
   describe('sendResetPasswordEmail', () => {
     it('sends reset password email with escaped url', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendResetPasswordEmail('user@example.com', 'http://localhost:5173/reset-password?token=xyz');
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({
           to: 'user@example.com',
           subject: 'Reset your ITTalent password',
         }),
       );
-      expect(consumeEmailDeliveryStatus('user@example.com')).toBe(true);
+      expect(consumeEmailDeliveryStatus('user@example.com')).toBe(false);
     });
   });
 
   describe('sendEnterpriseRegistrationMagicLink', () => {
     it('sends registration magic link with escaped name and url', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendEnterpriseRegistrationMagicLink(
         'rep@company.com',
@@ -98,19 +98,19 @@ describe('EmailService', () => {
       );
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({
           to: 'rep@company.com',
           subject: 'Complete your ITTalent enterprise registration',
         }),
       );
-      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(false);
     });
   });
 
   describe('sendEnterpriseRejectionEmail', () => {
     it('sends enterprise rejection email with escaped company name and rationale', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendEnterpriseRejectionEmail(
         'rep@company.com',
@@ -119,19 +119,19 @@ describe('EmailService', () => {
       );
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({
           to: 'rep@company.com',
           subject: 'Update on your ITTalent enterprise registration for Acme &lt;Corp&gt;',
         }),
       );
-      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(false);
     });
   });
 
   describe('sendEnterpriseAdminInvitationEmail', () => {
     it('sends enterprise admin onboarding invitation email with escaped parameters', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sendEnterpriseAdminInvitationEmail(
         'rep@company.com',
@@ -141,13 +141,13 @@ describe('EmailService', () => {
       );
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        '[email:dev]',
+        '[email:unconfigured]',
         expect.objectContaining({
           to: 'rep@company.com',
           subject: 'Welcome to ITTalent: Activate your enterprise account for Acme &lt;Corp&gt;',
         }),
       );
-      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(true);
+      expect(consumeEmailDeliveryStatus('rep@company.com')).toBe(false);
     });
   });
 });

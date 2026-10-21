@@ -32,12 +32,12 @@ describe('UsersController', () => {
     mockService[serviceMethod] = call as never;
     const json = vi.fn();
     const status = vi.fn().mockReturnValue({ json });
-    const req = { user: { id: 'admin' } };
+    const req = { user: { id: 'admin', role: 'admin' } };
     const res = { status, locals: { validated: { params: { id: 'target' }, body } } };
 
     await controller[method](req as never, res as never, vi.fn());
 
-    expect(call).toHaveBeenCalledWith('admin', 'target', body);
+    expect(call).toHaveBeenCalledWith(method === 'updateStatus' ? { id: 'admin', role: 'admin' } : 'admin', 'target', body);
     expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
     expect(json).toHaveBeenCalledWith(result);
   });

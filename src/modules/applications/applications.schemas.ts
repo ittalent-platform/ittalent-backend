@@ -10,6 +10,7 @@ import { paginationQueryShape } from '../../shared/schemas/pagination.schemas.js
 import {
   APPLICATION_CONFIG,
   APPLICATION_MESSAGES,
+  APPLICATION_REASON_MIN_LENGTH,
   APPLICATION_SORT_FIELDS,
   APPLICATION_SORT_ORDERS,
   HISTORY_ACTOR_ROLES,
@@ -101,7 +102,7 @@ export type ApplicationHistoryQuery = z.infer<typeof applicationHistoryQuerySche
 // expectedVersion is the number of history entries the client saw (BR-APP-005: history is append-only).
 export const withdrawApplicationBodySchema = z.object({
   expectedVersion: z.number().int().min(0),
-  reason: z.string().trim().max(APPLICATION_REASON_MAX_LENGTH).optional(),
+  reason: z.string().trim().min(APPLICATION_REASON_MIN_LENGTH).max(APPLICATION_REASON_MAX_LENGTH).optional(),
 });
 export type WithdrawApplicationBody = z.infer<typeof withdrawApplicationBodySchema>;
 

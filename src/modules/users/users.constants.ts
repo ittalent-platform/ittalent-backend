@@ -1,6 +1,7 @@
 import type { UserStatus } from '../../models/user.model.js';
 
 export const USER_LIST_SEARCH_MAX_LENGTH = 100;
+export const USER_LIST_SEARCH_MIN_LENGTH = 2;
 
 // Columns an administrator may sort by (UC-USER-01). `id` sorts by the account identifier.
 export const USER_SORT_FIELDS = ['createdAt', 'id', 'name', 'username', 'email'] as const;
@@ -25,8 +26,8 @@ export const USER_FILTER_MAX_VALUES = 10;
 export const USER_PHONE_PATTERN = /^0[35789]\d{8}$/;
 export const USER_PHONE_NOISE = /[\s().-]/g;
 export const USER_EMAIL_MAX_LENGTH = 254;
-export const USER_EDITABLE_ROLES = ['admin', 'user', 'recruiter', 'interviewer', 'enterprise_admin'] as const;
-export const EMPLOYEE_ROLES = ['recruiter', 'interviewer', 'admin', 'user', 'enterprise_admin'] as const;
+export const USER_EDITABLE_ROLES = ['admin', 'user', 'recruiter', 'enterprise_admin'] as const;
+export const EMPLOYEE_ROLES = ['recruiter'] as const;
 export const USER_MANAGED_ROLES = ['recruiter', 'enterprise_admin'] as const;
 
 export const VALID_USER_STATUS_TRANSITIONS: Record<UserStatus, readonly UserStatus[]> = {

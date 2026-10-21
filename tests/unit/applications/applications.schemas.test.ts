@@ -135,6 +135,11 @@ describe('Applications schemas', () => {
       ).toBe(true);
     });
 
+    it('requires at least five characters when a reason is supplied', () => {
+      expect(withdrawApplicationBodySchema.safeParse({ expectedVersion: 0, reason: 'no' }).success).toBe(false);
+      expect(withdrawApplicationBodySchema.safeParse({ expectedVersion: 0, reason: 'enough' }).success).toBe(true);
+    });
+
     it('rejects reason over max length', () => {
       expect(
         withdrawApplicationBodySchema.safeParse({

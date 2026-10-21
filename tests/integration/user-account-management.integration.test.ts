@@ -300,7 +300,11 @@ describe('System administrator account management full flows', () => {
     const access = (login.body.tokens as { accessToken: string }).accessToken;
     const ownJobs = await request('/recruiter/job-postings', { headers: { authorization: `Bearer ${access}` } });
     expect(ownJobs.status).toBe(HTTP_STATUS.HTTP_200_OK);
-    expect((await request('/users', { headers: { authorization: `Bearer ${access}` } })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    // An enterprise admin sees only the employees of their own company, never every user (decision 2026-10-21).
+    const employeeList = await request('/users', { headers: { authorization: `Bearer ${access}` } });
+    expect(employeeList.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const listed = (employeeList.body as { items: Array<{ enterpriseId: string | null }> }).items;
+    expect(listed.every((entry) => entry.enterpriseId === String(enterpriseId))).toBe(true);
     const foreign = new Types.ObjectId();
     const tampered = await request(`/recruiter/job-postings?enterprise_id=${foreign}`, { headers: { authorization: `Bearer ${access}` } });
     expect(tampered.status).toBe(HTTP_STATUS.HTTP_200_OK);
@@ -421,12 +425,12 @@ describe('System administrator account management full flows', () => {
   it('requires an active non-deleted enterprise and System Administrator to create an Ent Admin', async () => {
     const body = { email: `${new Types.ObjectId()}@example.test`, username: `bad_${new Types.ObjectId()}`, fullName: 'Ent Admin', role: 'enterprise_admin' };
     expect((await adminRequest('POST', '/users', body)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
-    expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(new Types.ObjectId()) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(new Types.ObjectId()) })).status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
     await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'suspended' } });
     try {
-      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
       await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active', is_deleted: true } });
-      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+      expect((await adminRequest('POST', '/users', { ...body, enterpriseId: String(enterpriseId) })).status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
     } finally {
       await Enterprise.updateOne({ _id: enterpriseId }, { $set: { status: 'active', is_deleted: false } });
     }
@@ -484,6 +488,11 @@ describe('System administrator account management full flows', () => {
     expect(history.status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect(history.body).toMatchObject({ total: 1, items: [expect.objectContaining({ action: 'status_suspended', actorName: expect.any(String), reason: 'Policy review', version: 1 })] });
     expect(await User.findById(userId)).toMatchObject({ auth_version: 1, status: 'suspended' });
+  });
+
+  it('validates the versioned status body before controller execution', async () => {
+    const userId = await createCandidate();
+    expect((await adminRequest('PATCH', `/users/${userId}/status`)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
   });
 
   it('requires the account owner to confirm an email change with the current password and invalidates old sessions', async () => {

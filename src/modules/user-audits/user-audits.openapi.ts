@@ -14,10 +14,10 @@ export function registerUserAuditsOpenApi(registry: OpenAPIRegistry): void {
     security: [{ bearerAuth: [] }],
     request: { params: userIdParamSchema, query: userAuditHistoryQuerySchema },
     responses: {
-      [HTTP_STATUS.HTTP_200_OK]: { description: 'Append-only account history', content: { 'application/json': { schema: response } } },
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Paginated employee audit history, scoped to the caller enterprise where applicable', content: { 'application/json': { schema: response } } },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid account ID or pagination/filter input' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required or session revoked' },
-      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Insufficient employee or enterprise permissions' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Account not found' },
       [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'History store unavailable' },
     },

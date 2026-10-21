@@ -11,9 +11,9 @@ describe('UserAuditsController', () => {
     const controller = new UserAuditsController(audits as unknown as UserAuditsService, users as unknown as UsersService);
     const status = vi.fn().mockReturnValue({ json: vi.fn() });
 
-    await controller.listUserHistory({} as never, { status, locals: { validated: { params: { id: 'target-id' }, query: { page: 1, limit: 20 } } } } as never, vi.fn());
+    await controller.listUserHistory({ user: { id: 'admin-id', role: 'admin' } } as never, { status, locals: { validated: { params: { id: 'target-id' }, query: { page: 1, limit: 20 } } } } as never, vi.fn());
 
-    expect(users.getUserById).toHaveBeenCalledWith('target-id');
+    expect(users.getUserById).toHaveBeenCalledWith('target-id', { id: 'admin-id', role: 'admin' });
     expect(audits.list).toHaveBeenCalledWith('target-id', { page: 1, limit: 20 });
   });
 });

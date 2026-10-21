@@ -85,6 +85,9 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
     await connectDatabase();
     ownId = new Types.ObjectId();
     adminId = new Types.ObjectId();
+    // The routes re-read the caller from the database, so a token needs a real, active account behind it.
+    await User.collection.insertOne({ _id: ownId, email: `${ownId}@example.test`, username: `own_${ownId}`, role: 'user', status: 'active', createdAt: new Date(), updatedAt: new Date() });
+    seeded.push(ownId);
     await User.create({ _id: adminId, email: `${adminId}@example.test`, username: `admin_${adminId}`, role: 'admin', status: 'active', email_verified: true });
     adminToken = sign('admin', String(adminId));
     userToken = sign('user', String(ownId));
@@ -281,7 +284,8 @@ describe('User accounts for administrators (UC-USER-01 / UC-USER-02, integration
 
     it('rejects a non-administrator with 403 and returns no data (EX.1)', async () => {
       for (const role of ['user', 'applicant', 'recruiter']) {
-        const { status, body } = await get('', sign(role, String(new Types.ObjectId())));
+        const id = await seed(`${marker}-role-${role}`, { role });
+        const { status, body } = await get('', sign(role, String(id)));
         expect(status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
         expect(body).not.toHaveProperty('items');
       }
