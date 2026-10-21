@@ -48,11 +48,16 @@ describe('RecruiterApplicationsService', () => {
     download: vi.fn(),
   };
 
+  const notificationsService = {
+    dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }),
+  };
+
   const service = new RecruiterApplicationsService(
     repository as never,
     usersService as never,
     jobPostingsService as never,
     documentsService as never,
+    notificationsService as never,
   );
 
   afterEach(() => {
@@ -647,6 +652,17 @@ describe('RecruiterApplicationsService', () => {
         undefined,
       );
       expect(result.status).toBe('under_review');
+      expect(notificationsService.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: applicantId,
+          type: 'application_status_changed',
+          category: 'info',
+          data: expect.objectContaining({
+            applicationId: appId,
+            status: 'under_review',
+          }),
+        }),
+      );
     });
 
     it('auto-closes job posting and cascades position_filled when final vacancy is hired (BR-18)', async () => {
