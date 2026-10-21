@@ -6,6 +6,7 @@ import type { UserDoc } from '../../../src/models/user.model.js';
 import { INTERVIEW_CONFIG, INTERVIEW_ERROR_CODES } from '../../../src/modules/interviews/interviews.constants.js';
 import type { InterviewsRepository } from '../../../src/modules/interviews/interviews.repository.js';
 import { InterviewsService, type InterviewActor } from '../../../src/modules/interviews/interviews.service.js';
+import type { NotificationsService } from '../../../src/modules/notifications/notifications.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
 import { sendInterviewEmail } from '../../../src/shared/services/email.service.js';
 
@@ -112,6 +113,7 @@ describe('InterviewsService', () => {
     findIdsByKeyword: ReturnType<typeof vi.fn>;
     findRecruitersByEnterpriseId: ReturnType<typeof vi.fn>;
   };
+  let notifications: { dispatch: ReturnType<typeof vi.fn> };
   let service: InterviewsService;
   let now: Date;
 
@@ -125,11 +127,15 @@ describe('InterviewsService', () => {
       findIdsByKeyword: vi.fn().mockResolvedValue([]),
       findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]),
     };
+    notifications = {
+      dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }),
+    };
     now = NOW;
     service = new InterviewsService(
       repository as unknown as InterviewsRepository,
       users as unknown as UsersService,
       () => now,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -172,6 +178,20 @@ describe('InterviewsService', () => {
         jobTitle: 'Backend Engineer',
         companyName: 'Acme',
       });
+      expect(notifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: APPLICANT,
+          type: 'interview_scheduled',
+          category: 'action_required',
+        }),
+      );
+      expect(notifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: INTERVIEWER_A,
+          type: 'interview_scheduled',
+          category: 'action_required',
+        }),
+      );
     });
 
     it('sends one mail per address even when a person is listed twice', async () => {
@@ -312,6 +332,13 @@ describe('InterviewsService', () => {
       expect(result.id).toBe(INTERVIEW_ID);
       expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'updated')).toBe(true);
       expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+      expect(notifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: APPLICANT,
+          type: 'interview_rescheduled',
+          category: 'action_required',
+        }),
+      );
     });
 
     it('never stores the same interviewer twice, even when the head count is unchanged', async () => {
@@ -454,6 +481,13 @@ describe('InterviewsService', () => {
       expect(result.status).toBe('cancelled');
       expect(vi.mocked(sendInterviewEmail).mock.calls.every(([input]) => input.kind === 'cancelled')).toBe(true);
       expect(vi.mocked(sendInterviewEmail)).toHaveBeenCalledTimes(2);
+      expect(notifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: APPLICANT,
+          type: 'interview_cancelled',
+          category: 'warning',
+        }),
+      );
     });
 
     it.each<InterviewStatus>(['completed', 'cancelled', 'no_show'])('does not change a %s interview again', async (status) => {
