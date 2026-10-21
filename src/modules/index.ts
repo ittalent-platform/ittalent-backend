@@ -22,9 +22,9 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use('/auth', authRouter);
   apiV1Router.use(documentsRouter);
   apiV1Router.use(jobPostingsRouter);
+  apiV1Router.use(userInvitationsRouter);
   apiV1Router.use('/users', userAuditsRouter);
   apiV1Router.use('/users', usersRouter);
-  apiV1Router.use(userInvitationsRouter);
   apiV1Router.use(userEmailChangesRouter);
   apiV1Router.use('/enterprises', enterprisesRouter);
   apiV1Router.use('/enterprise-registrations', enterpriseRegistrationsRouter);

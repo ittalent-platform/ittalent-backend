@@ -8,7 +8,6 @@ import type {
   RoleUpdateBody,
   StatusUpdateBody,
   UpdateUserBody,
-  UpdateUserStatusBody,
   UserIdParam,
   UserListQuery,
 } from './users.schemas.js';
@@ -68,22 +67,6 @@ export class UsersController {
     }
   };
 
-  /** UC 12: Update an employee's status (active/suspended) */
-  updateUserStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      if (!req.user || !req.user.id || !req.user.role) {
-        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
-      }
-      const params = res.locals.validated?.params as UserIdParam;
-      const body = res.locals.validated?.body as UpdateUserStatusBody;
-      const actor = { id: req.user.id, role: req.user.role };
-      const result = await this.service.updateUserStatus(actor, params.id, body);
-      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
-    } catch (error) {
-      next(error);
-    }
-  };
-
   /** UC 14: View an employee detail */
   getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -103,25 +86,12 @@ export class UsersController {
     }
   };
 
-  /** UC 15: View employee history */
-  getUserHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const params = res.locals.validated?.params as UserIdParam;
-      const actor = req.user?.id && req.user?.role
-        ? { id: req.user.id, role: req.user.role }
-        : undefined;
-      const result = await this.service.getUserHistory(params.id, actor);
-      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
-    } catch (error) {
-      next(error);
-    }
-  };
-
   updateStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
+      if (!req.user?.id || !req.user.role) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
       const params = res.locals.validated?.params as UserIdParam;
       const body = res.locals.validated?.body as StatusUpdateBody;
-      const result = await this.service.updateStatus(req.user?.id ?? '', params.id, body);
+      const result = await this.service.updateStatus({ id: req.user.id, role: req.user.role }, params.id, body);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) { next(error); }
   };

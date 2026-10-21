@@ -59,12 +59,12 @@ describe('interview emails', () => {
     ['updated', 'Interview updated: Backend Engineer at Acme & Co', 'have changed'],
     ['cancelled', 'Interview cancelled: Backend Engineer at Acme & Co', 'has been cancelled'],
   ] as const)('sends the %s mail with its own subject and wording', async (kind, subject, wording) => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const info = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     await sendInterviewEmail({ ...base, kind });
 
-    expect(info).toHaveBeenCalledWith('[email:dev]', expect.objectContaining({ to: 'candidate@example.com', subject }));
+    expect(info).toHaveBeenCalledWith('[email:unconfigured]', expect.objectContaining({ to: 'candidate@example.com', subject }));
     expect(buildInterviewEmailHtml({ ...base, kind })).toContain(wording);
-    expect(consumeEmailDeliveryStatus('candidate@example.com')).toBe(true);
+    expect(consumeEmailDeliveryStatus('candidate@example.com')).toBe(false);
   });
 });

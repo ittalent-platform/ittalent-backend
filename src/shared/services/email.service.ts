@@ -38,10 +38,10 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
   const normalizedTo = to.toLowerCase();
 
   if (!env.BREVO_API_KEY) {
-    console.info('[email:dev]', { to: normalizedTo, subject });
-    deliveryStatus.set(normalizedTo, true);
-    return true;
-}
+    console.warn('[email:unconfigured]', { to: normalizedTo, subject });
+    deliveryStatus.set(normalizedTo, false);
+    return false;
+  }
 
   try {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {

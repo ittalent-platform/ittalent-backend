@@ -486,6 +486,11 @@ describe('System administrator account management full flows', () => {
     expect(await User.findById(userId)).toMatchObject({ auth_version: 1, status: 'suspended' });
   });
 
+  it('validates the versioned status body before controller execution', async () => {
+    const userId = await createCandidate();
+    expect((await adminRequest('PATCH', `/users/${userId}/status`)).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+  });
+
   it('requires the account owner to confirm an email change with the current password and invalidates old sessions', async () => {
     const userId = new Types.ObjectId();
     createdUserIds.push(userId);

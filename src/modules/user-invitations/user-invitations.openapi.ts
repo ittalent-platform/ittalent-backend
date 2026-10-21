@@ -45,11 +45,11 @@ export function registerUserInvitationsOpenApi(registry: OpenAPIRegistry): void 
     security: [{ bearerAuth: [] }],
     request: { body: { required: true, content: { 'application/json': { schema: createBody } } } },
     responses: {
-      [HTTP_STATUS.HTTP_201_CREATED]: { description: 'Account created; invitation delivery result is included', content: { 'application/json': { schema: createResult } } },
+      [HTTP_STATUS.HTTP_201_CREATED]: { description: 'Account created; invitation delivery status may be sent or failed', content: { 'application/json': { schema: createResult } } },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid role, user fields, or company context' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
-      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Email or username already exists' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Email or username conflict, enterprise unavailable, or enterprise onboarding pending' },
       [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Account storage unavailable' },
     },
   });

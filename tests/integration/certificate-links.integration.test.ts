@@ -138,6 +138,9 @@ describe('Candidate certificate links (UC-S4-CERT-01 / UC-S4-CERT-04)', () => {
     expect((await list()).status).toBe(HTTP_STATUS.HTTP_200_OK);
     expect((await create('Unverified', 'https://cert.example/unverified', 'unverified-key')).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
     await User.updateOne({ _id: candidateId }, { $set: { email_verified: true } });
+    await User.updateOne({ _id: candidateId }, { $set: { status: 'suspended' } });
+    expect((await list()).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    await User.updateOne({ _id: candidateId }, { $set: { status: 'active' } });
     const response = await fetch(`${baseUrl}/api/v1/me/certificate-links`);
     expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
   });

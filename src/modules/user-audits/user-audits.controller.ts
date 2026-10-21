@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
+import { createHttpError } from '../../shared/errors/http-error.js';
 import type { UserIdParam } from '../users/users.schemas.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { userAuditsService, type UserAuditsService } from './user-audits.service.js';
@@ -16,7 +17,9 @@ export class UserAuditsController {
     try {
       const id = (res.locals.validated?.params as UserIdParam).id;
       const query = res.locals.validated?.query as UserAuditHistoryQuery;
-      await this.users.getUserById(id);
+      if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      const actor = { id: req.user.id, role: req.user.role };
+      await this.users.getUserById(id, actor);
       res.status(HTTP_STATUS.HTTP_200_OK).json(await this.audits.list(id, query));
     } catch (error) { next(error); }
   };
