@@ -181,4 +181,27 @@ describe('Candidate certificate links (UC-S4-CERT-01 / UC-S4-CERT-04)', () => {
     expect((await send('GET', '?search=scrum')).body.total).toBe(0);
     expect(await Application.countDocuments({ applicant_id: candidateId, 'certificates.certificate_id': new Types.ObjectId(id) })).toBe(1);
   });
+
+  it('filters by selection state and validity within the caller\'s own links (UC-S4-CERT-06)', async () => {
+    const query = async (qs: string) => {
+      const response = await fetch(`${baseUrl}/api/v1/me/certificate-links?${qs}`, { headers: { authorization: `Bearer ${candidateToken}` } });
+      return { status: response.status, body: await response.json() as CertificateLinkBody };
+    };
+    const names = async (qs: string) => (await query(qs)).body.items?.map((item) => item.name).sort();
+    const expired = await create('Filter expired', 'https://cert.example/flt-expired', 'flt-1');
+    const valid = await create('Filter valid', 'https://cert.example/flt-valid', 'flt-2');
+    const open = await create('Filter open', 'https://cert.example/flt-open', 'flt-3');
+    await CertificateLink.updateOne({ _id: expired.body.id }, { $set: { expiry_date: '2000-01-01' } });
+    await CertificateLink.updateOne({ _id: valid.body.id }, { $set: { expiry_date: '2999-01-01', suggested: true } });
+
+    expect(await names('search=Filter&validity=expired')).toEqual(['Filter expired']);
+    expect(await names('search=Filter&validity=valid')).toEqual(['Filter valid']);
+    expect(await names('search=Filter&validity=no_expiry')).toEqual(['Filter open']);
+    expect(await names('search=Filter&suggested=true')).toEqual(['Filter valid']);
+    expect(await names('search=Filter&suggested=false')).toEqual(['Filter expired', 'Filter open']);
+    expect(await names('search=Filter&suggested=false&validity=no_expiry')).toEqual(['Filter open']);
+    expect((await query('validity=soon')).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    expect((await fetch(`${baseUrl}/api/v1/me/certificate-links?validity=expired`, { headers: { authorization: `Bearer ${otherCandidateToken}` } })).status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(open.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
+  });
 });

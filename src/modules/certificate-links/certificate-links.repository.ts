@@ -1,4 +1,4 @@
-import type { UpdateQuery } from 'mongoose';
+import type { QueryFilter, UpdateQuery } from 'mongoose';
 
 import { CertificateLink, type CertificateLinkData, type CertificateLinkDoc } from '../../models/certificate-link.model.js';
 import { CERTIFICATE_LINKS } from './certificate-links.constants.js';
@@ -10,6 +10,12 @@ export interface CertificateLinkCreateData {
   idempotencyKey: string;
   requestHash: string;
   input: CreateCertificateLinkInput;
+}
+
+export interface CertificateLinkCriteria {
+  search?: string | undefined;
+  suggested?: boolean | undefined;
+  validity?: (typeof CERTIFICATE_LINKS.VALIDITY_FILTERS)[number] | undefined;
 }
 
 export class CertificateLinksRepository {
@@ -38,9 +44,25 @@ export class CertificateLinksRepository {
     return CertificateLink.findOne({ owner_id: ownerId, url: new URL(url).toString() }).exec();
   }
 
-  async findPage(ownerId: string, page: number, limit: number, search?: string): Promise<{ items: CertificateLinkDoc[]; total: number }> {
+  async findPage(ownerId: string, page: number, limit: number, criteria: CertificateLinkCriteria = {}): Promise<{ items: CertificateLinkDoc[]; total: number }> {
+    const { search, suggested, validity } = criteria;
     const pattern = search ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
-    const filter = { owner_id: ownerId, status: 'available' as const, ...(pattern ? { $or: [{ name: pattern }, { issuer: pattern }, { url: pattern }] } : {}) };
+    // expiry_date is a YYYY-MM-DD string, so comparing with today's UTC date as a string is a date comparison.
+    const today = new Date().toISOString().slice(0, CERTIFICATE_LINKS.ISO_DATE_LENGTH);
+    const validityFilter: QueryFilter<CertificateLinkData> | null = validity === 'expired' ? { expiry_date: { $lt: today } }
+      : validity === 'valid' ? { expiry_date: { $gte: today } }
+      : validity === 'no_expiry' ? { $or: [{ expiry_date: { $exists: false } }, { expiry_date: null }, { expiry_date: '' }] }
+      : null;
+    const filter: QueryFilter<CertificateLinkData> = {
+      owner_id: ownerId,
+      status: 'available' as const,
+      ...(suggested === undefined ? {} : { suggested }),
+      $and: [
+        ...(pattern ? [{ $or: [{ name: pattern }, { issuer: pattern }, { url: pattern }] }] : []),
+        ...(validityFilter ? [validityFilter] : []),
+      ],
+    };
+    if (filter.$and?.length === 0) delete filter.$and;
     const [items, total] = await Promise.all([
       CertificateLink.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).exec(),
       CertificateLink.countDocuments(filter).exec(),
