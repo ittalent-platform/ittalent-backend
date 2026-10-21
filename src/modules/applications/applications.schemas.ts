@@ -102,7 +102,11 @@ export type ApplicationHistoryQuery = z.infer<typeof applicationHistoryQuerySche
 // expectedVersion is the number of history entries the client saw (BR-APP-005: history is append-only).
 export const withdrawApplicationBodySchema = z.object({
   expectedVersion: z.number().int().min(0),
-  reason: z.string().trim().min(APPLICATION_REASON_MIN_LENGTH).max(APPLICATION_REASON_MAX_LENGTH).optional(),
+  // A blank optional textarea arrives as "" or spaces; that means "no reason", not a too-short one.
+  reason: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().min(APPLICATION_REASON_MIN_LENGTH).max(APPLICATION_REASON_MAX_LENGTH).optional(),
+  ),
 });
 export type WithdrawApplicationBody = z.infer<typeof withdrawApplicationBodySchema>;
 

@@ -17,7 +17,9 @@ export function registerUsersOpenApi(registry: OpenAPIRegistry): void {
   const registeredUserDto = registry.register('UserDTO', userDtoSchema);
   const registeredUserList = registry.register('UserListResponse', userListResponseSchema);
   const registeredUpdateUserRequest = registry.register('UpdateUserRequest', updateUserBodySchema);
-  const registeredCreateEmployeeRequest = registry.register('CreateEmployeeRequest', createEmployeeBodySchema);
+  // The create operation itself lives in user-invitations.openapi.ts: both callers share POST /api/v1/users and
+  // the OpenAPI document keeps only one operation per path and method.
+  registry.register('CreateEmployeeRequest', createEmployeeBodySchema);
   const registeredUpdateUserStatusRequest = registry.register('UpdateUserStatusRequest', statusUpdateBodySchema);
   const registeredRoleUpdate = registry.register('UpdateUserRoleRequest', roleUpdateBodySchema);
   const emergencySuspension = registry.register('EmergencyUserSuspensionRequest', emergencySuspensionBodySchema);
@@ -53,31 +55,6 @@ export function registerUsersOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Active System Administrator required' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Account not found' },
       [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Platform administrator cannot self-suspend or suspend the final platform administrator' },
-    },
-  });
-
-  // UC-10 / UC-EMP-01: Create employee account
-  registry.registerPath({
-    method: 'post',
-    path: '/api/v1/users',
-    tags: ['Users', 'Employees'],
-    operationId: 'createEmployee',
-    summary: 'Create employee account',
-    description: 'Provisions a recruiter account under the caller enterprise tenancy (UC-10).',
-    security: [{ bearerAuth: [] }],
-    request: {
-      body: { required: true, content: { 'application/json': { schema: registeredCreateEmployeeRequest } } },
-    },
-    responses: {
-      [HTTP_STATUS.HTTP_201_CREATED]: {
-        description: 'Employee account created successfully',
-        content: { 'application/json': { schema: registeredUserDto } },
-      },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Validation error on input fields' },
-      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
-      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Insufficient permissions' },
-      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Corporate email is already registered' },
-      [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Account storage unavailable' },
     },
   });
 

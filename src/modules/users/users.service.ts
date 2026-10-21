@@ -269,9 +269,12 @@ export class UsersService {
           if (actorCtx.role === 'recruiter') {
             if (actorCtx.id.toLowerCase() !== id.toLowerCase() || current.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
           } else if (actorCtx.role === 'enterprise_admin') {
-            if (actorCtx.id.toLowerCase() === id.toLowerCase()) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
-            this.assertEmployeeInEnterprise(current, adminActor.enterprise_id ? String(adminActor.enterprise_id) : null);
-            if (current.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+            // An enterprise admin may edit their own contact details (the body cannot carry role or status);
+            // anyone else must be a recruiter of the same company.
+            if (actorCtx.id.toLowerCase() !== id.toLowerCase()) {
+              this.assertEmployeeInEnterprise(current, adminActor.enterprise_id ? String(adminActor.enterprise_id) : null);
+              if (current.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+            }
           } else if (actorCtx.role !== 'admin') {
             throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
           }
@@ -530,7 +533,8 @@ export class UsersService {
     if (actorCtx.role !== 'recruiter' && actorCtx.role !== 'enterprise_admin') {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
     }
-    if (actorCtx.role === 'recruiter' && actorCtx.id.toLowerCase() === String(target._id).toLowerCase()) return;
+    // Anyone may view their own profile and history; others must be an employee of the caller's company.
+    if (actorCtx.id.toLowerCase() === String(target._id).toLowerCase()) return;
     this.assertEmployeeInEnterprise(target, requester.enterprise_id ? String(requester.enterprise_id) : null);
     if (target.role !== 'recruiter') {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
