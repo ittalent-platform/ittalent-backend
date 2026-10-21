@@ -1138,12 +1138,19 @@ describe('Job posting enterprise ownership integration', () => {
     const body = (await open.json()) as JobResponse;
     expect(body.enterprise.name).toBe('Integration Enterprise A');
     expect(body.applicationCount).toBeUndefined();
+    // The public page links by slug, so the same job is served by its slug.
+    const bySlug = await detail('enterprise-a-published-job');
+    expect(bySlug.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(((await bySlug.json()) as JobResponse).id).toBe(jobAId);
 
     await JobPosting.updateOne(
       { _id: jobAId },
       { $set: { expires_at: new Date('2020-01-01T16:59:59.999Z') } },
     );
     expect((await detail(jobAId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await detail('enterprise-a-published-job')).status).toBe(
+      HTTP_STATUS.HTTP_404_NOT_FOUND,
+    );
     await JobPosting.updateOne(
       { _id: jobAId },
       {
@@ -1154,12 +1161,19 @@ describe('Job posting enterprise ownership integration', () => {
       },
     );
     expect((await detail(jobAId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await detail('enterprise-a-published-job')).status).toBe(
+      HTTP_STATUS.HTTP_404_NOT_FOUND,
+    );
     await Enterprise.updateOne(
       { _id: enterpriseBId },
       { $set: { status: 'suspended' } },
     );
     expect((await detail(jobBId)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
-    expect((await detail('not-an-id')).status).toBe(
+    // An unknown but well-formed slug is simply not found; anything that is neither an id nor a slug is a bad request.
+    expect((await detail('no-such-job')).status).toBe(
+      HTTP_STATUS.HTTP_404_NOT_FOUND,
+    );
+    expect((await detail('Not%20An%20Id')).status).toBe(
       HTTP_STATUS.HTTP_400_BAD_REQUEST,
     );
   });

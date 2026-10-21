@@ -55,6 +55,8 @@ export type JobEmploymentType = (typeof JOB_EMPLOYMENT_TYPES)[number];
 export const JOB_LIMITS = {
   TITLE_MIN: 5,
   TITLE_MAX: 150,
+  // A slug is the title in kebab case plus an optional numeric suffix that keeps it unique.
+  SLUG_MAX: 200,
   CONTENT_MIN: 20,
   CONTENT_MAX: 5000,
   LOCATION_MIN: 2,
@@ -79,3 +81,6 @@ export const JOB_AUDIT_ACTIONS = [
   'restore',
 ] as const;
 export type JobAuditAction = (typeof JOB_AUDIT_ACTIONS)[number];
+
+// Exactly 24 hex characters; mongoose's isValidObjectId also accepts any 12-character string, such as the slug "seed-job-500".
+export const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;

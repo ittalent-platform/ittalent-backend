@@ -6,6 +6,7 @@ import {
   jobPostingHistoryQuerySchema,
   jobPostingHistoryResponseSchema,
   jobPostingIdParamSchema,
+  jobPostingPublicParamSchema,
   jobPostingListQuerySchema,
   jobPostingListResponseSchema,
   jobPostingResponseSchema,
@@ -69,8 +70,8 @@ export function registerJobPostingsOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Job Postings'],
     summary: 'Get a published, still-open job posting (public)',
     description:
-      'Not found for drafts, archived or expired postings, postings being deleted and postings of enterprises that are not Active.',
-    request: { params: jobPostingIdParamSchema },
+      'The path takes the posting id or its slug. Not found for drafts, archived or expired postings, postings being deleted and postings of enterprises that are not Active.',
+    request: { params: jobPostingPublicParamSchema },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
         description: 'Job posting',
