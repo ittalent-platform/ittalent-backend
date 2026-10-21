@@ -2,6 +2,8 @@ export const CERTIFICATE_LINKS = {
   CANDIDATE_ROLE: 'user',
   INITIAL_VERSION: 1,
   SEARCH_MAX_LENGTH: 100,
+  ISO_DATE_LENGTH: 10,
+  VALIDITY_FILTERS: ['valid', 'expired', 'no_expiry'] as const,
   NAME_MAX_LENGTH: 200,
   ISSUER_MAX_LENGTH: 200,
   URL_MAX_LENGTH: 2048,

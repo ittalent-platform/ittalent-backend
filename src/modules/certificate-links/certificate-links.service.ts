@@ -109,7 +109,7 @@ export class CertificateLinksService {
   async list(ownerId: string, query: CertificateLinkListQuery): Promise<PaginatedCertificateLinks> {
     return this.guardStore(async () => {
       const [result, suggestedTotal] = await Promise.all([
-        this.repository.findPage(ownerId, query.page, query.limit, query.search),
+        this.repository.findPage(ownerId, query.page, query.limit, { search: query.search, suggested: query.suggested, validity: query.validity }),
         this.repository.countSuggested(ownerId),
       ]);
       const sent = await this.countCertificatesSent(ownerId, result.items.map((item) => String(item._id)));

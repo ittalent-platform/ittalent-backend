@@ -71,7 +71,14 @@ describe('CertificateLinksService', () => {
 
     await service.list(ownerId, { page: 1, limit: 20 });
     expect(users.findById).not.toHaveBeenCalled();
-    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 1, 20, undefined);
+    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 1, 20, {});
+  });
+
+  it('passes the keyword, selection and validity criteria to the repository (UC-S4-CERT-06)', async () => {
+    const service = new CertificateLinksService(repository, users, countCertificatesSent);
+
+    await service.list(ownerId, { page: 2, limit: 10, search: 'aws', suggested: true, validity: 'expired' });
+    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 2, 10, { search: 'aws', suggested: true, validity: 'expired' });
   });
 
   it('does not expose private idempotency data in the candidate response', async () => {
