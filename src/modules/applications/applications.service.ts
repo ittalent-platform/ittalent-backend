@@ -136,6 +136,50 @@ export class ApplicationsService {
     }
   }
 
+  private async sendWithdrawalNotifications(
+    applicantId: string,
+    jobId: Types.ObjectId | string,
+    applicationId: Types.ObjectId | string,
+  ): Promise<void> {
+    try {
+      const job = await this.jobs.findJobById(String(jobId));
+      if (!job) return;
+
+      const recipientIds = new Set<string>();
+      if (job.posted_by_user_id) {
+        recipientIds.add(String(job.posted_by_user_id));
+      }
+      try {
+        const enterpriseRecruiters = await this.users.findRecruitersByEnterpriseId(String(job.enterprise_id));
+        for (const recruiter of enterpriseRecruiters) {
+          recipientIds.add(String(recruiter._id));
+        }
+      } catch (err) {
+        console.error('Failed to resolve enterprise recruiters for withdrawal notification', err);
+      }
+
+      for (const recruiterId of recipientIds) {
+        await this.notifications.dispatch({
+          recipientId: recruiterId,
+          title: 'Application Withdrawn',
+          message: `An applicant has withdrawn their application for "${job.title}".`,
+          type: 'application_status_changed',
+          category: 'warning',
+          actionUrl: `/recruiter/applications/${String(applicationId)}`,
+          data: {
+            applicationId: String(applicationId),
+            jobPostingId: String(job._id),
+            jobTitle: job.title,
+            applicantId,
+            status: 'withdrawn',
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to dispatch withdrawal notifications', error);
+    }
+  }
+
   // Cross-domain query used by DocumentsService before soft deletion. The repository remains
   // the only layer that accesses the Application model.
   async isDocumentReferenced(documentId: string): Promise<boolean> {
@@ -414,6 +458,9 @@ export class ApplicationsService {
     const updated = await this.repository.withdrawAtomically(id, applicantId, expectedVersion, reason);
     // The guarded update matched nothing: a concurrent transition won the race.
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, APPLICATION_MESSAGES.WITHDRAWAL_CONFLICT);
+
+    await this.sendWithdrawalNotifications(applicantId, updated.job_id, updated._id);
+
     return this.mapDetail(updated);
   }
 

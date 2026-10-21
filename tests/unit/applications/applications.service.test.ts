@@ -200,8 +200,9 @@ describe('ApplicationsService candidate views', () => {
   }) as unknown as ApplicationDoc;
 
   let repository: Record<'findPageByApplicant' | 'countByStatus' | 'findOwnedById' | 'findHistoryPage' | 'withdrawAtomically', ReturnType<typeof vi.fn>>;
-  let users: { findById: ReturnType<typeof vi.fn> };
-  let jobs: { findSummariesByIds: ReturnType<typeof vi.fn>; findIdsByKeyword: ReturnType<typeof vi.fn> };
+  let users: { findById: ReturnType<typeof vi.fn>; findRecruitersByEnterpriseId: ReturnType<typeof vi.fn> };
+  let jobs: { findSummariesByIds: ReturnType<typeof vi.fn>; findIdsByKeyword: ReturnType<typeof vi.fn>; findJobById: ReturnType<typeof vi.fn> };
+  let notifications: { dispatch: ReturnType<typeof vi.fn> };
   let service: ApplicationsService;
   const query = { page: 1, limit: 10, sortBy: 'submittedAt', sortOrder: 'desc' } as const;
 
@@ -213,13 +214,28 @@ describe('ApplicationsService candidate views', () => {
       findHistoryPage: vi.fn(),
       withdrawAtomically: vi.fn(),
     };
-    users = { findById: vi.fn().mockResolvedValue({ role: 'user', status: 'active' }) };
-    jobs = { findSummariesByIds: vi.fn().mockResolvedValue(new Map([[jobId, jobSummary]])), findIdsByKeyword: vi.fn() };
+    users = {
+      findById: vi.fn().mockResolvedValue({ role: 'user', status: 'active' }),
+      findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]),
+    };
+    jobs = {
+      findSummariesByIds: vi.fn().mockResolvedValue(new Map([[jobId, jobSummary]])),
+      findIdsByKeyword: vi.fn(),
+      findJobById: vi.fn().mockResolvedValue({
+        _id: jobId,
+        title: 'Frontend Engineer',
+        enterprise_id: '507f1f77bcf86cd7994390ee',
+        posted_by_user_id: '507f1f77bcf86cd7994390ff',
+      }),
+    };
+    notifications = { dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }) };
     service = new ApplicationsService(
       repository as unknown as ApplicationsRepository,
       users as unknown as UsersService,
       jobs as unknown as JobPostingsService,
       { findByIds: vi.fn().mockResolvedValue([{ _id: cvId, type: 'cv', file_name: 'cv.pdf', mime_type: 'application/pdf', size: 10 }]) } as unknown as DocumentsService,
+      undefined,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -321,6 +337,35 @@ describe('ApplicationsService candidate views', () => {
       await expect(service.withdraw(userId, cvId, 5, undefined)).rejects.toMatchObject({ statusCode: 409 });
       repository.withdrawAtomically.mockResolvedValue(null);
       await expect(service.withdraw(userId, cvId, 1, undefined)).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('dispatches application_status_changed notification to enterprise recruiters on withdrawal', async () => {
+      const recruiterUser = { _id: '507f1f77bcf86cd799439099' };
+      users.findRecruitersByEnterpriseId.mockResolvedValue([recruiterUser]);
+      repository.findOwnedById.mockResolvedValue(record({ status: 'submitted' }));
+      repository.withdrawAtomically.mockResolvedValue(
+        record({
+          status: 'withdrawn',
+          withdrawal_reason: 'found another job',
+          status_history: [
+            entry('submitted', userId, '2026-09-01T10:00:00.000Z'),
+            entry('withdrawn', userId, '2026-09-03T10:00:00.000Z'),
+          ],
+        }),
+      );
+
+      await service.withdraw(userId, cvId, 1, 'found another job');
+
+      expect(notifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: recruiterUser._id,
+          type: 'application_status_changed',
+          category: 'warning',
+          data: expect.objectContaining({
+            status: 'withdrawn',
+          }),
+        }),
+      );
     });
   });
 });
