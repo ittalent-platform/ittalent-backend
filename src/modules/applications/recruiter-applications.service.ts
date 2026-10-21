@@ -8,6 +8,7 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { documentsService, type DocumentsService, type DocumentFileResult } from '../documents/documents.service.js';
 import { jobPostingsService, type JobPostingsService, type JobSummary } from '../job-postings/job-postings.service.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   consumeEmailDeliveryStatus,
@@ -54,6 +55,7 @@ export class RecruiterApplicationsService {
     private readonly users: UsersService = usersService,
     private readonly jobs: JobPostingsService = jobPostingsService,
     private readonly documents: DocumentsService = documentsService,
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   private async assertRecruiterScope(
@@ -592,6 +594,38 @@ export class RecruiterApplicationsService {
     }
   }
 
+  private async sendCandidateStatusNotification(
+    applicantId: string,
+    jobTitle: string,
+    applicationId: string,
+    status: string,
+  ): Promise<void> {
+    try {
+      const category =
+        status === 'hired' || status === 'offered'
+          ? 'success'
+          : status === 'rejected'
+            ? 'warning'
+            : 'info';
+
+      await this.notifications.dispatch({
+        recipientId: applicantId,
+        title: 'Application Status Updated',
+        message: `Your application for "${jobTitle}" has been updated to "${status}".`,
+        type: 'application_status_changed',
+        category,
+        actionUrl: `/applications/${applicationId}`,
+        data: {
+          applicationId,
+          jobTitle,
+          status,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to dispatch candidate status notification', error);
+    }
+  }
+
   async updateStatus(
     actorId: string,
     actorRole: string,
@@ -713,6 +747,12 @@ export class RecruiterApplicationsService {
         input.messageToCandidate,
       );
     }
+    await this.sendCandidateStatusNotification(
+      String(application.applicant_id),
+      jobDoc?.title ?? '',
+      applicationId,
+      input.status,
+    );
 
     return this.getApplicationDetail(actorId, actorRole, applicationId);
   }
