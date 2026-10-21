@@ -6,10 +6,12 @@ import { createHttpError } from '../../../src/shared/errors/http-error.js';
 import { UsersService } from '../../../src/modules/users/users.service.js';
 import type { UsersRepository } from '../../../src/modules/users/users.repository.js';
 import type { UserAuditsService } from '../../../src/modules/user-audits/user-audits.service.js';
+import type { NotificationsService } from '../../../src/modules/notifications/notifications.service.js';
 
 describe('UsersService', () => {
   let mockRepo: Partial<UsersRepository>;
   let mockAudits: Partial<UserAuditsService>;
+  let mockNotifications: { dispatch: ReturnType<typeof vi.fn> };
   let usersService: UsersService;
 
   beforeEach(() => {
@@ -35,7 +37,14 @@ describe('UsersService', () => {
       findIdsByKeyword: vi.fn(),
     };
     mockAudits = { record: vi.fn() };
-    usersService = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService);
+    mockNotifications = { dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }) };
+    usersService = new UsersService(
+      mockRepo as UsersRepository,
+      mockAudits as UserAuditsService,
+      undefined,
+      undefined,
+      mockNotifications as unknown as NotificationsService,
+    );
   });
 
   describe('getUserById', () => {
@@ -323,7 +332,13 @@ describe('UsersService', () => {
         return { ...value, toObject: () => value };
       };
       const lock = vi.fn().mockResolvedValue(true);
-      const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, undefined, lock);
+      const service = new UsersService(
+        mockRepo as UsersRepository,
+        mockAudits as UserAuditsService,
+        undefined,
+        lock,
+        mockNotifications as unknown as NotificationsService,
+      );
       mockRepo.findById = vi.fn().mockResolvedValue(doc(targetId, 'enterprise_admin', 'active', 0));
       mockRepo.findByIdWithSession = vi.fn().mockResolvedValueOnce(doc(actorId, 'admin', 'active', 0)).mockResolvedValueOnce(doc(targetId, 'enterprise_admin', 'active', 0));
       mockRepo.countActiveEnterpriseAdmins = vi.fn().mockResolvedValue(1);
@@ -334,6 +349,14 @@ describe('UsersService', () => {
       expect(lock).toHaveBeenCalledWith(enterpriseId, expect.anything());
       expect(mockRepo.countActiveEnterpriseAdmins).toHaveBeenCalledWith(enterpriseId, expect.anything());
       expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'status_suspended', changes: { emergency: 'true' } }), expect.anything());
+      expect(mockNotifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: String(targetId),
+          type: 'account_alert',
+          category: 'warning',
+          title: 'Account Suspended',
+        }),
+      );
     });
 
     it('updates role using an enterprise-scoped lock and audits the transition', async () => {
@@ -345,7 +368,13 @@ describe('UsersService', () => {
         toObject: () => ({ _id: id, email: `${id}@example.test`, username: `user_${id}`, role, status: 'active', enterprise_id: enterpriseId, version }),
       });
       const lock = vi.fn().mockResolvedValue(true);
-      const service = new UsersService(mockRepo as UsersRepository, mockAudits as UserAuditsService, undefined, lock);
+      const service = new UsersService(
+        mockRepo as UsersRepository,
+        mockAudits as UserAuditsService,
+        undefined,
+        lock,
+        mockNotifications as unknown as NotificationsService,
+      );
       mockRepo.findByIdWithSession = vi.fn().mockResolvedValueOnce(doc(actorId, 'admin', 0)).mockResolvedValueOnce(doc(targetId, 'recruiter', 0));
       mockRepo.transitionRole = vi.fn().mockResolvedValue(doc(targetId, 'enterprise_admin', 1));
       mockAudits.record = vi.fn().mockResolvedValue(undefined);
@@ -353,6 +382,14 @@ describe('UsersService', () => {
       await expect(service.updateRole(String(actorId), String(targetId), { role: 'enterprise_admin', reason: 'Assigned company admin', expectedVersion: 0 })).resolves.toMatchObject({ role: 'enterprise_admin', version: 1 });
       expect(lock).toHaveBeenCalledWith(enterpriseId, expect.anything());
       expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'role_changed', changes: { previousRole: 'recruiter', role: 'enterprise_admin' } }), expect.anything());
+      expect(mockNotifications.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientId: String(targetId),
+          type: 'account_alert',
+          category: 'info',
+          title: 'Role Updated',
+        }),
+      );
     });
   });
 
