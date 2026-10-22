@@ -59,6 +59,11 @@ export const USER_MESSAGES = {
   VERSION_CONFLICT: 'The account changed. Reload and try again.',
 } as const;
 
+// `$dateToString` format that groups accounts by the calendar day they were created on.
+export const USER_LOCAL_DAY_FORMAT = '%Y-%m-%d';
+// Accounts saved before `status` existed count as active, as the schema default does for new ones.
+export const USER_DEFAULT_STATUS: UserStatus = 'active';
+
 export const USER_LOG_TAGS = {
   STORE_ERROR: '[users:store:error]',
   PROJECTION_ERROR: '[users:projection:error]',

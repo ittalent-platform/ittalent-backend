@@ -7,6 +7,7 @@ import {
 import { registerCertificateLinksOpenApi } from '../modules/certificate-links/certificate-links.openapi.js';
 import { registerPortfolioLinksOpenApi } from '../modules/portfolio-links/portfolio-links.openapi.js';
 import { registerAuthOpenApi } from '../modules/auth/auth.openapi.js';
+import { registerDashboardOpenApi } from '../modules/dashboard/dashboard.openapi.js';
 import { registerDocumentsOpenApi } from '../modules/documents/documents.openapi.js';
 import { registerEnterprisesOpenApi } from '../modules/enterprises/enterprises.openapi.js';
 import { registerEnterpriseRegistrationsOpenApi } from '../modules/enterprise-registrations/enterprise-registrations.openapi.js';
@@ -19,6 +20,7 @@ import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 import { registerUserInvitationsOpenApi } from '../modules/user-invitations/user-invitations.openapi.js';
 import { registerUserAuditsOpenApi } from '../modules/user-audits/user-audits.openapi.js';
 import { registerUserEmailChangesOpenApi } from '../modules/user-email-changes/user-email-changes.openapi.js';
+import { registerWishlistOpenApi } from '../modules/wishlist/index.js';
 
 export const registry = new OpenAPIRegistry();
 
@@ -43,5 +45,8 @@ registerCertificateLinksOpenApi(registry);
 registerPortfolioLinksOpenApi(registry);
 registerRecruiterApplicationsOpenApi(registry);
 registerInterviewsOpenApi(registry);
+registerDashboardOpenApi(registry);
 registerNotificationsOpenApi(registry);
 registerBroadcastNotificationsOpenApi(registry);
+registerWishlistOpenApi(registry);
+
