@@ -8,7 +8,14 @@ import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
 import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
-import { usersRepository, type UsersRepository, type CreateManagedUserInput, type CreateUserData } from './users.repository.js';
+import {
+  usersRepository,
+  type AccountCountRow,
+  type CreateManagedUserInput,
+  type CreateUserData,
+  type DayCountRow,
+  type UsersRepository,
+} from './users.repository.js';
 import {
   strictUserDtoSchema,
   type CreateEmployeeBody,
@@ -516,6 +523,16 @@ export class UsersService {
 
   async updateStatusById(id: string, status: UserStatus, adminId?: string, reason?: string): Promise<UserDoc | null> {
     return this.repository.updateStatus(id, status, adminId, reason);
+  }
+
+  /** Platform overview: accounts by role and status, without reading any of them. */
+  async countAccountsByRoleAndStatus(roles: readonly UserRole[]): Promise<AccountCountRow[]> {
+    return this.guardStore(() => this.repository.countByRoleAndStatus(roles));
+  }
+
+  /** Platform overview: accounts created per calendar day of a half-open window, in the given time zone. */
+  async countAccountsCreatedPerDay(roles: readonly UserRole[], from: Date, to: Date, timeZone: string): Promise<DayCountRow[]> {
+    return this.guardStore(() => this.repository.countCreatedPerDay(roles, from, to, timeZone));
   }
 
   async getEnterpriseId(id: string): Promise<string | null> {
