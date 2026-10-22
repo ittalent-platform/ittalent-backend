@@ -2,9 +2,15 @@ import { Enterprise } from '../../models/enterprise.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { WISHLIST_CONFIG, WISHLIST_MESSAGES } from './wishlist.constants.js';
+import { WISHLIST_AVAILABILITY, WISHLIST_CONFIG, WISHLIST_MESSAGES } from './wishlist.constants.js';
 import { wishlistRepository, type WishlistRepository } from './wishlist.repository.js';
-import type { WishlistSaveResponse } from './wishlist.schemas.js';
+import type {
+  WishlistCheckResponse,
+  WishlistItem,
+  WishlistQuery,
+  WishlistResponse,
+  WishlistSaveResponse,
+} from './wishlist.schemas.js';
 
 export class WishlistService {
   constructor(private readonly repo: WishlistRepository = wishlistRepository) {}
@@ -66,6 +72,84 @@ export class WishlistService {
       }
       throw error;
     }
+  }
+
+  async checkSaved(userId: string, jobId: string): Promise<WishlistCheckResponse> {
+    const existing = await this.repo.findByUserAndJob(userId, jobId);
+    return {
+      isSaved: Boolean(existing),
+      wishlistId: existing ? existing._id.toHexString() : null,
+    };
+  }
+
+  async listMine(userId: string, query: WishlistQuery): Promise<WishlistResponse> {
+    const { items: rawItems, total } = await this.repo.findPaginatedWishlist(userId, query);
+    const nowMs = Date.now();
+
+    const items: WishlistItem[] = rawItems.map((raw) => {
+      const isAvailable = Boolean(raw.is_available && raw.job);
+
+      if (isAvailable && raw.job) {
+        const expiresAtDate = raw.job.expires_at ? new Date(raw.job.expires_at) : null;
+        const diffMs = expiresAtDate ? expiresAtDate.getTime() - nowMs : Infinity;
+        const isClosingSoon = diffMs > 0 && diffMs <= WISHLIST_CONFIG.CLOSING_SOON_THRESHOLD_MS;
+
+        return {
+          id: raw._id.toHexString(),
+          jobId: raw.job_id.toHexString(),
+          savedAt: raw.createdAt.toISOString(),
+          availability: WISHLIST_AVAILABILITY.AVAILABLE,
+          isClosingSoon,
+          title: raw.job.title,
+          slug: raw.job.slug,
+          enterprise: raw.enterprise
+            ? {
+                id: raw.enterprise._id.toHexString(),
+                name: raw.enterprise.name,
+                logoUrl: raw.enterprise.logo_url ?? null,
+              }
+            : null,
+          location: raw.job.location ?? null,
+          employmentType: raw.job.employment_type ?? null,
+          level: raw.job.level ?? null,
+          salaryMin: raw.job.salary_min ?? null,
+          salaryMax: raw.job.salary_max ?? null,
+          salaryNegotiable: raw.job.salary_negotiable ?? false,
+          currency: raw.job.currency ?? 'VND',
+          expiresAt: expiresAtDate ? expiresAtDate.toISOString() : null,
+        };
+      }
+
+      // UX Board 6 & 11 (WL-02 A2): Placeholder for unavailable/closed/inactive jobs with masked sensitive details
+      return {
+        id: raw._id.toHexString(),
+        jobId: raw.job_id.toHexString(),
+        savedAt: raw.createdAt.toISOString(),
+        availability: WISHLIST_AVAILABILITY.UNAVAILABLE,
+        isClosingSoon: false,
+        title: null,
+        slug: null,
+        enterprise: null,
+        location: null,
+        employmentType: null,
+        level: null,
+        salaryMin: null,
+        salaryMax: null,
+        salaryNegotiable: false,
+        currency: 'VND',
+        expiresAt: null,
+      };
+    });
+
+    const totalPages = Math.ceil(total / query.limit);
+
+    return {
+      items,
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages,
+    };
   }
 }
 
