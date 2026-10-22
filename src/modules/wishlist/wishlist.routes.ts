@@ -21,6 +21,24 @@ wishlistRouter.post(
   wishlistController.saveJob,
 );
 
+wishlistRouter.post(
+  '/toggle',
+  authenticate,
+  authenticateCurrentUser,
+  authorize(...CANDIDATE_ROLES),
+  validateBody(addWishlistBodySchema),
+  wishlistController.toggleJob,
+);
+
+wishlistRouter.patch(
+  '/jobs/:jobId/toggle',
+  authenticate,
+  authenticateCurrentUser,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(wishlistJobParamSchema),
+  wishlistController.toggleJob,
+);
+
 wishlistRouter.get(
   '/',
   authenticate,

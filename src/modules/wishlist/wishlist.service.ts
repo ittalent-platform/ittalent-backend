@@ -10,6 +10,7 @@ import type {
   WishlistQuery,
   WishlistResponse,
   WishlistSaveResponse,
+  WishlistToggleResponse,
 } from './wishlist.schemas.js';
 
 export class WishlistService {
@@ -69,6 +70,64 @@ export class WishlistService {
           message: WISHLIST_MESSAGES.ALREADY_SAVED,
           id: raced?._id.toHexString(),
         };
+      }
+      throw error;
+    }
+  }
+
+  async toggleSave(userId: string, jobId: string): Promise<WishlistToggleResponse> {
+    const existing = await this.repo.findByUserAndJob(userId, jobId);
+    if (existing) {
+      await this.repo.deleteByUserAndJob(userId, jobId);
+      return {
+        saved: false,
+        message: WISHLIST_MESSAGES.UNSAVED_SUCCESS,
+      };
+    }
+
+    const job = await JobPosting.findById(jobId).exec();
+    if (!job) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, WISHLIST_MESSAGES.JOB_NOT_FOUND);
+    }
+
+    const now = new Date();
+    const isExpired = job.expires_at ? job.expires_at <= now : false;
+    if (job.status !== 'published' || job.deleting || isExpired) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.JOB_CLOSED);
+    }
+
+    const enterprise = await Enterprise.findById(job.enterprise_id).exec();
+    if (!enterprise || enterprise.status !== 'active' || enterprise.is_deleted) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.ENTERPRISE_INACTIVE);
+    }
+
+    const count = await this.repo.countByUser(userId);
+    if (count >= WISHLIST_CONFIG.MAX_CAPACITY) {
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, WISHLIST_MESSAGES.CAPACITY_EXCEEDED);
+    }
+
+    try {
+      const created = await this.repo.create(userId, jobId);
+      return {
+        saved: true,
+        message: WISHLIST_MESSAGES.SAVED_SUCCESS,
+        id: created._id.toHexString(),
+      };
+    } catch (error: unknown) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code: number }).code === WISHLIST_CONFIG.MONGO_DUPLICATE_KEY_ERROR_CODE
+      ) {
+        const raced = await this.repo.findByUserAndJob(userId, jobId);
+        if (raced) {
+          return {
+            saved: true,
+            message: WISHLIST_MESSAGES.SAVED_SUCCESS,
+            id: raced._id.toHexString(),
+          };
+        }
       }
       throw error;
     }

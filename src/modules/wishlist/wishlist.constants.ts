@@ -30,5 +30,6 @@ export const WISHLIST_MESSAGES = {
   ENTERPRISE_INACTIVE: 'This job is no longer available',
   CAPACITY_EXCEEDED: 'Wishlist capacity limit reached (maximum 500 saved jobs)',
   SAVED_SUCCESS: 'Job added to wishlist successfully',
+  UNSAVED_SUCCESS: 'Job removed from wishlist',
   ALREADY_SAVED: 'Already in your saved jobs',
 } as const;
