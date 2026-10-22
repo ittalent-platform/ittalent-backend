@@ -45,6 +45,7 @@ export interface StorageUploadInput {
   prefix?: string;
   resourceType?: 'raw' | 'image' | 'auto';
   mimeType?: string;
+  resourceLabel?: string;
 }
 
 export interface StorageUploadResult {
@@ -67,9 +68,10 @@ export class StorageService {
     const publicId = `${prefix}-${randomUUID()}.${ext}`;
     const resourceType = input.resourceType ?? 'raw';
     const mimeType = input.mimeType ?? 'application/octet-stream';
+    const resourceLabel = input.resourceLabel ?? 'Document';
 
     if (!this.isConfigured()) {
-      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Document storage is not configured');
+      throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, `${resourceLabel} storage is not configured`);
     }
 
     const cloudinary = getCloudinary();
@@ -78,7 +80,7 @@ export class StorageService {
         { folder, public_id: publicId, resource_type: resourceType },
         (error, output) => {
           if (error || !output) {
-            reject(error ?? new Error('Document upload failed'));
+            reject(error ?? new Error(`${resourceLabel} upload failed`));
             return;
           }
           resolve(output);
@@ -86,11 +88,11 @@ export class StorageService {
       );
       stream.end(input.buffer);
     }).catch(() => {
-      throw createHttpError(HTTP_STATUS.HTTP_502_BAD_GATEWAY, 'Document upload failed');
+      throw createHttpError(HTTP_STATUS.HTTP_502_BAD_GATEWAY, `${resourceLabel} upload failed`);
     });
 
     if (!result.secure_url || !result.public_id) {
-      throw createHttpError(HTTP_STATUS.HTTP_502_BAD_GATEWAY, 'Document upload failed');
+      throw createHttpError(HTTP_STATUS.HTTP_502_BAD_GATEWAY, `${resourceLabel} upload failed`);
     }
 
     return {

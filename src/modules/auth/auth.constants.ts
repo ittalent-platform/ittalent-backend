@@ -16,6 +16,7 @@ export const AUTH_MESSAGES = {
   RESET_TOKEN_UNAVAILABLE: 'Password reset link has expired or has already been used.',
   PASSWORD_CHANGED_SUCCESS: 'Password changed successfully.',
   INVALID_CURRENT_PASSWORD: 'Incorrect current password.',
+  PASSWORD_UNCHANGED: 'New password must be different from the current password.',
   ACCOUNT_HAS_NO_PASSWORD: 'This account does not have a local password set.',
 } as const;
 

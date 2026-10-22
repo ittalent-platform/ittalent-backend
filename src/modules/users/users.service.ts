@@ -151,6 +151,7 @@ export class UsersService {
       username: user.username,
       fullName: raw.full_name ?? null,
       phone: raw.phone ?? null,
+      ...(raw.avatar_url ? { avatarUrl: raw.avatar_url } : {}),
       role: user.role ?? 'user',
       status: user.status ?? 'active',
       emailVerified: raw.email_verified === true,

@@ -27,6 +27,8 @@ export interface UserData {
   status?: UserStatus;
   full_name?: string;
   phone?: string;
+  avatar_url?: string | null;
+  avatar_storage_key?: string | null;
   email_verified?: boolean;
   auth_version?: number;
   version?: number;
@@ -84,6 +86,8 @@ const userSchema = new Schema<UserData>(
     },
     full_name: { type: String, trim: true },
     phone: { type: String, trim: true },
+    avatar_url: { type: String, trim: true, default: null },
+    avatar_storage_key: { type: String, trim: true, default: null, select: false },
     email_verified: {
       type: Boolean,
       default: false,

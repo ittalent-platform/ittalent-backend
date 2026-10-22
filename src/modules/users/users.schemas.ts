@@ -31,6 +31,7 @@ export const userDtoSchema = z.object({
   username: z.string(),
   fullName: z.string().nullable(),
   phone: z.string().nullable(),
+  avatarUrl: z.string().url().nullable().optional(),
   role: z.string(),
   status: z.string(),
   emailVerified: z.boolean(),
