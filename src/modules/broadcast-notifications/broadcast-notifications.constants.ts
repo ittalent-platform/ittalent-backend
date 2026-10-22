@@ -15,7 +15,7 @@ export const BROADCAST_AUDIENCES = [
 
 export const BROADCAST_PRIORITIES = ['Low', 'Normal', 'High', 'Urgent'] as const;
 
-export const BROADCAST_STATUSES = ['Draft', 'Scheduled', 'Sent', 'Cancelled'] as const;
+export const BROADCAST_STATUSES = ['Draft', 'Scheduled', 'Processing', 'Sent', 'Cancelled'] as const;
 
 export const BROADCAST_CHANNELS = ['In-App Inbox', 'Email Digest'] as const;
 

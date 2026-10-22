@@ -21,7 +21,7 @@ export type BroadcastAudience = (typeof broadcastAudiences)[number];
 export const broadcastPriorities = ['Low', 'Normal', 'High', 'Urgent'] as const;
 export type BroadcastPriority = (typeof broadcastPriorities)[number];
 
-export const broadcastStatuses = ['Draft', 'Scheduled', 'Sent', 'Cancelled'] as const;
+export const broadcastStatuses = ['Draft', 'Scheduled', 'Processing', 'Sent', 'Cancelled'] as const;
 export type BroadcastStatus = (typeof broadcastStatuses)[number];
 
 export const broadcastChannels = ['In-App Inbox', 'Email Digest'] as const;

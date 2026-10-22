@@ -93,7 +93,6 @@ describe('Broadcast Notifications Schemas Validation', () => {
       const future = new Date(Date.now() + 20 * 60 * 1000).toISOString();
       const result = scheduleBroadcastNotificationSchema.safeParse({
         scheduled_at: future,
-        timezone: 'Asia/Ho_Chi_Minh',
       });
       expect(result.success).toBe(true);
     });

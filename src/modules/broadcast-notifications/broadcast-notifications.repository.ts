@@ -3,12 +3,25 @@ import {
   BroadcastNotification,
   type BroadcastAudience,
   type BroadcastNotificationData,
+  type BroadcastStatus,
 } from '../../models/broadcast-notification.model.js';
-import { Notification } from '../../models/notification.model.js';
-import { User } from '../../models/user.model.js';
+import type { UserRole } from '../../models/user.model.js';
+import {
+  notificationsRepository,
+  type NotificationsRepository,
+} from '../notifications/notifications.repository.js';
+import {
+  usersRepository,
+  type UsersRepository,
+} from '../users/users.repository.js';
 import type { BroadcastListQuery } from './broadcast-notifications.schemas.js';
 
 export class BroadcastNotificationsRepository {
+  constructor(
+    private readonly notificationsRepo: NotificationsRepository = notificationsRepository,
+    private readonly usersRepo: UsersRepository = usersRepository,
+  ) {}
+
   async create(data: Partial<BroadcastNotificationData>) {
     return BroadcastNotification.create(data);
   }
@@ -114,35 +127,60 @@ export class BroadcastNotificationsRepository {
     }).exec();
   }
 
-  async getTargetUserIds(audience: BroadcastAudience): Promise<Types.ObjectId[]> {
-    let query: Record<string, unknown> = { status: 'active' };
-
-    if (audience === 'Applicants only') {
-      query = { status: 'active', role: { $in: ['applicant', 'user'] } };
-    } else if (audience === 'Recruiters only') {
-      query = { status: 'active', role: 'recruiter' };
-    } else if (audience === 'Enterprise Admins') {
-      query = { status: 'active', role: 'enterprise_admin' };
-    }
-
-    const users = await User.find(query).select('_id').lean().exec();
-    return users.map((u) => u._id as Types.ObjectId);
+  async claimForDispatch(
+    id: string,
+    allowedStatuses: BroadcastStatus[],
+  ) {
+    return BroadcastNotification.findOneAndUpdate(
+      { _id: id, status: { $in: allowedStatuses }, deleted_at: null },
+      { $set: { status: 'Processing' } },
+      { returnDocument: 'after' },
+    )
+      .populate('sender_id', 'email full_name role')
+      .exec();
   }
 
-  async insertRecipientNotifications(notifications: Record<string, unknown>[]): Promise<void> {
-    if (notifications.length === 0) return;
-    const chunkSize = 500;
-    for (let i = 0; i < notifications.length; i += chunkSize) {
-      const chunk = notifications.slice(i, i + chunkSize);
-      await Notification.insertMany(chunk, { ordered: false });
+  async revertDispatchClaim(id: string, revertStatus: BroadcastStatus): Promise<void> {
+    await BroadcastNotification.updateOne(
+      { _id: id, status: 'Processing' },
+      { $set: { status: revertStatus } },
+    ).exec();
+  }
+
+  async getTargetUserIds(audience: BroadcastAudience): Promise<Types.ObjectId[]> {
+    let roles: UserRole[] | undefined;
+    if (audience === 'Applicants only') {
+      roles = ['applicant', 'user'];
+    } else if (audience === 'Recruiters only') {
+      roles = ['recruiter'];
+    } else if (audience === 'Enterprise Admins') {
+      roles = ['enterprise_admin'];
     }
+    return this.usersRepo.findActiveUserIdsByRoles(roles);
+  }
+
+  async insertRecipientNotifications(
+    notifications: Array<{
+      _id: Types.ObjectId;
+      recipient_id: Types.ObjectId;
+      title: string;
+      message: string;
+      type: 'system_announcement';
+      category: 'info' | 'warning';
+      action_url: string | null;
+      data: Record<string, unknown> | null;
+      is_read: boolean;
+    }>,
+  ): Promise<void> {
+    return this.notificationsRepo.insertBatch(notifications);
   }
 
   async countReadReceipts(broadcastId: string): Promise<number> {
-    return Notification.countDocuments({
-      'data.broadcast_id': broadcastId,
-      is_read: true,
-    }).exec();
+    return this.notificationsRepo.countReadReceipts(broadcastId);
+  }
+
+  async countReadReceiptsBatch(broadcastIds: string[]): Promise<Map<string, number>> {
+    return this.notificationsRepo.countReadReceiptsBatch(broadcastIds);
   }
 }
 

@@ -44,7 +44,7 @@ broadcastNotificationsRouter.patch(
 );
 
 // UC-04: Schedule Broadcast Notification
-broadcastNotificationsRouter.post(
+broadcastNotificationsRouter.patch(
   '/:id/schedule',
   validateParams(broadcastIdParamSchema),
   validateBody(scheduleBroadcastNotificationSchema),
@@ -52,14 +52,14 @@ broadcastNotificationsRouter.post(
 );
 
 // Cancel Schedule (Revert to Draft)
-broadcastNotificationsRouter.post(
+broadcastNotificationsRouter.patch(
   '/:id/cancel-schedule',
   validateParams(broadcastIdParamSchema),
   broadcastNotificationsController.cancelSchedule,
 );
 
 // Dispatch Now (Immediate Dispatch)
-broadcastNotificationsRouter.post(
+broadcastNotificationsRouter.patch(
   '/:id/dispatch',
   validateParams(broadcastIdParamSchema),
   broadcastNotificationsController.dispatchNow,

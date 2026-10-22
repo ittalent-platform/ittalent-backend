@@ -159,7 +159,7 @@ describe('Broadcast Notifications API Routes (Integration)', () => {
     const res = await fetch(
       `${baseUrl}/api/v1/broadcast-notifications/${mockBroadcastDto.id}/schedule`,
       {
-        method: 'POST',
+        method: 'PATCH',
         headers: {
           Authorization: `Bearer ${adminToken}`,
           'Content-Type': 'application/json',
@@ -180,7 +180,7 @@ describe('Broadcast Notifications API Routes (Integration)', () => {
     const res = await fetch(
       `${baseUrl}/api/v1/broadcast-notifications/${mockBroadcastDto.id}/dispatch`,
       {
-        method: 'POST',
+        method: 'PATCH',
         headers: { Authorization: `Bearer ${adminToken}` },
       },
     );

@@ -133,7 +133,6 @@ export const scheduleBroadcastNotificationSchema = z
       },
       { message: 'Invalid scheduled date and time format' },
     ),
-    timezone: z.string().optional().default('Asia/Ho_Chi_Minh'),
   })
   .superRefine((data, ctx) => {
     const scheduledDate = new Date(data.scheduled_at);

@@ -65,6 +65,8 @@ export interface RawBroadcastDoc {
   updatedAt?: Date;
 }
 
+const CHUNK_SIZE = 1000;
+
 export class BroadcastNotificationsService {
   constructor(
     private readonly repository: BroadcastNotificationsRepository = broadcastNotificationsRepository,
@@ -138,31 +140,38 @@ export class BroadcastNotificationsService {
       status: (isDraft ? 'Draft' : 'Sent') as BroadcastStatus,
       sent_at: isDraft ? null : new Date(),
       sender_id: senderId,
-      delivery_metrics: { targeted_count: 0, delivered_count: 0, read_count: 0 },
+      delivery_metrics: {
+        targeted_count: 0,
+        delivered_count: 0,
+        read_count: 0,
+      },
     };
 
-    const broadcast = await this.repository.create(initialData);
+    const created = await this.repository.create(initialData);
+    const broadcast = created as unknown as RawBroadcastDoc;
 
     if (!isDraft) {
       await this.executeDispatch(broadcast);
     }
 
     const reloaded = await this.repository.findById(broadcast._id.toString());
-    return this.mapDto(reloaded || broadcast);
+    return this.mapDto((reloaded || broadcast) as unknown as RawBroadcastDoc);
   }
 
   async list(query: BroadcastListQuery): Promise<BroadcastListResponse> {
     const { items, total, summary } = await this.repository.findPage(query);
 
-    const mappedItems: BroadcastNotificationDto[] = await Promise.all(
-      items.map(async (doc) => {
-        let liveRead: number | undefined;
-        if (doc.status === 'Sent') {
-          liveRead = await this.repository.countReadReceipts(doc._id.toString());
-        }
-        return this.mapDto(doc, liveRead);
-      }),
-    );
+    const sentIds = items
+      .filter((doc) => doc.status === 'Sent')
+      .map((doc) => doc._id.toString());
+    const readReceiptsMap = await this.repository.countReadReceiptsBatch(sentIds);
+
+    const mappedItems: BroadcastNotificationDto[] = items.map((doc) => {
+      const liveRead = doc.status === 'Sent'
+        ? (readReceiptsMap.get(doc._id.toString()) ?? doc.delivery_metrics?.read_count ?? 0)
+        : undefined;
+      return this.mapDto(doc as unknown as RawBroadcastDoc, liveRead);
+    });
 
     const totalPages = total > 0 ? Math.ceil(total / query.limit) : 0;
 
@@ -187,7 +196,7 @@ export class BroadcastNotificationsService {
       liveRead = await this.repository.countReadReceipts(broadcast._id.toString());
     }
 
-    return this.mapDto(broadcast, liveRead);
+    return this.mapDto(broadcast as unknown as RawBroadcastDoc, liveRead);
   }
 
   async update(actor: ActorPayload, id: string, input: UpdateBroadcastNotificationInput): Promise<BroadcastNotificationDto> {
@@ -211,7 +220,7 @@ export class BroadcastNotificationsService {
     if (input.channels !== undefined) patch.channels = input.channels;
 
     const updated = await this.repository.update(id, patch);
-    return this.mapDto(updated || existing);
+    return this.mapDto((updated || existing) as unknown as RawBroadcastDoc);
   }
 
   async schedule(actor: ActorPayload, id: string, input: ScheduleBroadcastNotificationInput): Promise<BroadcastNotificationDto> {
@@ -234,7 +243,7 @@ export class BroadcastNotificationsService {
       scheduled_at: scheduledDate,
     });
 
-    return this.mapDto(updated || existing);
+    return this.mapDto((updated || existing) as unknown as RawBroadcastDoc);
   }
 
   async cancelSchedule(actor: ActorPayload, id: string): Promise<BroadcastNotificationDto> {
@@ -252,23 +261,31 @@ export class BroadcastNotificationsService {
       scheduled_at: null,
     });
 
-    return this.mapDto(updated || existing);
+    return this.mapDto((updated || existing) as unknown as RawBroadcastDoc);
   }
 
   async dispatchNow(actor: ActorPayload, id: string): Promise<BroadcastNotificationDto> {
-    const existing = await this.repository.findById(id);
-    if (!existing) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, BROADCAST_MESSAGES.NOT_FOUND);
+    const claimed = await this.repository.claimForDispatch(id, ['Draft', 'Scheduled']);
+    if (!claimed) {
+      const existing = await this.repository.findById(id);
+      if (!existing) {
+        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, BROADCAST_MESSAGES.NOT_FOUND);
+      }
+      if (existing.status === 'Sent') {
+        throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Broadcast notification has already been dispatched');
+      }
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, 'Broadcast is already being processed');
     }
 
-    if (existing.status === 'Sent') {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Broadcast notification has already been dispatched');
+    try {
+      await this.executeDispatch(claimed as unknown as RawBroadcastDoc);
+    } catch (err) {
+      await this.repository.revertDispatchClaim(id, 'Draft');
+      throw err;
     }
-
-    await this.executeDispatch(existing);
 
     const updated = await this.repository.findById(id);
-    return this.mapDto(updated || existing);
+    return this.mapDto((updated || claimed) as unknown as RawBroadcastDoc);
   }
 
   async delete(actor: ActorPayload, id: string): Promise<{ success: boolean; message: string }> {
@@ -294,44 +311,46 @@ export class BroadcastNotificationsService {
       const notificationCategory =
         broadcast.category === 'Security Alert' ? 'warning' : 'info';
 
-      const notifications = targetUserIds.map((userId) => ({
-        recipient_id: userId,
-        title: broadcast.title,
-        message: broadcast.content,
-        type: 'system_announcement' as const,
-        category: notificationCategory,
-        action_url: broadcast.action_url ?? null,
-        data: {
-          broadcast_id: broadcast._id.toString(),
-          category: broadcast.category,
-          priority: broadcast.priority,
-        },
-        is_read: false,
-      }));
+      for (let i = 0; i < targetUserIds.length; i += CHUNK_SIZE) {
+        const chunk = targetUserIds.slice(i, i + CHUNK_SIZE);
+        const notifications = chunk.map((userId) => {
+          const notificationId = new Types.ObjectId();
+          return {
+            _id: notificationId,
+            recipient_id: userId,
+            title: broadcast.title,
+            message: broadcast.content,
+            type: 'system_announcement' as const,
+            category: notificationCategory as 'info' | 'warning',
+            action_url: broadcast.action_url ?? null,
+            data: {
+              broadcast_id: broadcast._id.toString(),
+              category: broadcast.category,
+              priority: broadcast.priority,
+            },
+            is_read: false,
+          };
+        });
 
-      // Insert notifications into recipients' inboxes via repository
-      await this.repository.insertRecipientNotifications(notifications);
+        await this.repository.insertRecipientNotifications(notifications);
 
-      // Emit SSE events to active clients
-      const broadcastDto = {
-        id: broadcast._id.toString(),
-        title: broadcast.title,
-        message: broadcast.content,
-        type: 'system_announcement' as const,
-        category: (broadcast.category === 'Security Alert' ? 'warning' : 'info') as 'info' | 'warning',
-        actionUrl: broadcast.action_url ?? null,
-        data: {
-          broadcast_id: broadcast._id.toString(),
-          category: broadcast.category,
-          priority: broadcast.priority,
-        },
-        isRead: false,
-        readAt: null,
-        createdAt: new Date().toISOString(),
-      };
-
-      for (const userId of targetUserIds) {
-        this.bus.emitNotification(userId.toString(), broadcastDto);
+        for (const item of notifications) {
+          const userIdStr = item.recipient_id.toString();
+          if (this.bus.getUserListenerCount(userIdStr) > 0) {
+            this.bus.emitNotification(userIdStr, {
+              id: item._id.toString(),
+              title: item.title,
+              message: item.message,
+              type: item.type,
+              category: item.category,
+              actionUrl: item.action_url,
+              data: item.data,
+              isRead: false,
+              readAt: null,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
       }
     }
 
@@ -351,11 +370,18 @@ export class BroadcastNotificationsService {
     let dispatchedCount = 0;
 
     for (const b of dueBroadcasts) {
+      const id = b._id.toString();
+      const claimed = await this.repository.claimForDispatch(id, ['Scheduled']);
+      if (!claimed) {
+        continue;
+      }
+
       try {
-        await this.executeDispatch(b);
+        await this.executeDispatch(claimed as unknown as RawBroadcastDoc);
         dispatchedCount++;
       } catch (err) {
-        console.error(`Failed to dispatch scheduled broadcast ${b._id}:`, err);
+        await this.repository.revertDispatchClaim(id, 'Scheduled');
+        console.error(`Failed to dispatch scheduled broadcast ${id}:`, err);
       }
     }
 

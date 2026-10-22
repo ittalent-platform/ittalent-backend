@@ -113,7 +113,7 @@ export function registerBroadcastNotificationsOpenApi(registry: OpenAPIRegistry)
   });
 
   registry.registerPath({
-    method: 'post',
+    method: 'patch',
     path: '/api/v1/broadcast-notifications/{id}/schedule',
     tags: ['Broadcast Notifications'],
     summary: 'Schedule broadcast notification (UC-04)',
@@ -136,7 +136,7 @@ export function registerBroadcastNotificationsOpenApi(registry: OpenAPIRegistry)
   });
 
   registry.registerPath({
-    method: 'post',
+    method: 'patch',
     path: '/api/v1/broadcast-notifications/{id}/cancel-schedule',
     tags: ['Broadcast Notifications'],
     summary: 'Cancel scheduled broadcast dispatch',
@@ -154,7 +154,7 @@ export function registerBroadcastNotificationsOpenApi(registry: OpenAPIRegistry)
   });
 
   registry.registerPath({
-    method: 'post',
+    method: 'patch',
     path: '/api/v1/broadcast-notifications/{id}/dispatch',
     tags: ['Broadcast Notifications'],
     summary: 'Dispatch broadcast notification immediately',
