@@ -5,7 +5,9 @@ import { createHttpError } from '../../shared/errors/http-error.js';
 import { WISHLIST_AVAILABILITY, WISHLIST_CONFIG, WISHLIST_MESSAGES } from './wishlist.constants.js';
 import { wishlistRepository, type WishlistRepository } from './wishlist.repository.js';
 import type {
+  WishlistBulkDeleteResponse,
   WishlistCheckResponse,
+  WishlistDeleteResponse,
   WishlistItem,
   WishlistQuery,
   WishlistResponse,
@@ -208,6 +210,46 @@ export class WishlistService {
       limit: query.limit,
       total,
       totalPages,
+    };
+  }
+
+  async removeJob(userId: string, jobId: string): Promise<WishlistDeleteResponse> {
+    const deleted = await this.repo.deleteByUserAndJob(userId, jobId);
+    if (!deleted) {
+      return {
+        removed: true,
+        alreadyRemoved: true,
+        message: WISHLIST_MESSAGES.ALREADY_REMOVED,
+      };
+    }
+    return {
+      removed: true,
+      alreadyRemoved: false,
+      message: WISHLIST_MESSAGES.UNSAVED_SUCCESS,
+    };
+  }
+
+  async removeById(userId: string, id: string): Promise<WishlistDeleteResponse> {
+    const deleted = await this.repo.deleteByIdAndUser(userId, id);
+    if (!deleted) {
+      return {
+        removed: true,
+        alreadyRemoved: true,
+        message: WISHLIST_MESSAGES.ALREADY_REMOVED,
+      };
+    }
+    return {
+      removed: true,
+      alreadyRemoved: false,
+      message: WISHLIST_MESSAGES.UNSAVED_SUCCESS,
+    };
+  }
+
+  async clearUnavailable(userId: string): Promise<WishlistBulkDeleteResponse> {
+    const removedCount = await this.repo.deleteUnavailableByUser(userId);
+    return {
+      removedCount,
+      message: WISHLIST_MESSAGES.BULK_REMOVED_SUCCESS,
     };
   }
 }
