@@ -9,6 +9,7 @@ import type {
   CreateJobPosting,
   JobPostingHistoryQuery,
   JobPostingIdParam,
+  JobPostingPublicParam,
   JobPostingListQuery,
   UpdateJobPosting,
 } from './job-postings.schemas.js';
@@ -54,7 +55,7 @@ export class JobPostingsController {
   };
   getPublic: RequestHandler = async (_req, res, next) => {
     try {
-      const { id } = res.locals.validated?.params as JobPostingIdParam;
+      const { id } = res.locals.validated?.params as JobPostingPublicParam;
       res.json(await this.service.getPublicById(id));
     } catch (error) {
       next(error);

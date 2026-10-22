@@ -9,6 +9,7 @@ import {
   JOB_EMPLOYMENT_TYPES,
   JOB_LIMITS,
   JOB_POSTING_MESSAGES,
+  OBJECT_ID_PATTERN,
   RECRUITMENT_STATUSES,
 } from './job-postings.constants.js';
 
@@ -29,7 +30,7 @@ function isValidDeadlineInput(value: string): boolean {
 
 const objectId = z
   .string()
-  .regex(/^[0-9a-fA-F]{24}$/, 'Invalid job posting ID');
+  .regex(OBJECT_ID_PATTERN, 'Invalid job posting ID');
 const content = z
   .string()
   .trim()
@@ -147,6 +148,16 @@ export const updateJobPostingSchema = z
   });
 
 export const jobPostingIdParamSchema = z.object({ id: objectId });
+// The public detail page links by slug (/career/:slug), so that endpoint accepts a slug as well as an id.
+const jobSlug = z
+  .string()
+  .trim()
+  .min(1)
+  .max(JOB_LIMITS.SLUG_MAX)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Invalid job posting ID or slug');
+export const jobPostingPublicParamSchema = z.object({
+  id: z.union([objectId, jobSlug]),
+});
 export const jobPostingListQuerySchema = z.object({
   search: z.string().trim().min(1).max(JOB_LIMITS.SHORT_TEXT_MAX).optional(),
   location: z.string().trim().min(1).max(JOB_LIMITS.LOCATION_MAX).optional(),
@@ -176,6 +187,7 @@ export const jobPostingListQuerySchema = z.object({
 export type CreateJobPosting = z.input<typeof createJobPostingSchema>;
 export type UpdateJobPosting = z.infer<typeof updateJobPostingSchema>;
 export type JobPostingIdParam = z.infer<typeof jobPostingIdParamSchema>;
+export type JobPostingPublicParam = z.infer<typeof jobPostingPublicParamSchema>;
 export type JobPostingListQuery = z.infer<typeof jobPostingListQuerySchema>;
 export const jobPostingEnterpriseSummarySchema = z.object({
   id: z.string(),

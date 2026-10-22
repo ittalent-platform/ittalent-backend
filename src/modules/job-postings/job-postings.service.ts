@@ -14,6 +14,7 @@ import {
   JOB_DEADLINE,
   JOB_POSTING_MANAGER_ROLES,
   JOB_POSTING_MESSAGES,
+  OBJECT_ID_PATTERN,
   type JobAuditAction,
   type RecruitmentStatus,
 } from './job-postings.constants.js';
@@ -587,9 +588,13 @@ export class JobPostingsService {
   async findPublicJobById(id: string): Promise<JobPostingDoc | null> {
     return this.repository.findOpenPublishedById(id, new Date());
   }
-  // Public detail: 404 unless the job is Published, still open and owned by an Active enterprise.
-  async getPublicById(id: string): Promise<JobPostingResponse> {
-    const job = await this.findPublicJobById(id);
+  // Public detail by id or slug: 404 unless the job is Published, still open and owned by an Active enterprise.
+  // shortcut: a slug that is itself 24 hex characters is read as an id, upgrade if slugs may ever look like that.
+  async getPublicById(idOrSlug: string): Promise<JobPostingResponse> {
+    const id = OBJECT_ID_PATTERN.test(idOrSlug)
+      ? idOrSlug
+      : (await this.repository.findBySlug(idOrSlug))?.id;
+    const job = id ? await this.findPublicJobById(id) : null;
     if (!job)
       throw createHttpError(
         HTTP_STATUS.HTTP_404_NOT_FOUND,

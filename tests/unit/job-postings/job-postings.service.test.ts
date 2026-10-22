@@ -58,7 +58,8 @@ type MockRepository = Record<
   | 'markDeleting'
   | 'clearDeleting'
   | 'hasApplications'
-  | 'findActiveEnterpriseIds',
+  | 'findActiveEnterpriseIds'
+  | 'findOpenPublishedById',
   ReturnType<typeof vi.fn>
 >;
 
@@ -79,6 +80,7 @@ function createService(recruiterEnterpriseId: string | null): {
     countApplicationsByJobIds: vi.fn().mockResolvedValue(new Map()),
     isEnterpriseActive: vi.fn().mockResolvedValue(true),
     findActiveEnterpriseIds: vi.fn().mockResolvedValue([enterpriseA]),
+    findOpenPublishedById: vi.fn().mockResolvedValue(null),
     recordAudit: vi.fn().mockResolvedValue(undefined),
     restore: vi.fn().mockResolvedValue(undefined),
     markDeleting: vi.fn(),
@@ -505,5 +507,36 @@ describe('JobPostingsService delete (UC-JOB-03)', () => {
     await expect(
       service.remove(jobId, recruiterA1, 'recruiter'),
     ).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe('JobPostingsService public detail by id or slug', () => {
+  const jobId = '507f1f77bcf86cd799439099';
+
+  it('looks a 24-character id up directly', async () => {
+    const { service, repository } = createService(null);
+    repository.findOpenPublishedById.mockResolvedValue(jobPosting(enterpriseA, { status: 'published' }));
+    await service.getPublicById(jobId);
+    expect(repository.findOpenPublishedById).toHaveBeenCalledWith(jobId, expect.any(Date));
+    expect(repository.findBySlug).not.toHaveBeenCalled();
+  });
+
+  it('resolves a slug to the job and applies the same open and published rules', async () => {
+    const { service, repository } = createService(null);
+    // "seed-job-500" has 12 characters, which mongoose's isValidObjectId would accept as an id.
+    repository.findBySlug.mockResolvedValue({ id: jobId });
+    repository.findOpenPublishedById.mockResolvedValue(jobPosting(enterpriseA, { status: 'published' }));
+    await service.getPublicById('seed-job-500');
+    expect(repository.findBySlug).toHaveBeenCalledWith('seed-job-500');
+    expect(repository.findOpenPublishedById).toHaveBeenCalledWith(jobId, expect.any(Date));
+  });
+
+  it('is not found for an unknown slug or a job that is not open', async () => {
+    const { service, repository } = createService(null);
+    await expect(service.getPublicById('no-such-job')).rejects.toMatchObject({ statusCode: 404 });
+    expect(repository.findOpenPublishedById).not.toHaveBeenCalled();
+
+    repository.findBySlug.mockResolvedValue({ id: jobId });
+    await expect(service.getPublicById('closed-job')).rejects.toMatchObject({ statusCode: 404 });
   });
 });
