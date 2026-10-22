@@ -3,7 +3,10 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
   addWishlistBodySchema,
+  wishlistBulkDeleteResponseSchema,
   wishlistCheckResponseSchema,
+  wishlistDeleteResponseSchema,
+  wishlistIdParamSchema,
   wishlistJobParamSchema,
   wishlistQuerySchema,
   wishlistResponseSchema,
@@ -18,6 +21,8 @@ export function registerWishlistOpenApi(registry: OpenAPIRegistry): void {
   const checkResponseSchema = registry.register('WishlistCheckResponse', wishlistCheckResponseSchema);
   const paginatedResponse = registry.register('PaginatedWishlistResponse', wishlistResponseSchema);
   const querySchema = registry.register('WishlistQuery', wishlistQuerySchema);
+  const deleteResponseSchema = registry.register('WishlistDeleteResponse', wishlistDeleteResponseSchema);
+  const bulkDeleteResponseSchema = registry.register('WishlistBulkDeleteResponse', wishlistBulkDeleteResponseSchema);
 
   registry.registerPath({
     method: 'post',
@@ -134,6 +139,68 @@ export function registerWishlistOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid job ID format' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Saving jobs is for candidate accounts' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/api/v1/me/wishlist/jobs/{jobId}',
+    tags: ['Wishlist'],
+    summary: 'Remove a saved job from candidate wishlist by job ID',
+    description:
+      'Removes the specified job posting from candidate wishlist. Idempotent: if already removed, returns 200 OK with alreadyRemoved=true.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: wishlistJobParamSchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Job removed from wishlist successfully (or already removed)',
+        content: { 'application/json': { schema: deleteResponseSchema } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid job ID format' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Removing saved jobs is for candidate accounts' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/api/v1/me/wishlist/unavailable',
+    tags: ['Wishlist'],
+    summary: 'Bulk remove all unavailable or closed saved jobs',
+    description:
+      'Purges all bookmarks whose target job posting is closed, expired, or whose company is inactive from candidate wishlist.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Unavailable saved jobs cleared successfully',
+        content: { 'application/json': { schema: bulkDeleteResponseSchema } },
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Removing saved jobs is for candidate accounts' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/api/v1/me/wishlist/{id}',
+    tags: ['Wishlist'],
+    summary: 'Remove a saved job from candidate wishlist by wishlist record ID',
+    description:
+      'Removes the wishlist record matching ID belonging to the candidate. Idempotent: if already removed, returns 200 OK with alreadyRemoved=true.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: wishlistIdParamSchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Job removed from wishlist successfully (or already removed)',
+        content: { 'application/json': { schema: deleteResponseSchema } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid wishlist ID format' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Removing saved jobs is for candidate accounts' },
     },
   });
 }

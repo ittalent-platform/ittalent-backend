@@ -6,6 +6,7 @@ import { CANDIDATE_ROLES } from './wishlist.constants.js';
 import { wishlistController } from './wishlist.controller.js';
 import {
   addWishlistBodySchema,
+  wishlistIdParamSchema,
   wishlistJobParamSchema,
   wishlistQuerySchema,
 } from './wishlist.schemas.js';
@@ -55,4 +56,30 @@ wishlistRouter.get(
   authorize(...CANDIDATE_ROLES),
   validateParams(wishlistJobParamSchema),
   wishlistController.checkSaved,
+);
+
+wishlistRouter.delete(
+  '/jobs/:jobId',
+  authenticate,
+  authenticateCurrentUser,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(wishlistJobParamSchema),
+  wishlistController.removeJob,
+);
+
+wishlistRouter.delete(
+  '/unavailable',
+  authenticate,
+  authenticateCurrentUser,
+  authorize(...CANDIDATE_ROLES),
+  wishlistController.clearUnavailable,
+);
+
+wishlistRouter.delete(
+  '/:id',
+  authenticate,
+  authenticateCurrentUser,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(wishlistIdParamSchema),
+  wishlistController.removeById,
 );

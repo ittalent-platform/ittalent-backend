@@ -32,4 +32,6 @@ export const WISHLIST_MESSAGES = {
   SAVED_SUCCESS: 'Job added to wishlist successfully',
   UNSAVED_SUCCESS: 'Job removed from wishlist',
   ALREADY_SAVED: 'Already in your saved jobs',
+  ALREADY_REMOVED: 'This job is no longer in your saved jobs',
+  BULK_REMOVED_SUCCESS: 'Unavailable saved jobs cleared successfully',
 } as const;

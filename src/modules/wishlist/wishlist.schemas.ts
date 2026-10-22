@@ -16,6 +16,12 @@ export const wishlistJobParamSchema = z.strictObject({
 
 export type WishlistJobParam = z.infer<typeof wishlistJobParamSchema>;
 
+export const wishlistIdParamSchema = z.strictObject({
+  id: objectIdSchema('wishlist item ID'),
+});
+
+export type WishlistIdParam = z.infer<typeof wishlistIdParamSchema>;
+
 export const wishlistSaveResponseSchema = z.object({
   saved: z.boolean(),
   alreadySaved: z.boolean().optional(),
@@ -32,6 +38,21 @@ export const wishlistToggleResponseSchema = z.object({
 });
 
 export type WishlistToggleResponse = z.infer<typeof wishlistToggleResponseSchema>;
+
+export const wishlistDeleteResponseSchema = z.object({
+  removed: z.boolean(),
+  alreadyRemoved: z.boolean().optional(),
+  message: z.string(),
+});
+
+export type WishlistDeleteResponse = z.infer<typeof wishlistDeleteResponseSchema>;
+
+export const wishlistBulkDeleteResponseSchema = z.object({
+  removedCount: z.number().int(),
+  message: z.string(),
+});
+
+export type WishlistBulkDeleteResponse = z.infer<typeof wishlistBulkDeleteResponseSchema>;
 
 export const wishlistCheckResponseSchema = z.object({
   isSaved: z.boolean(),

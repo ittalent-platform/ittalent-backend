@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { addWishlistBodySchema, wishlistSaveResponseSchema } from '../../../src/modules/wishlist/wishlist.schemas.js';
+import {
+  addWishlistBodySchema,
+  wishlistBulkDeleteResponseSchema,
+  wishlistDeleteResponseSchema,
+  wishlistIdParamSchema,
+  wishlistSaveResponseSchema,
+} from '../../../src/modules/wishlist/wishlist.schemas.js';
 
 describe('wishlist schemas (PR 1 - Create)', () => {
   describe('addWishlistBodySchema', () => {
@@ -39,6 +45,39 @@ describe('wishlist schemas (PR 1 - Create)', () => {
         message: 'Already in your saved jobs',
       });
       expect(res2.success).toBe(true);
+    });
+  });
+
+  describe('wishlistIdParamSchema', () => {
+    it('accepts valid 24-character hexadecimal id', () => {
+      const valid = { id: '507f1f77bcf86cd799439011' };
+      const parsed = wishlistIdParamSchema.safeParse(valid);
+      expect(parsed.success).toBe(true);
+    });
+
+    it('rejects invalid id format', () => {
+      const invalid = { id: 'invalid-id' };
+      const parsed = wishlistIdParamSchema.safeParse(invalid);
+      expect(parsed.success).toBe(false);
+    });
+  });
+
+  describe('wishlistDeleteResponseSchema & wishlistBulkDeleteResponseSchema', () => {
+    it('parses valid delete responses with idempotency flags', () => {
+      const res = wishlistDeleteResponseSchema.safeParse({
+        removed: true,
+        alreadyRemoved: true,
+        message: 'This job is no longer in your saved jobs',
+      });
+      expect(res.success).toBe(true);
+    });
+
+    it('parses valid bulk delete responses', () => {
+      const res = wishlistBulkDeleteResponseSchema.safeParse({
+        removedCount: 5,
+        message: 'Unavailable saved jobs cleared successfully',
+      });
+      expect(res.success).toBe(true);
     });
   });
 });

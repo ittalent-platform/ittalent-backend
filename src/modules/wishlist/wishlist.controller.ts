@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { WISHLIST_MESSAGES } from './wishlist.constants.js';
-import type { AddWishlistBody, WishlistJobParam, WishlistQuery } from './wishlist.schemas.js';
+import type { AddWishlistBody, WishlistIdParam, WishlistJobParam, WishlistQuery } from './wishlist.schemas.js';
 import { wishlistService, type WishlistService } from './wishlist.service.js';
 
 export class WishlistController {
@@ -63,6 +63,44 @@ export class WishlistController {
       }
       const params = res.locals.validated?.params as WishlistJobParam;
       const result = await this.service.checkSaved(req.user.id, params.jobId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, WISHLIST_MESSAGES.AUTH_REQUIRED);
+      }
+      const params = res.locals.validated?.params as WishlistJobParam;
+      const result = await this.service.removeJob(req.user.id, params.jobId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, WISHLIST_MESSAGES.AUTH_REQUIRED);
+      }
+      const params = res.locals.validated?.params as WishlistIdParam;
+      const result = await this.service.removeById(req.user.id, params.id);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  clearUnavailable = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, WISHLIST_MESSAGES.AUTH_REQUIRED);
+      }
+      const result = await this.service.clearUnavailable(req.user.id);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

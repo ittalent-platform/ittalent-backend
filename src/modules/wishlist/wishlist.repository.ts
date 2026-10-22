@@ -62,6 +62,101 @@ export class WishlistRepository {
     return result.deletedCount > 0;
   }
 
+  async deleteByIdAndUser(userId: string, id: string, session?: ClientSession): Promise<boolean> {
+    const result = await Wishlist.deleteOne(
+      {
+        _id: new Types.ObjectId(id),
+        user_id: new Types.ObjectId(userId),
+      },
+      session ? { session } : undefined,
+    ).exec();
+    return result.deletedCount > 0;
+  }
+
+  async deleteUnavailableByUser(userId: string, session?: ClientSession): Promise<number> {
+    const now = new Date();
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          user_id: new Types.ObjectId(userId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'job_postings',
+          localField: 'job_id',
+          foreignField: '_id',
+          as: 'job',
+        },
+      },
+      {
+        $unwind: {
+          path: '$job',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $lookup: {
+          from: 'enterprises',
+          localField: 'job.enterprise_id',
+          foreignField: '_id',
+          as: 'enterprise',
+        },
+      },
+      {
+        $unwind: {
+          path: '$enterprise',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $addFields: {
+          is_available: {
+            $and: [
+              { $eq: ['$job.status', 'published'] },
+              { $ne: ['$job.deleting', true] },
+              {
+                $or: [
+                  { $eq: [{ $type: '$job.expires_at' }, 'missing'] },
+                  { $eq: ['$job.expires_at', null] },
+                  { $gt: ['$job.expires_at', now] },
+                ],
+              },
+              { $eq: ['$enterprise.status', 'active'] },
+              { $ne: ['$enterprise.is_deleted', true] },
+            ],
+          },
+        },
+      },
+      {
+        $match: {
+          is_available: false,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+        },
+      },
+    ];
+
+    const unavailableDocs = await Wishlist.aggregate<{ _id: Types.ObjectId }>(pipeline).exec();
+    if (unavailableDocs.length === 0) {
+      return 0;
+    }
+
+    const ids = unavailableDocs.map((doc) => doc._id);
+    const result = await Wishlist.deleteMany(
+      {
+        _id: { $in: ids },
+        user_id: new Types.ObjectId(userId),
+      },
+      session ? { session } : undefined,
+    ).exec();
+
+    return result.deletedCount;
+  }
+
   async countByUser(userId: string): Promise<number> {
     return Wishlist.countDocuments({
       user_id: new Types.ObjectId(userId),
