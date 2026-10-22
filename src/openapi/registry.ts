@@ -18,6 +18,7 @@ import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 import { registerUserInvitationsOpenApi } from '../modules/user-invitations/user-invitations.openapi.js';
 import { registerUserAuditsOpenApi } from '../modules/user-audits/user-audits.openapi.js';
 import { registerUserEmailChangesOpenApi } from '../modules/user-email-changes/user-email-changes.openapi.js';
+import { registerWishlistOpenApi } from '../modules/wishlist/index.js';
 
 export const registry = new OpenAPIRegistry();
 
@@ -43,3 +44,4 @@ registerPortfolioLinksOpenApi(registry);
 registerRecruiterApplicationsOpenApi(registry);
 registerInterviewsOpenApi(registry);
 registerNotificationsOpenApi(registry);
+registerWishlistOpenApi(registry);
