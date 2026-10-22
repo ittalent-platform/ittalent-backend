@@ -69,6 +69,11 @@ function toDayStatusCounts<Status extends string>(rows: DayStatusGroup<Status>[]
   return rows.map((row) => ({ date: row._id.date, status: row._id.status, count: row.count }));
 }
 
+/** A sign-up that has not named its company yet (missing or blank) is still identifiable by its corporate email. */
+export function registrationDisplayName(companyName: string | null | undefined, corporateEmail: string): string {
+  return companyName?.trim() || corporateEmail;
+}
+
 // Every period below is the half-open window [from, to): `from` is the first instant of the first day and
 // `to` the first instant after the last day, so "to included" needs no end-of-day arithmetic.
 export class DashboardRepository {
@@ -183,8 +188,7 @@ export class DashboardRepository {
       total,
       items: rows.map((row) => ({
         id: String(row._id),
-        // A sign-up that has not named its company yet is still identifiable by its corporate email.
-        companyName: row.companyName ?? row.corporateEmail,
+        companyName: registrationDisplayName(row.companyName, row.corporateEmail),
         submittedAt: row.submittedAt,
       })),
     };

@@ -29,3 +29,21 @@ describe('Dashboard OpenAPI contract', () => {
     expect(doc.components?.schemas?.['PlatformOverviewResponse']).toBeDefined();
   });
 });
+
+describe('Dashboard OpenAPI metric descriptions', () => {
+  type Described = { description?: string };
+  const doc = createOpenApiDocument();
+  const summary = (
+    doc.components?.schemas?.['CompanyDashboardResponse'] as { properties?: { summary?: { properties?: Record<string, Described> } } } | undefined
+  )?.properties?.summary?.properties;
+
+  it('says that jobsOpen counts only the jobs created in the period', () => {
+    expect(summary?.['jobsOpen']?.description).toMatch(/created in the period/);
+    expect(summary?.['jobsOpen']?.description).toMatch(/not the company's total/);
+  });
+
+  it('says that hired is a cohort count of the applications received in the period', () => {
+    expect(summary?.['hired']?.description).toMatch(/applications received in the period/);
+    expect(summary?.['hired']?.description).toMatch(/not the number of hiring decisions/);
+  });
+});

@@ -204,11 +204,13 @@ export class DashboardService {
       period,
       summary: {
         jobsPosted: sumDays(jobsByDay, days),
+        // Of the jobs created in the period (the same set as `jobsPosted`), the ones published now: "6 of the 9 posted".
         jobsOpen: jobStatuses.published,
         applicationsReceived,
         averageApplicationsPerDay: round(applicationsReceived / period.days, DASHBOARD_CONFIG.ONE_DECIMAL),
         interviews: sumDays(interviewsByDay, days),
         interviewsCompleted: interviewStatuses.completed,
+        // A cohort count: applications received in the period that are hired now, so it always fits "% of applications".
         hired,
         hiredPercent:
           applicationsReceived > 0

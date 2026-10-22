@@ -66,14 +66,24 @@ export const companyDashboardResponseSchema = z.object({
   company: z.object({ id: z.string(), name: z.string() }),
   period: dashboardPeriodSchema,
   summary: z.object({
-    jobsPosted: countSchema,
-    jobsOpen: countSchema,
-    applicationsReceived: countSchema,
+    jobsPosted: countSchema.openapi({ description: 'Jobs created in the period.' }),
+    jobsOpen: countSchema.openapi({
+      description:
+        'Of the jobs created in the period, how many are published now. It is not the company\'s total of open jobs: a job created before the period is not counted.',
+    }),
+    applicationsReceived: countSchema.openapi({ description: 'Applications received in the period, for the company\'s jobs.' }),
     averageApplicationsPerDay: z.number().min(0),
-    interviews: countSchema,
-    interviewsCompleted: countSchema,
-    hired: countSchema,
-    hiredPercent: z.number().min(0).nullable(),
+    interviews: countSchema.openapi({ description: 'Interviews scheduled to start in the period.' }),
+    interviewsCompleted: countSchema.openapi({ description: 'Of those interviews, how many are completed now.' }),
+    hired: countSchema.openapi({
+      description:
+        'Of the applications received in the period, how many are hired now (a cohort count). It is not the number of hiring decisions made in the period: an application received earlier and hired in the period is not counted.',
+    }),
+    hiredPercent: z
+      .number()
+      .min(0)
+      .nullable()
+      .openapi({ description: 'Share of the applications received in the period that are hired now; null when none were received.' }),
   }),
   weeks: z.array(dashboardWeekSchema),
   weeklyAverageApplications: z.number().min(0).nullable(),

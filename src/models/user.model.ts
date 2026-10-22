@@ -126,6 +126,10 @@ const userSchema = new Schema<UserData>(
   },
 );
 
+// The platform overview counts the accounts created per day for a few roles; without this the role filter alone
+// (almost every account) leaves a scan of the collection to apply the date range.
+userSchema.index({ role: 1, createdAt: -1 });
+
 export const User = model('User', userSchema);
 export type UserDoc = ReturnType<typeof User.prototype.toObject> & {
   _id: Types.ObjectId;
