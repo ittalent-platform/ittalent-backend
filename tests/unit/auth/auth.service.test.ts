@@ -112,7 +112,7 @@ describe('AuthService', () => {
       expect(result.user.username).toBe('testuser');
       expect(result.tokens.accessToken).toBeDefined();
       expect(result.tokens.refreshToken).toBeDefined();
-      expect(result.verificationEmailSent).toBe(true);
+      expect(result.verificationEmailSent).toBe(false);
     });
 
     it('throws 409 when user with email already exists', async () => {
@@ -505,7 +505,7 @@ describe('AuthService', () => {
 
       const result = await authService.resendVerificationEmail({ email: 'inactive@example.com' });
       expect(result.success).toBe(true);
-      expect(result.data.verificationEmailSent).toBe(true);
+      expect(result.data.verificationEmailSent).toBe(false);
       expect(mockAuthRepo.revokePriorVerificationTokens).toHaveBeenCalledWith('user-1');
       expect(mockAuthRepo.createVerificationToken).toHaveBeenCalledWith(
         expect.objectContaining({

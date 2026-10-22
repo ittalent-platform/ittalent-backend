@@ -9,6 +9,7 @@ import {
   USER_FILTER_MAX_VALUES,
   USER_FULL_NAME_LENGTH,
   USER_LIST_SEARCH_MAX_LENGTH,
+  USER_LIST_SEARCH_MIN_LENGTH,
   USER_MANAGED_ROLES,
   USER_MESSAGES,
   USER_PHONE_NOISE,
@@ -69,7 +70,7 @@ export const userListQuerySchema = z.strictObject({
   search: z
     .string()
     .trim()
-    .min(1, 'Search value must not be empty')
+    .min(USER_LIST_SEARCH_MIN_LENGTH, `Search value must be at least ${USER_LIST_SEARCH_MIN_LENGTH} characters`)
     .max(USER_LIST_SEARCH_MAX_LENGTH, `Search value cannot exceed ${USER_LIST_SEARCH_MAX_LENGTH} characters`)
     .optional(),
   role: multiValue(z.enum(userRoles)),
@@ -107,7 +108,7 @@ export const updateUserBodySchema = z
       .max(USER_FULL_NAME_LENGTH.max, `Full name cannot exceed ${USER_FULL_NAME_LENGTH.max} characters`)
       .optional(),
     phone: phoneSchema.nullable().optional(),
-    expectedVersion: z.number().int().nonnegative().optional(),
+    expectedVersion: z.number().int().nonnegative(),
   });
 
 export type UpdateUserBody = z.infer<typeof updateUserBodySchema>;
@@ -142,42 +143,6 @@ export const createEmployeeBodySchema = z.strictObject({
 });
 
 export type CreateEmployeeBody = z.infer<typeof createEmployeeBodySchema>;
-
-// UC-12 / UC-EMP-03: Update employee status (reason mandatory when suspending)
-export const updateUserStatusBodySchema = z
-  .strictObject({
-    status: z.enum(['active', 'suspended', 'inactive']),
-    reason: z.string().trim().max(USER_STATUS_REASON_MAX_LENGTH).optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.status === 'suspended' && (!data.reason || data.reason.trim().length === 0)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['reason'],
-        message: USER_MESSAGES.REASON_REQUIRED,
-      });
-    }
-  });
-
-export type UpdateUserStatusBody = z.infer<typeof updateUserStatusBodySchema>;
-
-// UC-15 / UC-EMP-06: View employee history
-export const userHistoryItemSchema = z.object({
-  id: z.string(),
-  action: z.string(),
-  description: z.string(),
-  timestamp: z.string(),
-  actorId: z.string().nullable().optional(),
-  actorName: z.string().nullable().optional(),
-});
-
-export type UserHistoryItemDTO = z.infer<typeof userHistoryItemSchema>;
-
-export const userHistoryResponseSchema = z.object({
-  items: z.array(userHistoryItemSchema),
-});
-
-export type UserHistoryResponse = z.infer<typeof userHistoryResponseSchema>;
 
 export const updateUserEmailBodySchema = z.strictObject({
   newEmail: z.string().trim().email().toLowerCase(),

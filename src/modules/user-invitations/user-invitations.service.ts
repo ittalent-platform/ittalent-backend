@@ -17,6 +17,8 @@ import { USER_INVITATION_MESSAGES, USER_INVITATION_TTL_MS } from './user-invitat
 import { userInvitationsRepository, type UserInvitationsRepository } from './user-invitations.repository.js';
 import type { AcceptNewAccountInvitationBody } from './user-invitations.schemas.js';
 
+const MONGO_DUPLICATE_KEY_ERROR_CODE = 11_000;
+
 export type AdminCreateUserInput = CreateAdminUserBody;
 export interface CreatedManagedUser { user: Record<string, unknown>; invitation: { expiresAt: string; deliveryStatus: 'sent' | 'failed' } }
 export interface InvitationStatus { status: string; kind: string; role: string; expiresAt: string; sentAt: string | null; deliveryStatus: string; deliveryAttempts: number }
@@ -45,11 +47,7 @@ export class UserInvitationsService {
     if (!isCompanyAccount && input.enterpriseId) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
     const enterpriseId = isCompanyAccount ? new Types.ObjectId(input.enterpriseId) : null;
     if (enterpriseId && !(await this.enterprises.isActiveEnterprise(String(enterpriseId)))) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
-    }
-    const actor = await this.users.findById(actorId);
-    if (!actor || actor.role !== 'admin' || actor.status !== 'active') {
-      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+      throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.COMPANY_UNAVAILABLE, 'COMPANY_UNAVAILABLE');
     }
     const session = await mongoose.startSession();
     const token = randomBytes(AUTH_CONFIG.TOKEN_BYTES).toString('hex');
@@ -76,6 +74,11 @@ export class UserInvitationsService {
         }, session);
         await this.audits.record({ targetUserId: created._id, actorId: new Types.ObjectId(actorId), action: 'account_invited', version: 0, changes: { role: input.role, enterpriseId: enterpriseId ? String(enterpriseId) : null } }, session);
       });
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === MONGO_DUPLICATE_KEY_ERROR_CODE) {
+        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_INVITATION_MESSAGES.ACCOUNT_CONFLICT, 'ACCOUNT_CONFLICT');
+      }
+      throw error;
     } finally {
       await session.endSession();
     }

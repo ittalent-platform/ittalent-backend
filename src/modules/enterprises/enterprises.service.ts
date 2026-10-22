@@ -4,6 +4,7 @@ import type { EnterpriseData, EnterpriseDoc } from '../../models/enterprise.mode
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   ENTERPRISE_MESSAGES,
@@ -30,6 +31,7 @@ export class EnterprisesService {
   constructor(
     private readonly repository: EnterprisesRepository = enterprisesRepository,
     private readonly userService: UsersService = usersService,
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   async isActiveEnterprise(id: string, session?: mongoose.ClientSession): Promise<boolean> {
@@ -239,6 +241,39 @@ export class EnterprisesService {
     return this.mapDetail(updated, activeJobsCount);
   }
 
+  private async sendEnterpriseStatusNotifications(
+    enterpriseId: string,
+    enterpriseName: string,
+    status: string,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      const recruiters = await this.userService.findRecruitersByEnterpriseId(enterpriseId);
+      const category = status === 'suspended' ? 'warning' : 'info';
+      const message = reason
+        ? `Your enterprise "${enterpriseName}" status has been changed to "${status}". Reason: ${reason}`
+        : `Your enterprise "${enterpriseName}" status has been changed to "${status}".`;
+
+      for (const recruiter of recruiters) {
+        await this.notifications.dispatch({
+          recipientId: String(recruiter._id),
+          title: 'Enterprise Status Updated',
+          message,
+          type: 'enterprise_status_changed',
+          category,
+          actionUrl: '/enterprise/profile',
+          data: {
+            enterpriseId,
+            status,
+            reason: reason ?? null,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to dispatch enterprise status notifications', error);
+    }
+  }
+
   async updateEnterpriseStatus(
     id: string,
     data: UpdateEnterpriseStatusDTO,
@@ -270,6 +305,12 @@ export class EnterprisesService {
     }
 
     const activeJobsCount = await this.repository.countActiveJobs(id);
+    await this.sendEnterpriseStatusNotifications(
+      id,
+      updated.name,
+      data.status,
+      data.reason,
+    );
     return this.mapDetail(updated, activeJobsCount);
   }
 

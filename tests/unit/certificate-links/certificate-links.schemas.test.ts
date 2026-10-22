@@ -48,4 +48,13 @@ describe('certificate link schemas', () => {
     expect(document.paths['/api/v1/me/certificate-links']).toHaveProperty('post');
     expect(document.paths['/api/v1/me/certificate-links']).toHaveProperty('get');
   });
+
+  it('parses the selection and validity filters and rejects unknown values (UC-S4-CERT-06)', () => {
+    expect(certificateLinkListQuerySchema.parse({ suggested: 'true', validity: 'expired' })).toMatchObject({ suggested: true, validity: 'expired' });
+    expect(certificateLinkListQuerySchema.parse({ suggested: 'false' }).suggested).toBe(false);
+    expect(certificateLinkListQuerySchema.parse({}).suggested).toBeUndefined();
+    expect(certificateLinkListQuerySchema.safeParse({ validity: 'soon' }).success).toBe(false);
+    expect(certificateLinkListQuerySchema.safeParse({ suggested: 'yes' }).success).toBe(false);
+    expect(certificateLinkListQuerySchema.safeParse({ unknown: 'x' }).success).toBe(false);
+  });
 });

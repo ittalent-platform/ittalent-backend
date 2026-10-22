@@ -9,7 +9,7 @@ import {
   type UserStatusHistoryEntry,
 } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
-import { USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
+import { USER_DEFAULT_STATUS, USER_LOCAL_DAY_FORMAT, USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
@@ -30,6 +30,19 @@ export interface CreateManagedUserInput {
   phone?: string | null | undefined;
   role: UserInvitationRole;
   enterprise_id: Types.ObjectId | null;
+}
+
+// Counts for the platform overview; they never carry personal data.
+export interface AccountCountRow {
+  role: UserRole;
+  status: UserStatus;
+  count: number;
+}
+
+export interface DayCountRow {
+  /** Calendar day in the requested time zone, `YYYY-MM-DD`. */
+  date: string;
+  count: number;
 }
 
 // Allow-list of fields an administrator may read; credentials and tokens live in other collections.
@@ -356,6 +369,29 @@ export class UsersRepository {
 
   async findRecruitersByEnterpriseId(enterpriseId: Types.ObjectId | string): Promise<UserDoc[]> {
     return User.find({ enterprise_id: enterpriseId, role: 'recruiter' }).exec();
+  }
+
+  /** How many accounts hold each role and status. */
+  async countByRoleAndStatus(roles: readonly UserRole[]): Promise<AccountCountRow[]> {
+    const rows = await User.aggregate<{ _id: { role: UserRole; status: UserStatus }; count: number }>([
+      { $match: { role: { $in: [...roles] } } },
+      { $group: { _id: { role: '$role', status: { $ifNull: ['$status', USER_DEFAULT_STATUS] } }, count: { $sum: 1 } } },
+    ]).exec();
+    return rows.map((row) => ({ role: row._id.role, status: row._id.status, count: row.count }));
+  }
+
+  /** How many accounts were created on each calendar day of the half-open window [from, to). */
+  async countCreatedPerDay(roles: readonly UserRole[], from: Date, to: Date, timeZone: string): Promise<DayCountRow[]> {
+    const rows = await User.aggregate<{ _id: string; count: number }>([
+      { $match: { role: { $in: [...roles] }, createdAt: { $gte: from, $lt: to } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: USER_LOCAL_DAY_FORMAT, date: '$createdAt', timezone: timeZone } },
+          count: { $sum: 1 },
+        },
+      },
+    ]).exec();
+    return rows.map((row) => ({ date: row._id, count: row.count }));
   }
 
   async blockExpiredInactiveUsers(cutoff: Date, excludedRoles: UserRole[] = ['admin']): Promise<number> {

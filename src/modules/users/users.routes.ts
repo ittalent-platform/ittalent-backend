@@ -1,12 +1,13 @@
 import { Router } from 'express';
 
-import { authenticate, authorize, authorizeCurrentSystemAdmin } from '../../middleware/auth.middleware.js';
+import { authenticate, authenticateCurrentUser, authorize, authorizeCurrentSystemAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
 import { usersController } from './users.controller.js';
 import {
   createEmployeeBodySchema,
   emergencySuspensionBodySchema,
   roleUpdateBodySchema,
+  statusUpdateBodySchema,
   updateUserBodySchema,
   userIdParamSchema,
   userListQuerySchema,
@@ -14,11 +15,14 @@ import {
 
 export const usersRouter = Router();
 
-// UC-10 / UC-EMP-01: Create employee account (Enterprise Admin, Recruiter, or System Admin)
+// UC-10 / UC-EMP-01: Create employee account (Enterprise Admin only)
 usersRouter.post(
   '/',
   authenticate,
-  authorize('admin', 'recruiter', 'enterprise_admin'),
+  authenticateCurrentUser,
+  // System admins create accounts via the invitation flow (POST /users in userInvitationsRouter, takes username).
+  (req, _res, next) => (req.user?.role === 'admin' ? next('route') : next()),
+  authorize('enterprise_admin'),
   validateBody(createEmployeeBodySchema),
   usersController.createEmployee,
 );
@@ -27,26 +31,20 @@ usersRouter.post(
 usersRouter.get(
   '/',
   authenticate,
+  authenticateCurrentUser,
   authorize('admin', 'recruiter', 'enterprise_admin'),
   validateQuery(userListQuerySchema),
   usersController.listUsers,
-);
-
-// UC-15 / UC-EMP-06: View employee history
-usersRouter.get(
-  '/:id/history',
-  authenticate,
-  authorize('admin', 'recruiter', 'enterprise_admin'),
-  validateParams(userIdParamSchema),
-  usersController.getUserHistory,
 );
 
 // UC-12 / UC-EMP-03 & UC-USER-02: Update employee / user status
 usersRouter.patch(
   '/:id/status',
   authenticate,
-  authorize('admin', 'recruiter', 'enterprise_admin'),
+  authenticateCurrentUser,
+  authorize('admin', 'enterprise_admin'),
   validateParams(userIdParamSchema),
+  validateBody(statusUpdateBodySchema),
   usersController.updateStatus,
 );
 
@@ -54,6 +52,7 @@ usersRouter.patch(
 usersRouter.patch(
   '/:id/role',
   authenticate,
+  authenticateCurrentUser,
   authorizeCurrentSystemAdmin,
   validateParams(userIdParamSchema),
   validateBody(roleUpdateBodySchema),
@@ -64,6 +63,7 @@ usersRouter.patch(
 usersRouter.patch(
   '/:id/emergency-suspension',
   authenticate,
+  authenticateCurrentUser,
   authorizeCurrentSystemAdmin,
   validateParams(userIdParamSchema),
   validateBody(emergencySuspensionBodySchema),
@@ -74,6 +74,7 @@ usersRouter.patch(
 usersRouter.get(
   '/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize('admin', 'recruiter', 'enterprise_admin'),
   validateParams(userIdParamSchema),
   usersController.getUserById,
@@ -83,6 +84,7 @@ usersRouter.get(
 usersRouter.patch(
   '/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize('admin', 'recruiter', 'enterprise_admin'),
   validateParams(userIdParamSchema),
   validateBody(updateUserBodySchema),

@@ -1,13 +1,21 @@
 import mongoose, { Types } from 'mongoose';
 
-import type { UserDoc, UserRole, UserStatus, UserStatusHistoryEntry } from '../../models/user.model.js';
+import type { UserDoc, UserRole, UserStatus } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError, isHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
-import { USER_LOG_TAGS, USER_MESSAGES, VALID_USER_STATUS_TRANSITIONS } from './users.constants.js';
-import { usersRepository, type UsersRepository, type CreateManagedUserInput, type CreateUserData } from './users.repository.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
+import { USER_LOG_TAGS, USER_MESSAGES } from './users.constants.js';
+import {
+  usersRepository,
+  type AccountCountRow,
+  type CreateManagedUserInput,
+  type CreateUserData,
+  type DayCountRow,
+  type UsersRepository,
+} from './users.repository.js';
 import {
   strictUserDtoSchema,
   type CreateEmployeeBody,
@@ -15,10 +23,7 @@ import {
   type RoleUpdateBody,
   type StatusUpdateBody,
   type UpdateUserBody,
-  type UpdateUserStatusBody,
   type UserDTO,
-  type UserHistoryItemDTO,
-  type UserHistoryResponse,
   type UserListQuery,
 } from './users.schemas.js';
 
@@ -91,6 +96,7 @@ export class UsersService {
       const { enterprisesService } = await import('../enterprises/enterprises.service.js');
       return enterprisesService.incrementAdminMutationVersion(id, session);
     },
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   async serializeIdentityRequests(id: Types.ObjectId, session: mongoose.ClientSession): Promise<void> {
@@ -201,17 +207,11 @@ export class UsersService {
     return this.guardStore(async () => {
       let targetEnterpriseId: string | null = null;
 
-      if (actorCtx.role === 'recruiter') {
-        targetEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-        if (!targetEnterpriseId) {
-          throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_MESSAGES.NO_ENTERPRISE);
-        }
-        if (data.role === 'admin') {
-          throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.ADMIN_CREATE_RESTRICTED);
-        }
-      } else {
-        targetEnterpriseId = data.enterpriseId ?? null;
-      }
+      const actorUser = await this.repository.findById(actorCtx.id);
+      if (!actorUser || actorUser.role !== 'enterprise_admin' || actorUser.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+      targetEnterpriseId = actorUser.enterprise_id ? String(actorUser.enterprise_id) : null;
+      if (!targetEnterpriseId) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_MESSAGES.NO_ENTERPRISE);
+      if (data.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.ADMIN_CREATE_RESTRICTED);
 
       const emailExists = await this.existsByEmail(data.email.toLowerCase());
       if (emailExists) {
@@ -248,18 +248,12 @@ export class UsersService {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
     }
 
-    const actorCtx = actor ? parseActor(actor) : undefined;
-    if (actorCtx?.role === 'recruiter') {
-      const recruiterEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-      if (!user.enterprise_id || String(user.enterprise_id) !== recruiterEnterpriseId) {
-        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-      }
-    }
+    if (actor) await this.assertCanViewEmployee(user, actor);
 
     return this.mapUserDto(user);
   }
 
-  /** UC 11: Update employee information (status updates must go through updateUserStatus) */
+  /** UC 11: Update a recruiter’s own profile or a company employee profile. */
   async updateUser(
     actor: ActorContext,
     id: string,
@@ -267,22 +261,31 @@ export class UsersService {
   ): Promise<UserDTO> {
     const actorCtx = parseActor(actor);
 
-    if (patch.expectedVersion !== undefined) {
-      const expectedVersion = patch.expectedVersion;
-      const session = await mongoose.startSession();
-      let result: UserDoc | null = null;
-      try {
-        const runUpdate = async (sess?: mongoose.ClientSession): Promise<void> => {
+    const expectedVersion = patch.expectedVersion;
+    const session = await mongoose.startSession();
+    let result: UserDoc | null = null;
+    try {
+      const runUpdate = async (sess?: mongoose.ClientSession): Promise<void> => {
           const adminActor = sess
             ? await this.repository.findByIdWithSession(new Types.ObjectId(actorCtx.id), sess)
             : await this.repository.findById(actorCtx.id);
-          if (!adminActor || adminActor.role !== 'admin' || adminActor.status !== 'active') {
-            throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
-          }
+          if (!adminActor || adminActor.status !== 'active' || adminActor.role !== actorCtx.role) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active account permission required');
           const current = sess
             ? await this.repository.findByIdWithSession(new Types.ObjectId(id), sess)
             : await this.repository.findById(id);
           if (!current) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+          if (actorCtx.role === 'recruiter') {
+            if (actorCtx.id.toLowerCase() !== id.toLowerCase() || current.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+          } else if (actorCtx.role === 'enterprise_admin') {
+            // An enterprise admin may edit their own contact details (the body cannot carry role or status);
+            // anyone else must be a recruiter of the same company.
+            if (actorCtx.id.toLowerCase() !== id.toLowerCase()) {
+              this.assertEmployeeInEnterprise(current, adminActor.enterprise_id ? String(adminActor.enterprise_id) : null);
+              if (current.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+            }
+          } else if (actorCtx.role !== 'admin') {
+            throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+          }
           if ((current.version ?? 0) !== expectedVersion) {
             throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
           }
@@ -307,74 +310,76 @@ export class UsersService {
             },
           }, sess);
           result = updated;
-        };
+      };
 
-        await this.guardStore(async () => {
-          try {
-            await session.withTransaction(() => runUpdate(session));
-          } catch (err: unknown) {
-            if (isHttpError(err)) throw err;
-            if ((err as { code?: number })?.code === MONGO_NO_TRANSACTION_ERROR_CODE || (err as Error)?.message?.includes('replica set member')) {
-              await runUpdate();
-            } else {
-              throw err;
-            }
+      await this.guardStore(async () => {
+        try {
+          await session.withTransaction(() => runUpdate(session));
+        } catch (err: unknown) {
+          if (isHttpError(err)) throw err;
+          if ((err as { code?: number })?.code === MONGO_NO_TRANSACTION_ERROR_CODE || (err as Error)?.message?.includes('replica set member')) {
+            await runUpdate();
+          } else {
+            throw err;
           }
-        });
-      } finally {
-        await session.endSession();
-      }
-      if (!result) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-      return this.mapUserDto(result);
+        }
+      });
+    } finally {
+      await session.endSession();
     }
-
-    const current = await this.guardStore(() => this.repository.findById(id));
-    if (!current) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    }
-
-    const patchRole = (patch as { role?: string }).role;
-    if (patchRole !== undefined && actorCtx.id === id && patchRole !== current.role) {
-      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_ROLE_CHANGE);
-    }
-
-    if (actorCtx.role === 'recruiter') {
-      const recruiterEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-      if (!current.enterprise_id || String(current.enterprise_id) !== recruiterEnterpriseId) {
-        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-      }
-      if (patchRole === 'admin') {
-        throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.ADMIN_CREATE_RESTRICTED);
-      }
-    }
-
-    const updated = await this.guardStore(() => this.repository.updateProfile(id, patch));
-    if (!updated) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    }
-    return this.mapUserDto(updated);
+    if (!result) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    return this.mapUserDto(result);
   }
 
-  async updateStatus(actorId: string, id: string, body: StatusUpdateBody, emergency = false): Promise<UserDTO> {
-    if (actorId.toLowerCase() === id.toLowerCase() && body.status === 'suspended') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
+  private async sendAccountSecurityAlert(
+    userId: string,
+    title: string,
+    message: string,
+    category: 'info' | 'warning',
+    data?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.notifications.dispatch({
+        recipientId: userId,
+        title,
+        message,
+        type: 'account_alert',
+        category,
+        actionUrl: '/profile',
+        data,
+      });
+    } catch (error) {
+      console.error('Failed to dispatch account security alert notification', error);
+    }
+  }
+
+  async updateStatus(actor: ActorContext, id: string, body: StatusUpdateBody, emergency = false): Promise<UserDTO> {
+    const actorCtx = parseActor(actor);
+    if (actorCtx.id.toLowerCase() === id.toLowerCase() && body.status === 'suspended') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
     const session = await mongoose.startSession();
     let updated: UserDoc | null = null;
     try {
       await this.guardStore(() => session.withTransaction(async () => {
-        const actor = await this.repository.findByIdWithSession(new Types.ObjectId(actorId), session);
-        if (!actor || actor.role !== 'admin' || actor.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required');
+        const actorUser = await this.repository.findByIdWithSession(new Types.ObjectId(actorCtx.id), session);
+        if (!actorUser || actorUser.role !== actorCtx.role || actorUser.status !== 'active') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active account permission required');
         const latest = await this.repository.findByIdWithSession(new Types.ObjectId(id), session);
         if (!latest) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+        if (actorCtx.role === 'enterprise_admin') {
+          this.assertEmployeeInEnterprise(latest, actorUser.enterprise_id ? String(actorUser.enterprise_id) : null);
+          if (latest.role !== 'recruiter') throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+        } else if (actorCtx.role !== 'admin') {
+          throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+        }
         if ((latest.version ?? 0) !== body.expectedVersion) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
         const reopening = body.status === 'active' && (latest.status === 'suspended' || latest.status === 'blocked');
         const suspending = body.status === 'suspended' && latest.status === 'active';
         if (!reopening && !suspending) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
         if (emergency && latest.role !== 'enterprise_admin') throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
-        if (body.status === 'suspended' && latest.role === 'admin') {
-          await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorId), session);
+        if (actorCtx.role === 'admin' && body.status === 'suspended' && latest.role === 'admin') {
+          await this.repository.acquireAdminMutationLock(new Types.ObjectId(actorCtx.id), session);
           if (await this.repository.countActiveAdmins(session) <= 1) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.LAST_ADMIN, 'LAST_ADMIN');
         }
-        if (body.status === 'suspended' && latest.role === 'enterprise_admin' && latest.enterprise_id) {
+        if (actorCtx.role === 'admin' && body.status === 'suspended' && latest.role === 'enterprise_admin' && latest.enterprise_id) {
           const enterpriseId = latest.enterprise_id as Types.ObjectId;
         if (!await this.lockEnterpriseAdminChanges(enterpriseId, session)) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.INVALID_TRANSITION, 'INVALID_TRANSITION');
           if (await this.repository.countActiveEnterpriseAdmins(enterpriseId, session) <= 1 && !emergency) {
@@ -383,10 +388,19 @@ export class UsersService {
         }
         updated = await this.repository.transitionStatus(id, body.expectedVersion, body.status as UserStatus, session);
         if (!updated) throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, USER_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
-        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorId), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, ...(emergency ? { changes: { emergency: 'true' } } : {}), version: updated.version ?? 0 }, session);
+        await this.audits.record({ targetUserId: new Types.ObjectId(id), actorId: new Types.ObjectId(actorCtx.id), action: body.status === 'suspended' ? 'status_suspended' : 'status_reopened', reason: body.reason, ...(emergency ? { changes: { emergency: 'true' } } : {}), version: updated.version ?? 0 }, session);
       }));
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    if (body.status === 'suspended') {
+      await this.sendAccountSecurityAlert(
+        id,
+        'Account Suspended',
+        body.reason ? `Your account has been suspended. Reason: ${body.reason}` : 'Your account has been suspended by an administrator.',
+        'warning',
+        { status: 'suspended', reason: body.reason ?? null, emergency },
+      );
+    }
     return this.mapUserDto(updated);
   }
 
@@ -426,55 +440,17 @@ export class UsersService {
       });
     } finally { await session.endSession(); }
     if (!updated) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    await this.sendAccountSecurityAlert(
+      id,
+      'Role Updated',
+      `Your account role has been updated to "${body.role}".`,
+      'info',
+      { newRole: body.role, reason: body.reason ?? null },
+    );
     return this.mapUserDto(updated);
   }
 
   /** UC 12: Update an employee's status with mandatory audit trail & lifecycle checks */
-  async updateUserStatus(
-    actor: ActorContext,
-    id: string,
-    body: UpdateUserStatusBody,
-  ): Promise<UserDTO> {
-    const actorCtx = parseActor(actor);
-    const current = await this.guardStore(() => this.repository.findById(id));
-    if (!current) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    }
-
-    // BR-EMP-10: Self-suspension prohibition
-    if (actorCtx.id === id && body.status === 'suspended') {
-      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.SELF_SUSPENSION);
-    }
-
-    // BR-EMP-13: Justification reason required when suspending
-    if (body.status === 'suspended' && (!body.reason || body.reason.trim().length === 0)) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_MESSAGES.REASON_REQUIRED);
-    }
-
-    // Multi-tenancy isolation for recruiters
-    if (actorCtx.role === 'recruiter') {
-      const recruiterEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-      if (!current.enterprise_id || String(current.enterprise_id) !== recruiterEnterpriseId) {
-        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-      }
-    }
-
-    // Validate status transition against domain lifecycle rules
-    const currentStatus = (current.status ?? 'active') as UserStatus;
-    const allowedTransitions = VALID_USER_STATUS_TRANSITIONS[currentStatus] ?? [];
-    if (!allowedTransitions.includes(body.status as UserStatus)) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, USER_MESSAGES.INVALID_STATUS_TRANSITION);
-    }
-
-    const updated = await this.guardStore(() =>
-      this.repository.updateStatus(id, body.status as UserStatus, actorCtx.id, body.reason),
-    );
-    if (!updated) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    }
-    return this.mapUserDto(updated);
-  }
-
   /** UC 13 & UC 16: View employee list, search & filter */
   async listUsers(
     query: UserListQuery,
@@ -482,16 +458,15 @@ export class UsersService {
   ): Promise<PaginatedResult<UserDTO>> {
     let effectiveQuery = { ...query };
 
-    // Enforce recruiter tenancy boundary automatically
+    // Enforce tenant boundaries independently of client-supplied filters.
     const actorCtx = actor ? parseActor(actor) : undefined;
-    if (actorCtx?.role === 'recruiter') {
-      const recruiterEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-      if (!recruiterEnterpriseId) {
-        throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Recruiter has no enterprise affiliation');
-      }
+    if (actorCtx && actorCtx.role !== 'admin') {
+      const enterpriseId = await this.getEnterpriseId(actorCtx.id);
+      if (!enterpriseId) throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.NO_ENTERPRISE);
       effectiveQuery = {
         ...effectiveQuery,
-        enterpriseId: [recruiterEnterpriseId],
+        enterpriseId: [enterpriseId],
+        role: ['recruiter'],
       };
     }
 
@@ -503,82 +478,6 @@ export class UsersService {
       total,
       totalPages: Math.ceil(total / query.limit),
     };
-  }
-
-  /** UC 15: View employee history (preserves full audit trail across all transitions) */
-  async getUserHistory(
-    id: string,
-    actor?: ActorContext,
-  ): Promise<UserHistoryResponse> {
-    const user = await this.guardStore(() => this.repository.findById(id));
-    if (!user) {
-      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-    }
-
-    const actorCtx = actor ? parseActor(actor) : undefined;
-    if (actorCtx?.role === 'recruiter') {
-      const recruiterEnterpriseId = await this.getEnterpriseId(actorCtx.id);
-      if (!user.enterprise_id || String(user.enterprise_id) !== recruiterEnterpriseId) {
-        throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
-      }
-    }
-
-    const raw = user.toObject();
-    const items: UserHistoryItemDTO[] = [];
-
-    // 1. Creation event
-    items.push({
-      id: `evt-${String(user._id)}-created`,
-      action: 'Account Provisioned',
-      description: `Account initialized with role ${user.role ?? 'recruiter'}`,
-      timestamp: raw.createdAt ? new Date(raw.createdAt).toISOString() : new Date().toISOString(),
-      actorId: null,
-      actorName: 'System / Enterprise Administrator',
-    });
-
-    // 2. Status update events from append-only status_history (UC 15)
-    if (raw.status_history && raw.status_history.length > 0) {
-      raw.status_history.forEach((entry: UserStatusHistoryEntry, idx: number) => {
-        items.push({
-          id: `evt-${String(user._id)}-status-${idx}`,
-          action: `Status Transition: ${entry.status}`,
-          description: entry.reason
-            ? `Status changed to ${entry.status} (Reason: ${entry.reason})`
-            : `Operational status updated to ${entry.status}`,
-          timestamp: new Date(entry.changed_at).toISOString(),
-          actorId: entry.changed_by ? String(entry.changed_by) : null,
-          actorName: 'Administrator',
-        });
-      });
-    } else if (raw.status_updated_at) {
-      items.push({
-        id: `evt-${String(user._id)}-status`,
-        action: `Status Transition: ${user.status}`,
-        description: raw.status_reason
-          ? `Status changed to ${user.status} (Reason: ${raw.status_reason})`
-          : `Operational status updated to ${user.status}`,
-        timestamp: new Date(raw.status_updated_at).toISOString(),
-        actorId: raw.status_updated_by ? String(raw.status_updated_by) : null,
-        actorName: 'Administrator',
-      });
-    }
-
-    // 3. Profile update event if updatedAt differs from createdAt
-    if (raw.updatedAt && raw.createdAt && new Date(raw.updatedAt).getTime() > new Date(raw.createdAt).getTime()) {
-      items.push({
-        id: `evt-${String(user._id)}-updated`,
-        action: 'Profile Updated',
-        description: 'Account profile attributes or contact details were modified',
-        timestamp: new Date(raw.updatedAt).toISOString(),
-        actorId: null,
-        actorName: 'Administrator',
-      });
-    }
-
-    // Sort descending by timestamp (newest first)
-    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-    return { items };
   }
 
   async findByIdentifier(identifier: string): Promise<UserDoc | null> {
@@ -627,9 +526,43 @@ export class UsersService {
     return this.repository.updateStatus(id, status, adminId, reason);
   }
 
+  /** Platform overview: accounts by role and status, without reading any of them. */
+  async countAccountsByRoleAndStatus(roles: readonly UserRole[]): Promise<AccountCountRow[]> {
+    return this.guardStore(() => this.repository.countByRoleAndStatus(roles));
+  }
+
+  /** Platform overview: accounts created per calendar day of a half-open window, in the given time zone. */
+  async countAccountsCreatedPerDay(roles: readonly UserRole[], from: Date, to: Date, timeZone: string): Promise<DayCountRow[]> {
+    return this.guardStore(() => this.repository.countCreatedPerDay(roles, from, to, timeZone));
+  }
+
   async getEnterpriseId(id: string): Promise<string | null> {
     const user = await this.repository.findById(id);
     return user?.enterprise_id ? String(user.enterprise_id) : null;
+  }
+
+  async assertCanViewEmployee(target: UserDoc, actor: ActorContext): Promise<void> {
+    const actorCtx = parseActor(actor);
+    const requester = await this.guardStore(() => this.repository.findById(actorCtx.id));
+    if (!requester || requester.status !== 'active' || requester.role !== actorCtx.role) {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active account permission required');
+    }
+    if (actorCtx.role === 'admin') return;
+    if (actorCtx.role !== 'recruiter' && actorCtx.role !== 'enterprise_admin') {
+      throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, USER_MESSAGES.TENANCY_FORBIDDEN);
+    }
+    // Anyone may view their own profile and history; others must be an employee of the caller's company.
+    if (actorCtx.id.toLowerCase() === String(target._id).toLowerCase()) return;
+    this.assertEmployeeInEnterprise(target, requester.enterprise_id ? String(requester.enterprise_id) : null);
+    if (target.role !== 'recruiter') {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    }
+  }
+
+  assertEmployeeInEnterprise(user: UserDoc, enterpriseId: string | null): void {
+    if (!enterpriseId || !user.enterprise_id || String(user.enterprise_id) !== enterpriseId) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, USER_MESSAGES.NOT_FOUND);
+    }
   }
 
   async assignEnterprise(id: string, enterpriseId: string): Promise<UserDoc | null> {

@@ -26,7 +26,7 @@ function isPrivateIpv6(hostname: string): boolean {
     || /^fe[89ab]/.test(address) || address.startsWith('ff') || address.startsWith('::ffff:');
 }
 
-function isSafeExternalUrl(value: string): boolean {
+export function isSafeExternalUrl(value: string): boolean {
   try {
     const url = new URL(value);
     if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return false;
@@ -88,6 +88,9 @@ export const certificateLinkListQuerySchema = z.strictObject({
   page: z.coerce.number().int().min(PAGINATION.DEFAULT_PAGE).default(PAGINATION.DEFAULT_PAGE),
   limit: z.coerce.number().int().min(1).max(PAGINATION.MAX_LIMIT).default(PAGINATION.DEFAULT_LIMIT),
   search: z.string().trim().min(1).max(CERTIFICATE_LINKS.SEARCH_MAX_LENGTH).optional(),
+  // UC-S4-CERT-06: selected-for-apply state and validity against today's date (UTC).
+  suggested: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  validity: z.enum(CERTIFICATE_LINKS.VALIDITY_FILTERS).optional(),
 });
 
 export const idempotencyKeySchema = z.string().trim().min(1).max(CERTIFICATE_LINKS.IDEMPOTENCY_KEY_MAX_LENGTH)

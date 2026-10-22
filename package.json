@@ -26,6 +26,7 @@
     "migrate:enterprise-recruiters": "tsx src/scripts/migrate-enterprise-recruiters.ts",
     "migrate:job-posting-enterprises": "tsx src/scripts/migrate-job-posting-enterprises.ts",
     "migrate:certificate-link-indexes": "tsx src/scripts/create-certificate-link-indexes.ts",
+    "migrate:portfolio-link-indexes": "tsx src/scripts/create-portfolio-link-indexes.ts",
     "migrate:document-indexes": "tsx src/scripts/sync-document-indexes.ts"
   },
   "dependencies": {

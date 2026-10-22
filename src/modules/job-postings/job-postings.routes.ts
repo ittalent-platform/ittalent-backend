@@ -10,6 +10,7 @@ import {
   createJobPostingSchema,
   jobPostingHistoryQuerySchema,
   jobPostingIdParamSchema,
+  jobPostingPublicParamSchema,
   jobPostingListQuerySchema,
   updateJobPostingSchema,
 } from './job-postings.schemas.js';
@@ -23,7 +24,7 @@ jobPostingsRouter.get(
 );
 jobPostingsRouter.get(
   '/job-postings/:id/public',
-  validateParams(jobPostingIdParamSchema),
+  validateParams(jobPostingPublicParamSchema),
   jobPostingsController.getPublic,
 );
 jobPostingsRouter.get(

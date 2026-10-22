@@ -7,6 +7,7 @@ import {
 } from '../../shared/services/email.service.js';
 import type { InterviewDoc, InterviewMode } from '../../models/interview.model.js';
 import type { UserDoc } from '../../models/user.model.js';
+import { notificationsService, type NotificationsService } from '../notifications/notifications.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   INTERVIEW_CONFIG,
@@ -80,6 +81,7 @@ export class InterviewsService {
     private readonly users: UsersService = usersService,
     // Injected so the "interview has ended" rule can be tested without waiting.
     private readonly now: () => Date = () => new Date(),
+    private readonly notifications: NotificationsService = notificationsService,
   ) {}
 
   // ---- writes ----
@@ -604,6 +606,60 @@ export class InterviewsService {
       for (const result of results) {
         if (result.status === 'rejected') {
           console.error(INTERVIEW_EMAIL_FAILED_LOG, result.reason);
+        }
+      }
+
+      const notifiedUserIds = new Set<string>();
+      for (const recipient of recipients) {
+        if (recipient.id && !notifiedUserIds.has(recipient.id)) {
+          notifiedUserIds.add(recipient.id);
+          try {
+            let type: 'interview_scheduled' | 'interview_rescheduled' | 'interview_cancelled';
+            let category: 'action_required' | 'warning';
+            let title: string;
+            let message: string;
+            let actionUrl: string;
+
+            const jobTitle = interview.job.title ?? INTERVIEW_EMAIL_FALLBACKS.JOB_TITLE;
+            const formattedTime = new Date(interview.scheduledAt).toLocaleString();
+
+            if (kind === 'scheduled') {
+              type = 'interview_scheduled';
+              category = 'action_required';
+              title = 'Interview Scheduled';
+              message = `An interview for "${jobTitle}" has been scheduled for ${formattedTime}.`;
+              actionUrl = `/interviews/${interview.id}`;
+            } else if (kind === 'updated') {
+              type = 'interview_rescheduled';
+              category = 'action_required';
+              title = 'Interview Rescheduled';
+              message = `The interview for "${jobTitle}" has been rescheduled to ${formattedTime}.`;
+              actionUrl = `/interviews/${interview.id}`;
+            } else {
+              type = 'interview_cancelled';
+              category = 'warning';
+              title = 'Interview Cancelled';
+              message = `The interview for "${jobTitle}" scheduled for ${formattedTime} has been cancelled.`;
+              actionUrl = '/interviews';
+            }
+
+            await this.notifications.dispatch({
+              recipientId: recipient.id,
+              title,
+              message,
+              type,
+              category,
+              actionUrl,
+              data: {
+                interviewId: interview.id,
+                applicationId: interview.applicationId,
+                jobId: interview.job.id,
+                scheduledAt: interview.scheduledAt,
+              },
+            });
+          } catch (error) {
+            console.error('Failed to dispatch interview in-app notification', error);
+          }
         }
       }
     });

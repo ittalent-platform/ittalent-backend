@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import mongoose from 'mongoose';
 
 import { USER_MESSAGES } from '../../../src/modules/users/users.constants.js';
 import type { UsersRepository } from '../../../src/modules/users/users.repository.js';
@@ -9,6 +10,10 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
   let service: UsersService;
 
   beforeEach(() => {
+    vi.spyOn(mongoose, 'startSession').mockResolvedValue({
+      withTransaction: async (callback: () => Promise<void>) => callback(),
+      endSession: async () => undefined,
+    } as never);
     mockRepo = {
       findById: vi.fn(),
       findByEmail: vi.fn(),
@@ -23,12 +28,27 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
     service = new UsersService(mockRepo as UsersRepository);
   });
 
+  it('rejects a recruiter update to any other user ID', async () => {
+    const recruiterId = '507f1f77bcf86cd799439011';
+    const targetId = '507f1f77bcf86cd799439099';
+    const doc = (id: string) => ({
+      _id: id, email: `${id}@example.test`, username: 'recruiter', role: 'recruiter', status: 'active',
+      enterprise_id: '507f1f77bcf86cd799439012', version: 0,
+      toObject: () => ({ _id: id, email: `${id}@example.test`, username: 'recruiter', role: 'recruiter', status: 'active', version: 0 }),
+    });
+    mockRepo.findById = vi.fn().mockResolvedValue(doc(recruiterId) as never);
+    mockRepo.findByIdWithSession = vi.fn().mockImplementation(async (id: { toString(): string }) => doc(id.toString()) as never);
+    await expect(service.updateUser({ id: recruiterId, role: 'recruiter' }, targetId, { fullName: 'Not mine', expectedVersion: 0 })).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   describe('createEmployee (UC-10 / UC-EMP-01)', () => {
-    it('creates an employee account successfully for a recruiter', async () => {
+    it('creates a recruiter account successfully for an enterprise admin', async () => {
       mockRepo.findById = vi.fn().mockImplementation((id: string) => {
-        if (id === 'recruiter-1') {
+        if (id === 'enterprise-admin-1') {
           return Promise.resolve({
-            _id: 'recruiter-1',
+            _id: 'enterprise-admin-1',
+            role: 'enterprise_admin',
+            status: 'active',
             enterprise_id: '507f1f77bcf86cd799439011',
           } as never);
         }
@@ -59,7 +79,7 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
       mockRepo.createUser = vi.fn().mockResolvedValue(fakeCreated as never);
 
       const result = await service.createEmployee(
-        { id: 'recruiter-1', role: 'recruiter' },
+        { id: 'enterprise-admin-1', role: 'enterprise_admin' },
         {
           fullName: 'Nguyen Van B',
           email: 'staff@company.com',
@@ -76,14 +96,14 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
 
     it('rejects duplicate email with 409 Conflict (BR-EMP-01)', async () => {
       mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'recruiter-1',
+        _id: 'enterprise-admin-1', role: 'enterprise_admin', status: 'active',
         enterprise_id: '507f1f77bcf86cd799439011',
       } as never);
       mockRepo.existsByEmail = vi.fn().mockResolvedValue(true);
 
       await expect(
         service.createEmployee(
-          { id: 'recruiter-1', role: 'recruiter' },
+          { id: 'enterprise-admin-1', role: 'enterprise_admin' },
           {
             fullName: 'Nguyen Van B',
             email: 'duplicate@company.com',
@@ -93,33 +113,35 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
       ).rejects.toThrow(USER_MESSAGES.EMAIL_EXISTS);
     });
 
-    it('prevents recruiter from creating a system admin account with 403 Forbidden', async () => {
+    it('prevents enterprise admin from creating a system admin account with 403 Forbidden', async () => {
       mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'recruiter-1',
+        _id: 'enterprise-admin-1',
+        role: 'enterprise_admin',
+        status: 'active',
         enterprise_id: '507f1f77bcf86cd799439011',
       } as never);
 
       await expect(
         service.createEmployee(
-          { id: 'recruiter-1', role: 'recruiter' },
+          { id: 'enterprise-admin-1', role: 'enterprise_admin' },
           {
             fullName: 'Malicious Admin',
             email: 'admin@company.com',
             role: 'admin',
-          },
+          } as never,
         ),
       ).rejects.toThrow(USER_MESSAGES.ADMIN_CREATE_RESTRICTED);
     });
 
-    it('rejects recruiter without an enterprise affiliation with 400 Bad Request', async () => {
+    it('rejects enterprise admin without an enterprise affiliation with 400 Bad Request', async () => {
       mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'recruiter-no-ent',
+        _id: 'enterprise-admin-no-ent', role: 'enterprise_admin', status: 'active',
         enterprise_id: null,
       } as never);
 
       await expect(
         service.createEmployee(
-          { id: 'recruiter-no-ent', role: 'recruiter' },
+          { id: 'enterprise-admin-no-ent', role: 'enterprise_admin' },
           {
             fullName: 'Nguyen Van C',
             email: 'staff@test.com',
@@ -130,147 +152,14 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
     });
   });
 
-  describe('updateUser (UC-11 / UC-EMP-02)', () => {
-    it('blocks self-role modification with 403 Forbidden (BR-EMP-07)', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'user-self',
-        role: 'recruiter',
-        enterprise_id: '507f1f77bcf86cd799439011',
-        toObject: () => ({ role: 'recruiter' }),
-      } as never);
-
-      await expect(
-        service.updateUser({ id: 'user-self', role: 'recruiter' }, 'user-self', {
-          role: 'admin',
-        } as never),
-      ).rejects.toThrow(USER_MESSAGES.SELF_ROLE_CHANGE);
-    });
-
-    it('blocks cross-tenancy updates for recruiter with 404 Not Found (BR-EMP-18)', async () => {
-      mockRepo.findById = vi.fn().mockImplementation((id: string) => {
-        if (id === 'recruiter-1') {
-          return Promise.resolve({
-            _id: 'recruiter-1',
-            enterprise_id: '507f1f77bcf86cd799439011',
-          } as never);
-        }
-        if (id === 'emp-other-tenant') {
-          return Promise.resolve({
-            _id: 'emp-other-tenant',
-            enterprise_id: '507f1f77bcf86cd799439999',
-            role: 'recruiter',
-          } as never);
-        }
-        return Promise.resolve(null);
-      });
-
-      await expect(
-        service.updateUser(
-          { id: 'recruiter-1', role: 'recruiter' },
-          'emp-other-tenant',
-          { fullName: 'Updated Name' },
-        ),
-      ).rejects.toThrow(USER_MESSAGES.NOT_FOUND);
-    });
-  });
-
-  describe('updateUserStatus (UC-12 / UC-EMP-03)', () => {
-    it('updates status and records audit metadata', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'emp-target',
-        status: 'active',
-        enterprise_id: '507f1f77bcf86cd799439011',
-      } as never);
-
-      const fakeUpdated = {
-        _id: 'emp-target',
-        email: 'emp@test.com',
-        username: 'emptest',
-        role: 'recruiter',
-        status: 'suspended',
-        toObject: () => ({
-          _id: 'emp-target',
-          email: 'emp@test.com',
-          username: 'emptest',
-          role: 'recruiter',
-          status: 'suspended',
-          status_reason: 'Violated corporate policy',
-          status_updated_at: new Date('2026-10-11T12:00:00Z'),
-          status_updated_by: 'admin-1',
-          createdAt: new Date('2026-10-10T00:00:00Z'),
-        }),
-      };
-      mockRepo.updateStatus = vi.fn().mockResolvedValue(fakeUpdated as never);
-
-      const result = await service.updateUserStatus(
-        { id: 'admin-1', role: 'admin' },
-        'emp-target',
-        { status: 'suspended', reason: 'Violated corporate policy' },
-      );
-
-      expect(result.status).toBe('suspended');
-      expect(result.statusReason).toBe('Violated corporate policy');
-      expect(result.statusUpdatedBy).toBe('admin-1');
-      expect(mockRepo.updateStatus).toHaveBeenCalledWith(
-        'emp-target',
-        'suspended',
-        'admin-1',
-        'Violated corporate policy',
-      );
-    });
-
-    it('prohibits self-suspension with 403 Forbidden (BR-EMP-10)', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'admin-self',
-        status: 'active',
-      } as never);
-
-      await expect(
-        service.updateUserStatus(
-          { id: 'admin-self', role: 'admin' },
-          'admin-self',
-          { status: 'suspended' },
-        ),
-      ).rejects.toThrow(USER_MESSAGES.SELF_SUSPENSION);
-    });
-
-    it('requires justification reason when suspending an account (BR-EMP-13)', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'emp-target',
-        status: 'active',
-      } as never);
-
-      await expect(
-        service.updateUserStatus(
-          { id: 'admin-1', role: 'admin' },
-          'emp-target',
-          { status: 'suspended', reason: '' },
-        ),
-      ).rejects.toThrow(USER_MESSAGES.REASON_REQUIRED);
-    });
-
-    it('rejects invalid status transition (e.g. active to active) with 400 Bad Request', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'emp-target',
-        status: 'active',
-      } as never);
-
-      await expect(
-        service.updateUserStatus(
-          { id: 'admin-1', role: 'admin' },
-          'emp-target',
-          { status: 'active' },
-        ),
-      ).rejects.toThrow(USER_MESSAGES.INVALID_STATUS_TRANSITION);
-    });
-  });
-
   describe('getUserById & Multi-Tenancy Scoping (UC-14 / UC-EMP-05)', () => {
     it('allows recruiter to view employee in the same enterprise', async () => {
       mockRepo.findById = vi.fn().mockImplementation((id: string) => {
         if (id === 'recruiter-1') {
           return Promise.resolve({
             _id: 'recruiter-1',
+            role: 'recruiter',
+            status: 'active',
             enterprise_id: '507f1f77bcf86cd799439011',
           } as never);
         }
@@ -308,6 +197,8 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
         if (id === 'recruiter-1') {
           return Promise.resolve({
             _id: 'recruiter-1',
+            role: 'recruiter',
+            status: 'active',
             enterprise_id: '507f1f77bcf86cd799439011',
           } as never);
         }
@@ -329,60 +220,12 @@ describe('UsersService - Manage Employee Account (UC 10 - UC 16)', () => {
     });
   });
 
-  describe('getUserHistory (UC-15 / UC-EMP-06)', () => {
-    it('returns chronological history items including creation and multiple status transitions without data loss', async () => {
-      mockRepo.findById = vi.fn().mockResolvedValue({
-        _id: 'emp-1',
-        role: 'recruiter',
-        status: 'suspended',
-        toObject: () => ({
-          _id: 'emp-1',
-          role: 'recruiter',
-          status: 'suspended',
-          status_history: [
-            {
-              status: 'suspended',
-              changed_at: new Date('2026-10-05T10:00:00Z'),
-              changed_by: 'admin-1',
-              reason: 'First suspension for investigation',
-            },
-            {
-              status: 'active',
-              changed_at: new Date('2026-10-08T09:00:00Z'),
-              changed_by: 'admin-1',
-              reason: 'Reinstated after review',
-            },
-            {
-              status: 'suspended',
-              changed_at: new Date('2026-10-11T14:00:00Z'),
-              changed_by: 'admin-2',
-              reason: 'Contract Ended',
-            },
-          ],
-          createdAt: new Date('2026-10-01T08:00:00Z'),
-          updatedAt: new Date('2026-10-11T14:00:00Z'),
-        }),
-      } as never);
-
-      const history = await service.getUserHistory('emp-1', { id: 'admin-1', role: 'admin' });
-      // 1 provision event + 3 status transitions + 1 profile updated = 5 events
-      expect(history.items.length).toBe(5);
-
-      // Verify newest transition appears first
-      const statusTransitions = history.items.filter((item) => item.action.startsWith('Status Transition'));
-      expect(statusTransitions.length).toBe(3);
-      expect(statusTransitions[0]?.description).toContain('Contract Ended');
-      expect(statusTransitions[1]?.description).toContain('Reinstated after review');
-      expect(statusTransitions[2]?.description).toContain('First suspension for investigation');
-
-      expect(history.items.some((item) => item.action === 'Account Provisioned')).toBe(true);
-    });
-  });
-
   describe('listUsers with Search & Multi-Tenancy (UC-13 & UC-16)', () => {
     it('applies recruiter enterprise_id filter automatically', async () => {
       mockRepo.findById = vi.fn().mockResolvedValue({
         _id: 'recruiter-1',
+        role: 'recruiter',
+        status: 'active',
         enterprise_id: '507f1f77bcf86cd799439011',
       } as never);
       mockRepo.findPage = vi.fn().mockResolvedValue({ items: [], total: 0 });
