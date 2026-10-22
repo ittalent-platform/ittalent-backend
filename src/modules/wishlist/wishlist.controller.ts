@@ -23,6 +23,26 @@ export class WishlistController {
     }
   };
 
+  toggleJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, WISHLIST_MESSAGES.AUTH_REQUIRED);
+      }
+      const jobId =
+        (res.locals.validated?.params as WishlistJobParam | undefined)?.jobId ??
+        (res.locals.validated?.body as AddWishlistBody | undefined)?.jobId;
+
+      if (!jobId) {
+        throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Job ID is required');
+      }
+
+      const result = await this.service.toggleSave(req.user.id, jobId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listMine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {

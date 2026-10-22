@@ -51,6 +51,17 @@ export class WishlistRepository {
     }).exec();
   }
 
+  async deleteByUserAndJob(userId: string, jobId: string, session?: ClientSession): Promise<boolean> {
+    const result = await Wishlist.deleteOne(
+      {
+        user_id: new Types.ObjectId(userId),
+        job_id: new Types.ObjectId(jobId),
+      },
+      session ? { session } : undefined,
+    ).exec();
+    return result.deletedCount > 0;
+  }
+
   async countByUser(userId: string): Promise<number> {
     return Wishlist.countDocuments({
       user_id: new Types.ObjectId(userId),

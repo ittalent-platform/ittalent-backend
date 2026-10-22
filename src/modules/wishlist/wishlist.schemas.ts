@@ -25,6 +25,14 @@ export const wishlistSaveResponseSchema = z.object({
 
 export type WishlistSaveResponse = z.infer<typeof wishlistSaveResponseSchema>;
 
+export const wishlistToggleResponseSchema = z.object({
+  saved: z.boolean(),
+  message: z.string(),
+  id: z.string().optional(),
+});
+
+export type WishlistToggleResponse = z.infer<typeof wishlistToggleResponseSchema>;
+
 export const wishlistCheckResponseSchema = z.object({
   isSaved: z.boolean(),
   wishlistId: z.string().nullable().optional(),

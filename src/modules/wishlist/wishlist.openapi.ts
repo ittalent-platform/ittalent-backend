@@ -8,11 +8,13 @@ import {
   wishlistQuerySchema,
   wishlistResponseSchema,
   wishlistSaveResponseSchema,
+  wishlistToggleResponseSchema,
 } from './wishlist.schemas.js';
 
 export function registerWishlistOpenApi(registry: OpenAPIRegistry): void {
   const addSchema = registry.register('AddWishlistRequest', addWishlistBodySchema);
   const saveResponseSchema = registry.register('WishlistSaveResponse', wishlistSaveResponseSchema);
+  const toggleResponse = registry.register('WishlistToggleResponse', wishlistToggleResponseSchema);
   const checkResponseSchema = registry.register('WishlistCheckResponse', wishlistCheckResponseSchema);
   const paginatedResponse = registry.register('PaginatedWishlistResponse', wishlistResponseSchema);
   const querySchema = registry.register('WishlistQuery', wishlistQuerySchema);
@@ -38,6 +40,53 @@ export function registerWishlistOpenApi(registry: OpenAPIRegistry): void {
         content: { 'application/json': { schema: saveResponseSchema } },
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Target job is closed, expired, or enterprise is inactive' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Saving jobs is for candidate accounts' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Job posting not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Wishlist capacity limit reached (maximum 500 saved jobs)' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/me/wishlist/jobs/{jobId}/toggle',
+    tags: ['Wishlist'],
+    summary: 'Toggle job bookmark status in candidate wishlist',
+    description:
+      'Toggles bookmark state: if already saved, removes it from wishlist; if unsaved, adds it to wishlist. Enforces active job and 500-item capacity rules.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: wishlistJobParamSchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Bookmark status toggled successfully',
+        content: { 'application/json': { schema: toggleResponse } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Target job is closed, expired, or invalid ID' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Saving jobs is for candidate accounts' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Job posting not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Wishlist capacity limit reached (maximum 500 saved jobs)' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/me/wishlist/toggle',
+    tags: ['Wishlist'],
+    summary: 'Toggle job bookmark status (JSON body alias)',
+    description: 'Alias for heart icon toggle accepting jobId in JSON request body.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: { required: true, content: { 'application/json': { schema: addSchema } } },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Bookmark status toggled successfully',
+        content: { 'application/json': { schema: toggleResponse } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Target job is closed, expired, or invalid ID' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Saving jobs is for candidate accounts' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Job posting not found' },
