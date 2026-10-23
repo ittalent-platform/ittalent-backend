@@ -67,6 +67,14 @@ export const createBroadcastNotificationSchema = z.strictObject({
     .string()
     .trim()
     .url('Invalid action URL format')
+    .refine((url) => {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }, 'Action URL must use http or https protocol')
     .max(2048, 'Action URL cannot exceed 2048 characters')
     .nullable()
     .optional(),
@@ -106,6 +114,14 @@ export const updateBroadcastNotificationSchema = z.strictObject({
     .string()
     .trim()
     .url('Invalid action URL format')
+    .refine((url) => {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }, 'Action URL must use http or https protocol')
     .max(2048, 'Action URL cannot exceed 2048 characters')
     .nullable()
     .optional(),

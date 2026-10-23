@@ -71,6 +71,32 @@ describe('Broadcast Notifications Schemas Validation', () => {
       }
     });
 
+    it('rejects action URL with non-http/https protocol like javascript:', () => {
+      const payload = {
+        title: 'Security Alert Announcement',
+        content: 'Please verify your credentials immediately on the portal.',
+        category: 'Security Alert',
+        target_audience: 'All Users',
+        action_url: 'javascript:alert(1)',
+      };
+
+      const result = createBroadcastNotificationSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects action URL with data: protocol', () => {
+      const payload = {
+        title: 'Security Alert Announcement',
+        content: 'Please verify your credentials immediately on the portal.',
+        category: 'Security Alert',
+        target_audience: 'All Users',
+        action_url: 'data:text/html,<script>alert(1)</script>',
+      };
+
+      const result = createBroadcastNotificationSchema.safeParse(payload);
+      expect(result.success).toBe(false);
+    });
+
     it('rejects empty channels array', () => {
       const payload = {
         title: 'Valid Announcement Title',
