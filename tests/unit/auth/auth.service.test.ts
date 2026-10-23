@@ -736,6 +736,16 @@ describe('AuthService', () => {
 
       expect(result.success).toBe(true);
       expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+      const savedHash = (mockAuthRepo.updateLocalAccountPassword as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as string;
+      expect(await bcrypt.compare('newPassword123', savedHash)).toBe(true);
+      expect(await bcrypt.compare('currentPassword123', savedHash)).toBe(false);
+    });
+
+    it('rejects reusing the current password', async () => {
+      const passwordHash = await bcrypt.hash('Current123!', 10);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({ password_hash: passwordHash } as never);
+      await expect(authService.changePassword('user-1', { currentPassword: 'Current123!', newPassword: 'Current123!' })).rejects.toMatchObject({ statusCode: 400 });
+      expect(mockAuthRepo.updateLocalAccountPassword).not.toHaveBeenCalled();
     });
   });
 

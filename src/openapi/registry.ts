@@ -15,6 +15,7 @@ import { registerHealthOpenApi } from '../modules/health/health.openapi.js';
 import { registerInterviewsOpenApi } from '../modules/interviews/interviews.openapi.js';
 import { registerNotificationsOpenApi } from '../modules/notifications/notifications.openapi.js';
 import { registerBroadcastNotificationsOpenApi } from '../modules/broadcast-notifications/broadcast-notifications.openapi.js';
+import { registerMyProfileOpenApi } from '../modules/my-profile/index.js';
 import { registerJobPostingsOpenApi } from '../modules/job-postings/job-postings.openapi.js';
 import { registerUsersOpenApi } from '../modules/users/users.openapi.js';
 import { registerUserInvitationsOpenApi } from '../modules/user-invitations/user-invitations.openapi.js';
@@ -48,5 +49,6 @@ registerInterviewsOpenApi(registry);
 registerDashboardOpenApi(registry);
 registerNotificationsOpenApi(registry);
 registerBroadcastNotificationsOpenApi(registry);
+registerMyProfileOpenApi(registry);
 registerWishlistOpenApi(registry);
 

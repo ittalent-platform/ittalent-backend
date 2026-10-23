@@ -219,7 +219,7 @@ export class UsersRepository {
     return { items, total };
   }
 
-  async updateProfile(id: Types.ObjectId | string, patch: UpdateUserBody): Promise<UserDoc | null> {
+  async updateProfile(id: Types.ObjectId | string, patch: Omit<UpdateUserBody, 'expectedVersion'>): Promise<UserDoc | null> {
     const $set: Record<string, unknown> = {};
     const $unset: Record<string, ''> = {};
     if (patch.fullName !== undefined) $set.full_name = patch.fullName;
