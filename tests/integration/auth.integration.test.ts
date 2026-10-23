@@ -119,6 +119,7 @@ describe('Auth Integration Tests', () => {
     expect(verifyToken.length).toBeGreaterThan(0);
 
     const verifyRes = await fetch(`${baseUrl}/verify-email?token=${verifyToken}`, {
+      headers: { Accept: 'text/html' },
       redirect: 'manual',
     });
     expect(verifyRes.status).toBe(HTTP_STATUS.HTTP_302_FOUND);
@@ -130,6 +131,7 @@ describe('Auth Integration Tests', () => {
     expect(verifiedUser?.email_verified).toBe(true);
 
     const replayVerifyRes = await fetch(`${baseUrl}/verify-email?token=${verifyToken}`, {
+      headers: { Accept: 'text/html' },
       redirect: 'manual',
     });
     expect(replayVerifyRes.status).toBe(HTTP_STATUS.HTTP_302_FOUND);

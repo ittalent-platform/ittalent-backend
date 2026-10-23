@@ -1,10 +1,11 @@
 import type { Express } from 'express';
 
+import type { UserDoc } from '../../models/user.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { storageService, type StorageService } from '../../shared/services/storage.service.js';
-import { authService } from '../auth/auth.service.js';
-import { usersService } from '../users/users.service.js';
+import { authService, type AuthService } from '../auth/auth.service.js';
+import { usersService, type UsersService } from '../users/users.service.js';
 import { AVATAR_FOLDER, AVATAR_PREFIX, PROFILE_MESSAGES } from './my-profile.constants.js';
 import { myProfileRepository, type MyProfileRepository } from './my-profile.repository.js';
 import { myProfileSchema, type MyProfile, type UpdateMyProfile } from './my-profile.schemas.js';
@@ -13,23 +14,34 @@ export class MyProfileService {
   constructor(
     private readonly repository: MyProfileRepository = myProfileRepository,
     private readonly storage: StorageService = storageService,
+    private readonly auth: AuthService = authService,
+    private readonly users: UsersService = usersService,
   ) {}
+
+  private async toMyProfile(user: UserDoc, avatarUrl: string | null = user.avatar_url ?? null): Promise<MyProfile> {
+    const hasPassword = await this.auth.hasLocalPassword(String(user._id));
+    return myProfileSchema.parse({
+      ...this.users.mapUserDto(user),
+      avatarUrl,
+      hasPassword,
+    });
+  }
 
   async get(userId: string): Promise<MyProfile> {
     const user = await this.repository.findById(userId);
     if (!user) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
-    const hasPassword = await authService.hasLocalPassword(userId);
-    return myProfileSchema.parse({ ...usersService.mapUserDto(user), avatarUrl: user.avatar_url ?? null, hasPassword });
+    return this.toMyProfile(user);
   }
 
   async update(userId: string, patch: UpdateMyProfile): Promise<MyProfile> {
     const user = await this.repository.update(userId, patch);
     if (!user) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
-    return this.get(userId);
+    return this.toMyProfile(user);
   }
 
   async replaceAvatar(userId: string, file: Express.Multer.File): Promise<MyProfile> {
-    if (!await this.repository.findById(userId)) {
+    const user = await this.repository.findById(userId);
+    if (!user) {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
     }
     const uploaded = await this.storage.uploadFile({
@@ -56,7 +68,7 @@ export class MyProfileService {
     if (previousKey && previousKey !== uploaded.storageKey) {
       await this.storage.deleteFile(previousKey, 'image');
     }
-    return this.get(userId);
+    return this.toMyProfile(user, uploaded.fileUrl);
   }
 }
 
