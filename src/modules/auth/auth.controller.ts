@@ -116,7 +116,7 @@ export class AuthController {
       const isJsonPreferred =
         typeof req.accepts === 'function' &&
         Boolean(req.accepts('json')) &&
-        (acceptHeader.includes('application/json') || req.xhr || !acceptHeader.includes('text/html'));
+        (acceptHeader.includes('application/json') || req.xhr);
 
       if (isJsonPreferred) {
         const isSuccess = stage === 'success' || stage === 'already-verified';
