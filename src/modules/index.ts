@@ -13,6 +13,7 @@ import { healthRouter } from './health/index.js';
 import { dashboardRouter } from './dashboard/index.js';
 import { interviewsRouter } from './interviews/index.js';
 import { notificationsRouter } from './notifications/index.js';
+import { myProfileRouter } from './my-profile/index.js';
 import { jobPostingsRouter } from './job-postings/index.js';
 import { usersRouter } from './users/index.js';
 import { userInvitationsRouter } from './user-invitations/user-invitations.routes.js';
@@ -23,6 +24,7 @@ import { wishlistRouter } from './wishlist/index.js';
 export function registerRoutes(app: Express): void {
   const apiV1Router = Router();
   apiV1Router.use('/auth', authRouter);
+  apiV1Router.use('/me/profile', myProfileRouter);
   apiV1Router.use(documentsRouter);
   apiV1Router.use(jobPostingsRouter);
   apiV1Router.use(userInvitationsRouter);

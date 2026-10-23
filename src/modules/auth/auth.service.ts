@@ -367,6 +367,10 @@ export class AuthService {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.INVALID_CURRENT_PASSWORD);
     }
 
+    if (await bcrypt.compare(input.newPassword, account.password_hash)) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.PASSWORD_UNCHANGED);
+    }
+
     const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
     await this.repository.updateLocalAccountPassword(userId, newPasswordHash);
 
@@ -375,6 +379,11 @@ export class AuthService {
       message: AUTH_MESSAGES.PASSWORD_CHANGED_SUCCESS,
       data: {},
     };
+  }
+
+  async hasLocalPassword(userId: string): Promise<boolean> {
+    const account = await this.repository.findLocalAccountByUserId(userId);
+    return Boolean(account?.password_hash);
   }
 
   async blockExpiredUnverifiedUsers(): Promise<number> {
