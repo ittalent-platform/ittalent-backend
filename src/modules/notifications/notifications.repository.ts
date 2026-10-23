@@ -1,7 +1,12 @@
 import { Types, type ClientSession, type QueryFilter } from 'mongoose';
 
 import { DeviceToken, type DevicePlatform } from '../../models/device-token.model.js';
-import { Notification, type NotificationData } from '../../models/notification.model.js';
+import {
+  Notification,
+  type NotificationCategory,
+  type NotificationData,
+  type NotificationType,
+} from '../../models/notification.model.js';
 import type { CreateNotificationInput, NotificationListQuery } from './notifications.schemas.js';
 
 export class NotificationsRepository {
@@ -178,6 +183,39 @@ export class NotificationsRepository {
       .lean()
       .exec();
     return tokens.map((doc) => doc.token);
+  }
+
+  async insertBatch(
+    notifications: Array<{
+      _id: Types.ObjectId;
+      recipient_id: Types.ObjectId;
+      title: string;
+      message: string;
+      type: NotificationType;
+      category: NotificationCategory;
+      action_url: string | null;
+      data: Record<string, unknown> | null;
+      is_read: boolean;
+    }>,
+  ): Promise<void> {
+    if (notifications.length === 0) return;
+    await Notification.insertMany(notifications, { ordered: false });
+  }
+
+  async countReadReceipts(broadcastId: string): Promise<number> {
+    return Notification.countDocuments({
+      'data.broadcast_id': broadcastId,
+      is_read: true,
+    }).exec();
+  }
+
+  async countReadReceiptsBatch(broadcastIds: string[]): Promise<Map<string, number>> {
+    if (broadcastIds.length === 0) return new Map();
+    const results = await Notification.aggregate<{ _id: string; count: number }>([
+      { $match: { 'data.broadcast_id': { $in: broadcastIds }, is_read: true } },
+      { $group: { _id: '$data.broadcast_id', count: { $sum: 1 } } },
+    ]);
+    return new Map(results.map((r) => [r._id, r.count]));
   }
 }
 

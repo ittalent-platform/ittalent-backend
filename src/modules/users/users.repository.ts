@@ -407,6 +407,18 @@ export class UsersRepository {
     ).exec();
     return result.modifiedCount;
   }
+
+  async findActiveUserIdsByRoles(roles?: UserRole[]): Promise<Types.ObjectId[]> {
+    const filter: Record<string, unknown> = {
+      is_active: { $ne: false },
+      deleted_at: null,
+    };
+    if (roles && roles.length > 0) {
+      filter.role = roles.length === 1 ? roles[0] : { $in: roles };
+    }
+    const users = await User.find(filter).select('_id').lean().exec();
+    return users.map((u) => u._id as Types.ObjectId);
+  }
 }
 
 export const usersRepository = new UsersRepository();

@@ -6,11 +6,13 @@ import { connectDatabase, disconnectDatabase } from './config/db.js';
 import { disconnectRedis } from './config/redis.js';
 import { env } from './config/env.js';
 import { startAuthVerificationJob } from './modules/auth/auth.service.js';
+import { broadcastNotificationsService } from './modules/broadcast-notifications/broadcast-notifications.service.js';
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
 
   const stopAuthVerificationJob = startAuthVerificationJob();
+  const stopBroadcastScheduler = broadcastNotificationsService.startBroadcastScheduler();
 
   const { app } = await import('./app.js');
 
@@ -30,6 +32,7 @@ async function bootstrap(): Promise<void> {
 
     isShuttingDown = true;
     stopAuthVerificationJob();
+    stopBroadcastScheduler();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
