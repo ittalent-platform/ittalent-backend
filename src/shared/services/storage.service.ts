@@ -46,6 +46,8 @@ export interface StorageUploadInput {
   resourceType?: 'raw' | 'image' | 'auto';
   mimeType?: string;
   resourceLabel?: string;
+  /** Provider-neutral object key chosen by the owning domain. */
+  storageKey?: string;
 }
 
 export interface StorageUploadResult {
@@ -61,11 +63,24 @@ export class StorageService {
     return isCloudinaryConfigured();
   }
 
+  createOwnedKey(namespace: string, ownerId: string, prefix: string, extension: string): string {
+    const safeNamespace = namespace.replace(/[^a-zA-Z0-9/_-]/g, '').replace(/^\/+|\/+$/g, '');
+    const safeOwner = ownerId.replace(/[^a-zA-Z0-9_-]/g, '');
+    const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeExtension = extension.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    return `${safeNamespace}/${safeOwner}/${safePrefix}-${randomUUID()}.${safeExtension}`;
+  }
+
+  ownsKey(storageKey: string, namespace: string, ownerId: string, prefix: string): boolean {
+    const expectedPrefix = `${namespace.replace(/^\/+|\/+$/g, '')}/${ownerId}/${prefix}-`;
+    return storageKey.startsWith(expectedPrefix) && !storageKey.includes('..');
+  }
+
   async uploadFile(input: StorageUploadInput): Promise<StorageUploadResult> {
     const ext = input.fileName.split('.').pop()?.toLowerCase() ?? 'bin';
     const folder = input.folder ?? 'italent/documents';
     const prefix = input.prefix ?? 'document';
-    const publicId = `${prefix}-${randomUUID()}.${ext}`;
+    const generatedId = `${prefix}-${randomUUID()}.${ext}`;
     const resourceType = input.resourceType ?? 'raw';
     const mimeType = input.mimeType ?? 'application/octet-stream';
     const resourceLabel = input.resourceLabel ?? 'Document';
@@ -77,7 +92,9 @@ export class StorageService {
     const cloudinary = getCloudinary();
     const result = await new Promise<{ secure_url?: string; public_id?: string }>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder, public_id: publicId, resource_type: resourceType },
+        input.storageKey
+          ? { public_id: input.storageKey, resource_type: resourceType }
+          : { folder, public_id: generatedId, resource_type: resourceType },
         (error, output) => {
           if (error || !output) {
             reject(error ?? new Error(`${resourceLabel} upload failed`));
@@ -112,9 +129,11 @@ export class StorageService {
     try {
       const cloudinary = getCloudinary();
       const res = await cloudinary.uploader.destroy(storageKey, { resource_type: resourceType });
-      return res?.result === 'ok';
+      return res?.result === 'ok' || res?.result === 'not found';
     } catch (error) {
-      console.error('[storage:delete:error]', error);
+      console.error('[storage:delete:error]', {
+        message: error instanceof Error ? error.message : 'Unknown storage deletion failure',
+      });
       return false;
     }
   }

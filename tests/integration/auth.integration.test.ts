@@ -14,7 +14,7 @@ import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 import * as emailService from '../../src/shared/services/email.service.js';
 
 describe('Auth Integration Tests', () => {
-  let server: Server;
+  let server: Server | undefined;
   let baseUrl: string;
   let lastVerificationUrl = '';
   let lastResetPasswordUrl = '';
@@ -23,11 +23,12 @@ describe('Auth Integration Tests', () => {
     await connectDatabase();
     await Promise.all([Account.syncIndexes(), User.syncIndexes(), Token.syncIndexes()]);
     await new Promise<void>((resolve) => {
-      server = app.listen(0, () => {
-        const address = server.address() as AddressInfo;
+      const listeningServer = app.listen(0, () => {
+        const address = listeningServer.address() as AddressInfo;
         baseUrl = `http://127.0.0.1:${address.port}`;
         resolve();
       });
+      server = listeningServer;
     });
 
     vi.spyOn(emailService, 'sendVerificationEmail').mockImplementation(async (_to, url) => {
@@ -41,9 +42,11 @@ describe('Auth Integration Tests', () => {
 
   afterAll(async () => {
     vi.restoreAllMocks();
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    });
+    if (server) {
+      await new Promise<void>((resolve) => {
+        server?.close(() => resolve());
+      });
+    }
     await disconnectRedis();
     await disconnectDatabase();
   });
@@ -169,7 +172,10 @@ describe('Auth Integration Tests', () => {
         password: 'OldPassword123!',
       }),
     });
-    await User.updateOne({ email: 'alice@example.com' }, { status: 'active' });
+    await User.updateOne(
+      { email: 'alice@example.com' },
+      { status: 'active', email_verified: true },
+    );
 
     const forgotRes = await fetch(`${baseUrl}/api/v1/auth/forgot-password`, {
       method: 'POST',
@@ -240,7 +246,7 @@ describe('Auth Integration Tests', () => {
       body: JSON.stringify({
         currentPassword: 'NewPassword123!',
         newPassword: 'RotatedPassword123!',
-        revokeOtherSessions: true,
+        confirmation: 'RotatedPassword123!',
       }),
     });
     expect(changeRes.status).toBe(HTTP_STATUS.HTTP_200_OK);

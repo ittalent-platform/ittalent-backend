@@ -1,4 +1,4 @@
-import type { ClientSession, Types } from 'mongoose';
+import mongoose, { type ClientSession, type Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 import { Account, type AccountDoc, type AuthProvider } from '../../models/account.model.js';
@@ -29,6 +29,20 @@ export interface CreatePasswordResetTokenData {
 }
 
 export class AuthRepository {
+  async withTransaction<T>(operation: (session: ClientSession) => Promise<T>): Promise<T> {
+    const session = await mongoose.startSession();
+    let result: T | undefined;
+    try {
+      await session.withTransaction(async () => {
+        result = await operation(session);
+      });
+      if (result === undefined) throw new Error('Authentication transaction completed without a result');
+      return result;
+    } finally {
+      await session.endSession();
+    }
+  }
+
   async verifyCurrentPassword(userId: Types.ObjectId, rawPassword: string, session?: ClientSession): Promise<boolean> {
     let query = Account.findOne({ user_id: userId, provider: 'local' }).select('+password_hash');
     if (session) query = query.session(session);
@@ -54,13 +68,15 @@ export class AuthRepository {
 
   async findLocalAccountByUserId(
     userId: Types.ObjectId | string,
+    session?: ClientSession,
   ): Promise<(AccountDoc & { password_hash: string }) | null> {
-    return Account.findOne({
+    const query = Account.findOne({
       user_id: userId,
       provider: 'local',
     })
-      .select('+password_hash')
-      .exec() as Promise<(AccountDoc & { password_hash: string }) | null>;
+      .select('+password_hash');
+    if (session) query.session(session);
+    return query.exec() as Promise<(AccountDoc & { password_hash: string }) | null>;
   }
 
   async findAccountByProvider(

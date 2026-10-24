@@ -460,18 +460,18 @@ describe('AuthController', () => {
       const mockResult = {
         success: true as const,
         message: 'Password changed successfully.',
-        data: {},
+        data: { tokens: { accessToken: 'access', refreshToken: 'refresh' } },
       };
       mockService.changePassword = vi.fn().mockResolvedValue(mockResult);
 
       const json = vi.fn();
       const status = vi.fn().mockReturnValue({ json });
-      const req = { user: { id: 'user-id-123' } } as never;
+      const req = { user: { id: 'user-id-123', role: 'user', authVersion: 4 } } as never;
       const res = {
         status,
         locals: {
           validated: {
-            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123' },
+            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123', confirmation: 'newPassword123' },
           },
         },
       } as never;
@@ -482,7 +482,8 @@ describe('AuthController', () => {
       expect(mockService.changePassword).toHaveBeenCalledWith('user-id-123', {
         currentPassword: 'oldPassword123',
         newPassword: 'newPassword123',
-      });
+        confirmation: 'newPassword123',
+      }, { role: 'user', authVersion: 4 });
       expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
       expect(json).toHaveBeenCalledWith(mockResult);
     });
@@ -505,11 +506,11 @@ describe('AuthController', () => {
       const error = new Error('Change password failed');
       mockService.changePassword = vi.fn().mockRejectedValue(error);
 
-      const req = { user: { id: 'user-id-123' } } as never;
+      const req = { user: { id: 'user-id-123', role: 'user', authVersion: 0 } } as never;
       const res = {
         locals: {
           validated: {
-            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123' },
+            body: { currentPassword: 'oldPassword123', newPassword: 'newPassword123', confirmation: 'newPassword123' },
           },
         },
       } as never;

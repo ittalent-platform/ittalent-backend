@@ -22,6 +22,17 @@ describe('StorageService', () => {
     vi.restoreAllMocks();
   });
 
+  describe('provider-neutral owned keys', () => {
+    it('generates an owner-scoped key and rejects foreign traversal keys', () => {
+      const service = new StorageService();
+      const key = service.createOwnedKey('profile-avatars', 'user-123', 'avatar', 'png');
+      expect(key).toMatch(/^profile-avatars\/user-123\/avatar-[0-9a-f-]+\.png$/);
+      expect(service.ownsKey(key, 'profile-avatars', 'user-123', 'avatar')).toBe(true);
+      expect(service.ownsKey('profile-avatars/other/avatar-id.png', 'profile-avatars', 'user-123', 'avatar')).toBe(false);
+      expect(service.ownsKey('profile-avatars/user-123/avatar-../foreign.png', 'profile-avatars', 'user-123', 'avatar')).toBe(false);
+    });
+  });
+
   describe('Buffer Signature Helpers', () => {
     it('validates PDF signature correctly', () => {
       const validBuffer = Buffer.from(`${PDF_SIGNATURE} extra content`);
@@ -118,6 +129,27 @@ describe('StorageService', () => {
       expect(result.storageKey).toBe('italent/documents/doc-123.pdf');
       expect(result.fileName).toBe('cv.pdf');
       expect(result.size).toBe(dummyBuffer.length);
+    });
+
+    it('passes an explicit domain-owned storage key through the provider adapter', async () => {
+      vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(true);
+      const storageKey = 'profile-avatars/user-123/avatar-owned.png';
+      const mockUploadStream = vi.fn().mockImplementation((options, callback) => ({
+        end: () => {
+          expect(options).toMatchObject({ public_id: storageKey, resource_type: 'image' });
+          callback(null, { secure_url: 'https://example.test/avatar.png', public_id: storageKey });
+        },
+      }));
+      vi.spyOn(cloudinaryConfig, 'getCloudinary').mockReturnValue({
+        uploader: { upload_stream: mockUploadStream },
+      } as unknown as ReturnType<typeof cloudinaryConfig.getCloudinary>);
+
+      await expect(storageService.uploadFile({
+        buffer: Buffer.from('normalized image'),
+        fileName: 'avatar.png',
+        resourceType: 'image',
+        storageKey,
+      })).resolves.toMatchObject({ storageKey });
     });
 
     it('throws 502 Bad Gateway when Cloudinary stream emits an error', async () => {

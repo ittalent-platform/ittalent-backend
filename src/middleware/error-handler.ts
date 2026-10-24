@@ -55,6 +55,12 @@ function getMessage(error: unknown): string {
 }
 
 function getErrorCode(error: unknown): string | undefined {
+  if (error instanceof ZodError) {
+    const field = error.issues[0]?.path[0];
+    if (field === 'newPassword') return 'PASSWORD_POLICY_INVALID';
+    if (field === 'confirmation') return 'PASSWORD_CONFIRMATION_INVALID';
+    return 'VALIDATION_ERROR';
+  }
   if (typeof error !== 'object' || error === null) {
     return undefined;
   }
@@ -81,6 +87,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     res.status(statusCode).json({
       success: false,
       message,
+      ...(code ? { code } : {}),
       issues: error.issues,
     });
     return;

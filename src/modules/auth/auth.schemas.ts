@@ -153,10 +153,13 @@ export const resetPasswordResponseSchema = z.object({
 
 export type ResetPasswordResponse = z.infer<typeof resetPasswordResponseSchema>;
 
-export const changePasswordRequestSchema = z.object({
+export const changePasswordRequestSchema = z.strictObject({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: passwordSchema,
-  revokeOtherSessions: z.boolean().optional(),
+  confirmation: z.string().min(1, 'Password confirmation is required'),
+}).refine((value) => value.newPassword === value.confirmation, {
+  message: 'Password confirmation does not match',
+  path: ['confirmation'],
 });
 
 export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
@@ -164,11 +167,9 @@ export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 export const changePasswordResponseSchema = z.object({
   success: z.literal(true),
   message: z.string(),
-  data: z
-    .object({
-      tokens: authTokensSchema.optional(),
-    })
-    .default({}),
+  data: z.object({
+    tokens: authTokensSchema,
+  }),
 });
 
 export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;

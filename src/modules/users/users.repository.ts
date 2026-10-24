@@ -308,6 +308,25 @@ export class UsersRepository {
     ).exec();
   }
 
+  async incrementAuthVersionForCurrentActiveUser(
+    id: Types.ObjectId | string,
+    expectedAuthVersion: number,
+    expectedRole: UserRole,
+    session: ClientSession,
+  ): Promise<UserDoc | null> {
+    return User.findOneAndUpdate(
+      {
+        _id: id,
+        role: expectedRole,
+        status: 'active',
+        email_verified: true,
+        auth_version: expectedAuthVersion,
+      },
+      { $inc: { auth_version: 1 } },
+      { returnDocument: 'after', session },
+    ).exec();
+  }
+
   async markEmailVerified(id: Types.ObjectId | string): Promise<UserDoc | null> {
     return User.findOneAndUpdate(
       { _id: id },

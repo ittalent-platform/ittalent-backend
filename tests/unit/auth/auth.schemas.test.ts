@@ -135,6 +135,7 @@ describe('Auth Schemas - Password Complexity', () => {
       const result = changePasswordRequestSchema.safeParse({
         currentPassword: 'AnyCurrentPassword',
         newPassword: 'UpdatedPassword123!',
+        confirmation: 'UpdatedPassword123!',
       });
       expect(result.success).toBe(true);
     });
@@ -143,8 +144,30 @@ describe('Auth Schemas - Password Complexity', () => {
       const result = changePasswordRequestSchema.safeParse({
         currentPassword: 'AnyCurrentPassword',
         newPassword: 'NoSpecialChar123',
+        confirmation: 'NoSpecialChar123',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects missing or mismatched confirmation', () => {
+      expect(changePasswordRequestSchema.safeParse({
+        currentPassword: 'AnyCurrentPassword',
+        newPassword: 'UpdatedPassword123!',
+      }).success).toBe(false);
+      expect(changePasswordRequestSchema.safeParse({
+        currentPassword: 'AnyCurrentPassword',
+        newPassword: 'UpdatedPassword123!',
+        confirmation: 'DifferentPassword123!',
+      }).success).toBe(false);
+    });
+
+    it('rejects public session-control injection', () => {
+      expect(changePasswordRequestSchema.safeParse({
+        currentPassword: 'AnyCurrentPassword',
+        newPassword: 'UpdatedPassword123!',
+        confirmation: 'UpdatedPassword123!',
+        revokeOtherSessions: false,
+      }).success).toBe(false);
     });
   });
 });

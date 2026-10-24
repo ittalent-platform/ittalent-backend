@@ -7,7 +7,8 @@ export const USER_AUDIT_MESSAGES = {
 
 export const USER_AUDIT_GROUPS = {
   account: ['account_invited', 'status_suspended', 'status_reopened', 'role_changed'],
-  profile: ['profile_updated'],
+  profile: ['profile_updated', 'avatar_updated'],
+  security: ['password_changed'],
   email: ['account_invited', 'invitation_accepted', 'invitation_revoked', 'email_change_requested', 'email_changed'],
 } as const;
 export type UserAuditGroup = keyof typeof USER_AUDIT_GROUPS;
