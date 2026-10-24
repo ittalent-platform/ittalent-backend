@@ -60,7 +60,7 @@ export class AuthService {
     return randomBytes(AUTH_CONFIG.TOKEN_BYTES).toString('hex');
   }
 
-  private generateTokens(user: { _id: unknown; email: string; role: string }): AuthTokens {
+  private generateTokens(user: { _id: unknown; email: string; role: string; auth_version?: number }): AuthTokens {
     const payload: TokenPayload = {
       sub: String(user._id),
       email: user.email,
@@ -79,7 +79,7 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  issueTokens(user: { _id: unknown; email: string; role: string }): AuthTokens {
+  issueTokens(user: { _id: unknown; email: string; role: string; auth_version?: number }): AuthTokens {
     return this.generateTokens(user);
   }
 
@@ -374,10 +374,25 @@ export class AuthService {
     const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
     await this.repository.updateLocalAccountPassword(userId, newPasswordHash);
 
+    const shouldRevoke = input.revokeOtherSessions ?? true;
+    const user =
+      shouldRevoke && typeof this.userService.incrementAuthVersion === 'function'
+        ? await this.userService.incrementAuthVersion(userId)
+        : await this.userService.findById(userId);
+
+    const tokens = user
+      ? this.issueTokens({
+          _id: user._id,
+          email: user.email,
+          role: user.role ?? 'user',
+          auth_version: user.auth_version ?? 0,
+        })
+      : undefined;
+
     return {
       success: true,
       message: AUTH_MESSAGES.PASSWORD_CHANGED_SUCCESS,
-      data: {},
+      data: tokens ? { tokens } : {},
     };
   }
 

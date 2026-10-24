@@ -5,4 +5,5 @@ export const PROFILE_MESSAGES = {
   AVATAR_REQUIRED: 'Avatar file is required',
   NOT_FOUND: 'Profile not found',
   NO_CHANGES: 'At least one field must be provided',
+  VERSION_CONFLICT: 'The account changed. Reload and try again.',
 } as const;

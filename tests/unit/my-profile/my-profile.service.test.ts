@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthService } from '../../../src/modules/auth/auth.service.js';
+import { PROFILE_MESSAGES } from '../../../src/modules/my-profile/my-profile.constants.js';
 import type { MyProfileRepository } from '../../../src/modules/my-profile/my-profile.repository.js';
 import { MyProfileService } from '../../../src/modules/my-profile/my-profile.service.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 import type { StorageService } from '../../../src/shared/services/storage.service.js';
 
-const user = { _id: '507f1f77bcf86cd799439011', avatar_url: null };
+const user = { _id: '507f1f77bcf86cd799439011', avatar_url: null, version: 1 };
 const dto = {
   id: String(user._id),
   email: 'mine@example.test',
@@ -18,6 +19,7 @@ const dto = {
   status: 'active' as const,
   emailVerified: true,
   enterpriseId: null,
+  version: 1,
 };
 
 function createDependencies(): {
@@ -76,6 +78,44 @@ describe('MyProfileService', () => {
       avatarUrl: 'https://example.test/avatar.png',
       hasPassword: true,
     });
+  });
+
+  it('updates profile when expectedVersion matches current version', async () => {
+    const updatedUser = { ...user, full_name: 'Updated Name', version: 2 };
+    const repository = {
+      findById: vi.fn().mockResolvedValue(user),
+      update: vi.fn().mockResolvedValue(updatedUser),
+    } as unknown as MyProfileRepository;
+    const { auth, users } = createDependencies();
+    vi.mocked(users.mapUserDto).mockReturnValue({ ...dto, fullName: 'Updated Name', version: 2 });
+    const service = new MyProfileService(repository, {} as StorageService, auth, users);
+
+    const result = await service.update(user._id, { fullName: 'Updated Name', expectedVersion: 1 });
+
+    expect(repository.findById).toHaveBeenCalledWith(user._id);
+    expect(repository.update).toHaveBeenCalledWith(user._id, { fullName: 'Updated Name', expectedVersion: 1 });
+    expect(result).toMatchObject({
+      id: user._id,
+      fullName: 'Updated Name',
+      version: 2,
+    });
+  });
+
+  it('throws 409 when expectedVersion does not match current version', async () => {
+    const repository = {
+      findById: vi.fn().mockResolvedValue({ ...user, version: 3 }),
+      update: vi.fn(),
+    } as unknown as MyProfileRepository;
+    const { auth, users } = createDependencies();
+    const service = new MyProfileService(repository, {} as StorageService, auth, users);
+
+    await expect(
+      service.update(user._id, { fullName: 'Updated Name', expectedVersion: 1 }),
+    ).rejects.toMatchObject({
+      statusCode: HTTP_STATUS.HTTP_409_CONFLICT,
+      message: PROFILE_MESSAGES.VERSION_CONFLICT,
+    });
+    expect(repository.update).not.toHaveBeenCalled();
   });
 
   it('throws 404 when profile is not found on update', async () => {

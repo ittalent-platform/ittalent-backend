@@ -34,8 +34,22 @@ export class MyProfileService {
   }
 
   async update(userId: string, patch: UpdateMyProfile): Promise<MyProfile> {
+    if (patch.expectedVersion !== undefined) {
+      const existing = await this.repository.findById(userId);
+      if (!existing) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
+      const currentVersion = existing.version ?? (existing as { __v?: number }).__v ?? 0;
+      if (currentVersion !== patch.expectedVersion) {
+        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, PROFILE_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+      }
+    }
+
     const user = await this.repository.update(userId, patch);
-    if (!user) throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
+    if (!user) {
+      if (patch.expectedVersion !== undefined) {
+        throw createHttpError(HTTP_STATUS.HTTP_409_CONFLICT, PROFILE_MESSAGES.VERSION_CONFLICT, 'VERSION_CONFLICT');
+      }
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, PROFILE_MESSAGES.NOT_FOUND);
+    }
     return this.toMyProfile(user);
   }
 

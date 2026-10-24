@@ -51,6 +51,7 @@ export function registerMyProfileOpenApi(registry: OpenAPIRegistry): void {
         content: { 'application/json': { schema: response } },
       },
       ...errors,
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Profile version conflict' },
     },
   });
 

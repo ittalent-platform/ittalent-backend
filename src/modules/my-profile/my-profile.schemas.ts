@@ -9,8 +9,12 @@ export const myProfileSchema = userDtoSchema.extend({
 });
 export type MyProfile = z.infer<typeof myProfileSchema>;
 
-export const updateMyProfileSchema = updateUserBodySchema.omit({ expectedVersion: true }).refine(
-  (value) => value.fullName !== undefined || value.phone !== undefined,
-  PROFILE_MESSAGES.NO_CHANGES,
-);
+export const updateMyProfileSchema = updateUserBodySchema
+  .extend({
+    expectedVersion: z.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (value): boolean => value.fullName !== undefined || value.phone !== undefined,
+    PROFILE_MESSAGES.NO_CHANGES,
+  );
 export type UpdateMyProfile = z.infer<typeof updateMyProfileSchema>;

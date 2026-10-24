@@ -164,8 +164,11 @@ export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 export const changePasswordResponseSchema = z.object({
   success: z.literal(true),
   message: z.string(),
-  data: z.object({}).default({}),
+  data: z
+    .object({
+      tokens: authTokensSchema.optional(),
+    })
+    .default({}),
 });
 
 export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;
-

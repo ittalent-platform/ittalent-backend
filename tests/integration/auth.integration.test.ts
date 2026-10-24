@@ -159,7 +159,7 @@ describe('Auth Integration Tests', () => {
     expect(meBody.email).toBe('john@example.com');
   });
 
-  it('handles password reset lifecycle, preflight checks, single-use invalidation, and password rotation', async () => {
+  it('handles password reset lifecycle, preflight checks, single-use invalidation, password rotation, and session revocation', async () => {
     await fetch(`${baseUrl}/api/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -229,7 +229,7 @@ describe('Auth Integration Tests', () => {
       }),
     });
     expect(newLoginRes.status).toBe(HTTP_STATUS.HTTP_200_OK);
-    const newLoginBody = (await newLoginRes.json()) as { tokens: { accessToken: string } };
+    const newLoginBody = (await newLoginRes.json()) as { tokens: { accessToken: string; refreshToken: string } };
 
     const changeRes = await fetch(`${baseUrl}/api/v1/auth/change-password`, {
       method: 'POST',
@@ -240,9 +240,27 @@ describe('Auth Integration Tests', () => {
       body: JSON.stringify({
         currentPassword: 'NewPassword123!',
         newPassword: 'RotatedPassword123!',
+        revokeOtherSessions: true,
       }),
     });
     expect(changeRes.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const changeBody = (await changeRes.json()) as {
+      data: { tokens?: { accessToken: string; refreshToken: string } };
+    };
+    expect(changeBody.data.tokens?.accessToken).toBeDefined();
+    expect(changeBody.data.tokens?.refreshToken).toBeDefined();
+
+    // Old token on another device is revoked (401)
+    const oldTokenMeRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${newLoginBody.tokens.accessToken}` },
+    });
+    expect(oldTokenMeRes.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+
+    // Current session using rotated token stays authenticated (200)
+    const newTokenMeRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${changeBody.data.tokens!.accessToken}` },
+    });
+    expect(newTokenMeRes.status).toBe(HTTP_STATUS.HTTP_200_OK);
   });
 
   it('blocks expired unverified users while preserving privileged accounts', async () => {
