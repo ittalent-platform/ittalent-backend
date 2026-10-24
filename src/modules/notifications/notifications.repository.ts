@@ -107,13 +107,17 @@ export class NotificationsRepository {
     return result.modifiedCount > 0;
   }
 
-  async markAllAsRead(userId: string): Promise<number> {
+  async markAllAsRead(userId: string, before?: Date): Promise<number> {
+    const filter: Record<string, unknown> = {
+      recipient_id: new Types.ObjectId(userId),
+      deleted_at: null,
+      is_read: false,
+    };
+    if (before) {
+      filter.createdAt = { $lte: before };
+    }
     const result = await Notification.updateMany(
-      {
-        recipient_id: new Types.ObjectId(userId),
-        deleted_at: null,
-        is_read: false,
-      },
+      filter,
       {
         $set: {
           is_read: true,

@@ -164,6 +164,7 @@ describe('BroadcastNotificationsService (UC 01 through UC 07)', () => {
             title: 'Emergency Security Alert',
             type: 'system_announcement',
             category: 'warning',
+            action_url: null,
             data: expect.objectContaining({
               broadcast_id: mockId.toString(),
             }),
@@ -171,6 +172,13 @@ describe('BroadcastNotificationsService (UC 01 through UC 07)', () => {
         ]),
       );
       expect(mockBus.emitNotification).toHaveBeenCalledTimes(2);
+      expect(mockBus.emitNotification).toHaveBeenCalledWith(
+        user1.toString(),
+        expect.objectContaining({
+          type: 'system_announcement',
+          actionUrl: null,
+        }),
+      );
       expect(mockRepository.update).toHaveBeenCalledWith(
         mockId.toString(),
         expect.objectContaining({

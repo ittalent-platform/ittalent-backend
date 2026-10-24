@@ -57,11 +57,13 @@ export class NotificationsService {
     return { unreadCount };
   }
 
-  async markAllAsRead(userId: string): Promise<MarkAllReadResponse> {
-    const updatedCount = await this.repository.markAllAsRead(userId);
+  async markAllAsRead(userId: string, before?: string): Promise<MarkAllReadResponse> {
+    const cutoffDate = before ? new Date(before) : undefined;
+    const updatedCount = await this.repository.markAllAsRead(userId, cutoffDate);
+    const unreadCount = await this.repository.countUnread(userId);
     return {
       updatedCount,
-      unreadCount: 0,
+      unreadCount,
       message:
         updatedCount > 0
           ? NOTIFICATION_MESSAGES.ALL_MARKED_READ

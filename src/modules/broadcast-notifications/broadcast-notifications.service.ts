@@ -322,7 +322,7 @@ export class BroadcastNotificationsService {
             message: broadcast.content,
             type: 'system_announcement' as const,
             category: notificationCategory as 'info' | 'warning',
-            action_url: broadcast.action_url ?? null,
+            action_url: null, // BC-INBOX-09: Announcements suppress action links
             data: {
               broadcast_id: broadcast._id.toString(),
               category: broadcast.category,
@@ -343,7 +343,7 @@ export class BroadcastNotificationsService {
               message: item.message,
               type: item.type,
               category: item.category,
-              actionUrl: item.action_url,
+              actionUrl: null,
               data: item.data,
               isRead: false,
               readAt: null,

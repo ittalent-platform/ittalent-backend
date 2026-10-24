@@ -85,7 +85,22 @@ describe('Notifications API Routes (Integration)', () => {
     expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
     const body = (await res.json()) as typeof mockResult;
     expect(body).toEqual(mockResult);
-    expect(notificationsService.markAllAsRead).toHaveBeenCalledWith(fixtureUserId);
+    expect(notificationsService.markAllAsRead).toHaveBeenCalledWith(fixtureUserId, undefined);
+  });
+
+  it('returns 200 on mark-all-as-read with before cutoff timestamp', async () => {
+    const mockResult = { updatedCount: 2, unreadCount: 1, message: 'All notifications marked as read' };
+    vi.spyOn(notificationsService, 'markAllAsRead').mockResolvedValue(mockResult);
+
+    const cutoff = '2026-10-24T10:00:00.000Z';
+    const res = await fetch(`${baseUrl}/api/v1/notifications/read-all?before=${encodeURIComponent(cutoff)}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${userToken}` },
+    });
+    expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    const body = (await res.json()) as typeof mockResult;
+    expect(body).toEqual(mockResult);
+    expect(notificationsService.markAllAsRead).toHaveBeenCalledWith(fixtureUserId, cutoff);
   });
 
   it('rejects malformed notification ID with 400', async () => {
