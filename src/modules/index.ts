@@ -13,6 +13,7 @@ import { healthRouter } from './health/index.js';
 import { dashboardRouter } from './dashboard/index.js';
 import { interviewsRouter } from './interviews/index.js';
 import { notificationsRouter } from './notifications/index.js';
+import { broadcastNotificationsRouter } from './broadcast-notifications/index.js';
 import { myProfileRouter } from './my-profile/index.js';
 import { jobPostingsRouter } from './job-postings/index.js';
 import { usersRouter } from './users/index.js';
@@ -41,6 +42,7 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use('/dashboard', dashboardRouter);
   apiV1Router.use('/interviews', interviewsRouter);
   apiV1Router.use('/notifications', notificationsRouter);
+  apiV1Router.use('/broadcast-notifications', broadcastNotificationsRouter);
 
   app.use(healthRouter);
   app.use('/api/v1', apiV1Router);

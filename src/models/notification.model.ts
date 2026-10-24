@@ -52,5 +52,6 @@ const notificationSchema = new Schema<NotificationData>(
 
 notificationSchema.index({ recipient_id: 1, deleted_at: 1, createdAt: -1 });
 notificationSchema.index({ recipient_id: 1, deleted_at: 1, is_read: 1 });
+notificationSchema.index({ 'data.broadcast_id': 1, is_read: 1 });
 
 export const Notification = model<NotificationData>('Notification', notificationSchema);
