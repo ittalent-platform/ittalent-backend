@@ -9,5 +9,15 @@ import { updateMyProfileSchema } from './my-profile.schemas.js';
 export const myProfileRouter = Router();
 myProfileRouter.use(authenticate);
 myProfileRouter.get('/', authenticateCurrentUser, myProfileController.get);
-myProfileRouter.patch('/', requireVerifiedActiveUser, validateBody(updateMyProfileSchema), myProfileController.update);
-myProfileRouter.patch('/avatar', requireVerifiedActiveUser, uploadAvatar, myProfileController.uploadAvatar);
+myProfileRouter.patch(
+  '/',
+  requireVerifiedActiveUser,
+  validateBody(updateMyProfileSchema),
+  myProfileController.update,
+);
+myProfileRouter.patch(
+  '/avatar',
+  requireVerifiedActiveUser,
+  uploadAvatar,
+  myProfileController.uploadAvatar,
+);

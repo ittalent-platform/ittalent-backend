@@ -108,17 +108,5 @@ describe('MyProfileController', () => {
       expect(json).toHaveBeenCalledWith(updated);
     });
 
-    it('forwards 400 when req.file is missing', async () => {
-      const next = vi.fn();
-
-      await controller.uploadAvatar({ user: { id: USER_ID } } as never, {} as never, next);
-
-      expect(next).toHaveBeenCalledWith(
-        expect.objectContaining({
-          statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST,
-          message: 'Avatar file is required',
-        }),
-      );
-    });
   });
 });

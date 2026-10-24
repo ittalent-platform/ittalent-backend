@@ -30,4 +30,16 @@ describe('personal profile and password OpenAPI contract', () => {
     expect(document.paths?.['/api/v1/me/profile/avatar']?.patch?.responses).toHaveProperty('403');
     expect(document.paths?.['/api/v1/auth/change-password']?.post?.responses).toHaveProperty('429');
   });
+
+  it('declares JSON bodies for every runtime error response', () => {
+    const document = createOpenApiDocument() as unknown as OpenApiDocumentShape;
+    const profilePaths = document.paths;
+
+    expect(profilePaths?.['/api/v1/me/profile']?.get?.responses?.['404'])
+      .toMatchObject({ content: { 'application/json': expect.anything() } });
+    expect(profilePaths?.['/api/v1/me/profile/avatar']?.patch?.responses?.['502'])
+      .toMatchObject({ content: { 'application/json': expect.anything() } });
+    expect(profilePaths?.['/api/v1/me/profile/avatar']?.patch?.responses?.['503'])
+      .toMatchObject({ content: { 'application/json': expect.anything() } });
+  });
 });

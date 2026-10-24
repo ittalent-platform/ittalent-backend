@@ -32,11 +32,12 @@ export function registerMyProfileOpenApi(registry: OpenAPIRegistry): void {
       'VALIDATION_ERROR',
     ]).optional(),
   }));
+  const errorContent = { 'application/json': { schema: profileError } };
   const errors = {
-    [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid input', content: { 'application/json': { schema: profileError } } },
-    [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required or session is no longer current', content: { 'application/json': { schema: profileError } } },
-    [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Current persisted account is unverified, inactive, suspended, or blocked', content: { 'application/json': { schema: profileError } } },
-    [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Profile not found' },
+    [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid input', content: errorContent },
+    [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required or session is no longer current', content: errorContent },
+    [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Current persisted account is unverified, inactive, suspended, or blocked', content: errorContent },
+    [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Profile not found', content: errorContent },
   };
 
   registry.registerPath({
@@ -78,7 +79,7 @@ export function registerMyProfileOpenApi(registry: OpenAPIRegistry): void {
         content: { 'application/json': { schema: response } },
       },
       ...errors,
-      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Profile version conflict (`VERSION_CONFLICT`)', content: { 'application/json': { schema: profileError } } },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: { description: 'Profile version conflict (`VERSION_CONFLICT`)', content: errorContent },
     },
   });
 
@@ -102,8 +103,8 @@ export function registerMyProfileOpenApi(registry: OpenAPIRegistry): void {
         content: { 'application/json': { schema: response } },
       },
       ...errors,
-      [HTTP_STATUS.HTTP_502_BAD_GATEWAY]: { description: 'Storage unavailable' },
-      [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Storage not configured' },
+      [HTTP_STATUS.HTTP_502_BAD_GATEWAY]: { description: 'Storage unavailable', content: errorContent },
+      [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Storage not configured', content: errorContent },
     },
   });
 }

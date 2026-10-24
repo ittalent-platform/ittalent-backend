@@ -98,7 +98,7 @@ export class EnterpriseRegistrationsRepository {
     id: string | Types.ObjectId,
     update: UpdateQuery<EnterpriseRegistrationData>,
   ): Promise<EnterpriseRegistrationDoc | null> {
-    return EnterpriseRegistration.findByIdAndUpdate(id, update, { new: true })
+    return EnterpriseRegistration.findByIdAndUpdate(id, update, { returnDocument: 'after' })
       .select('+verification_token.token_hash')
       .exec();
   }
