@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createNotificationInputSchema,
+  markAllReadQuerySchema,
+  markAllReadResponseSchema,
   notificationIdParamSchema,
   notificationListQuerySchema,
   registerDeviceTokenBodySchema,
@@ -97,6 +99,39 @@ describe('Notifications schemas', () => {
         platform: 'windows' as never,
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('markAllReadQuerySchema', () => {
+    it('accepts empty query object', () => {
+      const result = markAllReadQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts valid ISO 8601 datetime before cutoff', () => {
+      const result = markAllReadQuerySchema.safeParse({ before: '2026-10-24T10:00:00.000Z' });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects malformed datetime string', () => {
+      const result = markAllReadQuerySchema.safeParse({ before: 'not-a-datetime' });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects unexpected properties', () => {
+      const result = markAllReadQuerySchema.safeParse({ unexpected: 'value' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('markAllReadResponseSchema', () => {
+    it('accepts non-zero remaining unreadCount', () => {
+      const result = markAllReadResponseSchema.safeParse({
+        updatedCount: 3,
+        unreadCount: 2,
+        message: 'All notifications marked as read',
+      });
+      expect(result.success).toBe(true);
     });
   });
 });

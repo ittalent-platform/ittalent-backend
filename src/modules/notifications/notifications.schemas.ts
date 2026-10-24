@@ -54,9 +54,13 @@ export const unreadCountResponseSchema = z.object({
   unreadCount: z.number().int().min(0),
 });
 
+export const markAllReadQuerySchema = z.strictObject({
+  before: z.string().datetime({ message: 'Invalid ISO 8601 datetime format for cutoff' }).optional(),
+});
+
 export const markAllReadResponseSchema = z.object({
   updatedCount: z.number().int().min(0),
-  unreadCount: z.literal(0),
+  unreadCount: z.number().int().min(0),
   message: z.string(),
 });
 
@@ -95,6 +99,7 @@ export type NotificationStreamQuery = z.infer<typeof notificationStreamQuerySche
 export type NotificationItemDto = z.infer<typeof notificationItemSchema>;
 export type NotificationListResponse = z.infer<typeof notificationListResponseSchema>;
 export type UnreadCountResponse = z.infer<typeof unreadCountResponseSchema>;
+export type MarkAllReadQuery = z.infer<typeof markAllReadQuerySchema>;
 export type MarkAllReadResponse = z.infer<typeof markAllReadResponseSchema>;
 export type DeleteNotificationResponse = z.infer<typeof deleteNotificationResponseSchema>;
 export type DeleteAllNotificationsResponse = z.infer<typeof deleteAllNotificationsResponseSchema>;

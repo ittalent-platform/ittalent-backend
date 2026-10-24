@@ -86,7 +86,27 @@ describe('NotificationsController', () => {
       next,
     );
 
-    expect(mockService.markAllAsRead).toHaveBeenCalledWith(userId);
+    expect(mockService.markAllAsRead).toHaveBeenCalledWith(userId, undefined);
+    expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+    expect(json).toHaveBeenCalledWith(mockRes);
+  });
+
+  it('markAllAsRead passes validated query.before cutoff to service', async () => {
+    const mockRes = { updatedCount: 2, unreadCount: 1, message: 'All notifications marked as read' };
+    mockService.markAllAsRead.mockResolvedValue(mockRes);
+
+    const json = vi.fn();
+    const status = vi.fn().mockReturnValue({ json });
+    const next = vi.fn();
+    const cutoff = '2026-10-24T10:00:00.000Z';
+
+    await controller.markAllAsRead(
+      { user: { id: userId }, query: { before: cutoff } } as never,
+      { status, locals: { validated: { query: { before: cutoff } } } } as never,
+      next,
+    );
+
+    expect(mockService.markAllAsRead).toHaveBeenCalledWith(userId, cutoff);
     expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
     expect(json).toHaveBeenCalledWith(mockRes);
   });
