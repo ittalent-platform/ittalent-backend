@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate, authenticateCurrentUser } from '../../middleware/auth.middleware.js';
 import {
+  changePasswordRateLimit,
   forgotPasswordRateLimit,
   loginRateLimit,
   registerRateLimit,
@@ -58,7 +59,7 @@ authRouter.post(
   '/change-password',
   authenticate,
   authenticateCurrentUser,
+  changePasswordRateLimit,
   validateBody(changePasswordRequestSchema),
   authController.changePassword,
 );
-

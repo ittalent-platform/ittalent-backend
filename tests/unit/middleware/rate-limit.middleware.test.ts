@@ -2,39 +2,59 @@ import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  changePasswordRateLimit,
   consumeVerificationAttemptRateLimit,
   createRateLimit,
   forgotPasswordRateLimit,
   getClientIp,
   resendVerificationEmailRateLimit,
   resetPasswordRateLimit,
+  resetRateLimitMemory,
 } from '../../../src/middleware/rate-limit.middleware.js';
 
-function createMockReq(ip = '127.0.0.1', body: Record<string, unknown> = {}): Partial<Request> {
+function createMockReq(ip = '127.0.0.1', body: Record<string, unknown> = {}, userId?: string): Partial<Request> {
   return {
     ip,
     socket: { remoteAddress: ip } as unknown as Request['socket'],
     body,
+    ...(userId ? { user: { id: userId, email: 'user@example.com', role: 'user', authVersion: 0 } } : {}),
   };
 }
 
-function createMockRes(): { res: Partial<Response>; statusMock: ReturnType<typeof vi.fn>; jsonMock: ReturnType<typeof vi.fn> } {
+function createMockRes(statusCode = 200): {
+  res: Partial<Response>;
+  statusMock: ReturnType<typeof vi.fn>;
+  jsonMock: ReturnType<typeof vi.fn>;
+  triggerFinish: () => void;
+} {
   const jsonMock = vi.fn();
   const statusMock = vi.fn().mockReturnValue({ json: jsonMock });
+  const finishListeners: Array<() => void> = [];
 
   return {
     res: {
+      statusCode,
       status: statusMock,
-      on: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === 'finish') {
+          finishListeners.push(listener);
+        }
+      }) as unknown as Response['on'],
     },
     statusMock,
     jsonMock,
+    triggerFinish: () => {
+      for (const listener of finishListeners) {
+        listener();
+      }
+    },
   };
 }
 
 describe('RateLimitMiddleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRateLimitMemory();
   });
 
   describe('getClientIp', () => {
@@ -88,10 +108,33 @@ describe('RateLimitMiddleware', () => {
   });
 
   describe('auth rate limiters definitions', () => {
-    it('defines forgotPasswordRateLimit, resetPasswordRateLimit, and resendVerificationEmailRateLimit as request handlers', () => {
+    it('defines forgotPasswordRateLimit, resetPasswordRateLimit, resendVerificationEmailRateLimit, and changePasswordRateLimit as request handlers', () => {
       expect(typeof forgotPasswordRateLimit).toBe('function');
       expect(typeof resetPasswordRateLimit).toBe('function');
       expect(typeof resendVerificationEmailRateLimit).toBe('function');
+      expect(typeof changePasswordRateLimit).toBe('function');
+    });
+
+    it('enforces changePasswordRateLimit after 5 failed attempts per userId and IP', async () => {
+      const next = vi.fn();
+      const req = createMockReq('10.10.10.10', {}, 'user-123') as Request;
+
+      for (let i = 0; i < 5; i += 1) {
+        const { res, triggerFinish } = createMockRes(400);
+        await changePasswordRateLimit(req, res as Response, next);
+        triggerFinish();
+      }
+      expect(next).toHaveBeenCalledTimes(5);
+
+      const { res: blockedRes, statusMock, jsonMock } = createMockRes(429);
+      await changePasswordRateLimit(req, blockedRes as Response, next);
+      expect(next).toHaveBeenCalledTimes(5);
+      expect(statusMock).toHaveBeenCalledWith(429);
+      expect(jsonMock).toHaveBeenCalledWith({
+        success: false,
+        message: 'Too many password change attempts. Please try again later.',
+        code: 'RATE_LIMITED',
+      });
     });
   });
 

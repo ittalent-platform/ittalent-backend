@@ -13,9 +13,20 @@ export class MyProfileRepository {
     if (patch.phone === null) $unset.phone = '';
     else if (patch.phone !== undefined) $set.phone = patch.phone;
 
-    return User.findByIdAndUpdate(
-      id,
-      { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) },
+    const versionFilter =
+      patch.expectedVersion === undefined
+        ? {}
+        : patch.expectedVersion === 0
+          ? { $or: [{ version: 0 }, { version: { $exists: false } }] }
+          : { version: patch.expectedVersion };
+
+    return User.findOneAndUpdate(
+      { _id: id, ...versionFilter },
+      {
+        $inc: { version: 1 },
+        ...(Object.keys($set).length ? { $set } : {}),
+        ...(Object.keys($unset).length ? { $unset } : {}),
+      },
       { returnDocument: 'after', runValidators: true },
     ).exec();
   }

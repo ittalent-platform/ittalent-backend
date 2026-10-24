@@ -518,6 +518,10 @@ export class UsersService {
     return this.repository.createUser(data);
   }
 
+  async incrementAuthVersion(id: string): Promise<UserDoc | null> {
+    return this.repository.incrementAuthVersion(id);
+  }
+
   async markEmailVerified(id: string): Promise<UserDoc | null> {
     return this.repository.markEmailVerified(id);
   }

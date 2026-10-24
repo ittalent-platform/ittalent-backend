@@ -222,6 +222,16 @@ export const resetPasswordRateLimit = createRateLimit({
   code: 'RATE_LIMITED',
 });
 
+export const changePasswordRateLimit = createRateLimit({
+  prefix: 'change-password',
+  windowSeconds: env.CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS,
+  maxAttempts: env.CHANGE_PASSWORD_RATE_LIMIT_MAX_ATTEMPTS,
+  message: 'Too many password change attempts. Please try again later.',
+  code: 'RATE_LIMITED',
+  getBucketKey: (req): string => `${req.user?.id ?? 'anonymous'}:${getClientIp(req)}`,
+  skipSuccessfulRequests: true,
+});
+
 export const resetPasswordTokenCheckRateLimit = createRateLimit({
   prefix: 'reset-password-check',
   windowSeconds: env.RESET_PASSWORD_TOKEN_CHECK_RATE_LIMIT_WINDOW_SECONDS,

@@ -300,6 +300,14 @@ export class UsersRepository {
   }
 
   // Email verification must not undo a separately imposed account suspension.
+  async incrementAuthVersion(id: Types.ObjectId | string, session?: ClientSession): Promise<UserDoc | null> {
+    return User.findByIdAndUpdate(
+      id,
+      { $inc: { auth_version: 1 } },
+      { returnDocument: 'after', ...(session ? { session } : {}) },
+    ).exec();
+  }
+
   async markEmailVerified(id: Types.ObjectId | string): Promise<UserDoc | null> {
     return User.findOneAndUpdate(
       { _id: id },

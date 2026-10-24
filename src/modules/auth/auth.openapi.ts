@@ -349,7 +349,9 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
         description: 'Authentication required',
       },
+      [HTTP_STATUS.HTTP_429_TOO_MANY_REQUESTS]: {
+        description: 'Too many password change attempts',
+      },
     },
   });
 }
-

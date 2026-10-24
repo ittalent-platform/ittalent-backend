@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { Types } from 'mongoose';
 
 import { AuthService } from '../../../src/modules/auth/auth.service.js';
+import { AUTH_MESSAGES } from '../../../src/modules/auth/auth.constants.js';
 import type { AuthRepository } from '../../../src/modules/auth/auth.repository.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
 import { env } from '../../../src/config/env.js';
@@ -35,6 +36,7 @@ describe('AuthService', () => {
       findById: vi.fn(),
       findByEmail: vi.fn(),
       updateStatus: vi.fn(),
+      incrementAuthVersion: vi.fn(),
       markEmailVerified: vi.fn(),
       getUserById: vi.fn(),
       mapUserDto: vi.fn((user) => ({
@@ -700,7 +702,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('throws 400 if currentPassword does not match', async () => {
+    it('throws 400 with design copy message if currentPassword does not match', async () => {
       const passwordHash = await bcrypt.hash('differentPassword123', 10);
       mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
         _id: 'account-1',
@@ -716,10 +718,11 @@ describe('AuthService', () => {
         }),
       ).rejects.toMatchObject({
         statusCode: 400,
+        message: AUTH_MESSAGES.INVALID_CURRENT_PASSWORD,
       });
     });
 
-    it('hashes new password and updates local account password', async () => {
+    it('hashes new password, increments auth_version, and returns rotated tokens', async () => {
       const passwordHash = await bcrypt.hash('currentPassword123', 10);
       mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
         _id: 'account-1',
@@ -728,6 +731,12 @@ describe('AuthService', () => {
         password_hash: passwordHash,
       } as never);
       mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+      mockUserService.incrementAuthVersion = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'user@example.com',
+        role: 'user',
+        auth_version: 2,
+      } as never);
 
       const result = await authService.changePassword('user-1', {
         currentPassword: 'currentPassword123',
@@ -736,9 +745,41 @@ describe('AuthService', () => {
 
       expect(result.success).toBe(true);
       expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+      expect(mockUserService.incrementAuthVersion).toHaveBeenCalledWith('user-1');
+      expect(result.data.tokens).toBeDefined();
+      const decodedAccess = jwt.verify(result.data.tokens!.accessToken, env.JWT_ACCESS_SECRET) as { av: number };
+      expect(decodedAccess.av).toBe(2);
       const savedHash = (mockAuthRepo.updateLocalAccountPassword as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as string;
       expect(await bcrypt.compare('newPassword123', savedHash)).toBe(true);
       expect(await bcrypt.compare('currentPassword123', savedHash)).toBe(false);
+    });
+
+    it('does not increment auth_version when revokeOtherSessions is explicitly false', async () => {
+      const passwordHash = await bcrypt.hash('currentPassword123', 10);
+      mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
+        _id: 'account-1',
+        user_id: 'user-1',
+        provider: 'local',
+        password_hash: passwordHash,
+      } as never);
+      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+      mockUserService.findById = vi.fn().mockResolvedValue({
+        _id: 'user-1',
+        email: 'user@example.com',
+        role: 'user',
+        auth_version: 1,
+      } as never);
+
+      const result = await authService.changePassword('user-1', {
+        currentPassword: 'currentPassword123',
+        newPassword: 'newPassword123',
+        revokeOtherSessions: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockUserService.incrementAuthVersion).not.toHaveBeenCalled();
+      expect(mockUserService.findById).toHaveBeenCalledWith('user-1');
+      expect(result.data.tokens).toBeDefined();
     });
 
     it('rejects reusing the current password', async () => {
