@@ -5,6 +5,7 @@ import { validateBody, validateParams, validateQuery } from '../../middleware/va
 import { notificationsController } from './notifications.controller.js';
 import {
   deviceTokenParamSchema,
+  markAllReadQuerySchema,
   notificationIdParamSchema,
   notificationListQuerySchema,
   notificationStreamQuerySchema,
@@ -18,7 +19,7 @@ notificationsRouter.use(authenticate);
 notificationsRouter.get('/', validateQuery(notificationListQuerySchema), notificationsController.listMine);
 notificationsRouter.get('/stream', validateQuery(notificationStreamQuerySchema), notificationsController.streamNotifications);
 notificationsRouter.get('/unread-count', notificationsController.getUnreadCount);
-notificationsRouter.patch('/read-all', notificationsController.markAllAsRead);
+notificationsRouter.patch('/read-all', validateQuery(markAllReadQuerySchema), notificationsController.markAllAsRead);
 notificationsRouter.patch('/:id/read', validateParams(notificationIdParamSchema), notificationsController.markOneAsRead);
 notificationsRouter.delete('/:id', validateParams(notificationIdParamSchema), notificationsController.deleteNotification);
 notificationsRouter.delete('/', notificationsController.deleteAllNotifications);

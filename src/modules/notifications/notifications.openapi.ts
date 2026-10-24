@@ -5,6 +5,7 @@ import {
   deleteAllNotificationsResponseSchema,
   deleteNotificationResponseSchema,
   deviceTokenParamSchema,
+  markAllReadQuerySchema,
   markAllReadResponseSchema,
   notificationIdParamSchema,
   notificationItemSchema,
@@ -88,13 +89,15 @@ export function registerNotificationsOpenApi(registry: OpenAPIRegistry): void {
     path: '/api/v1/notifications/read-all',
     tags: ['Notifications'],
     summary: 'Mark all notifications as read (UC-S2-NOTI-02)',
-    description: 'Marks all unread notifications belonging to authenticated user as read.',
+    description: 'Marks all unread notifications belonging to authenticated user as read, optionally before a cutoff timestamp.',
     security: [{ bearerAuth: [] }],
+    request: { query: markAllReadQuerySchema },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
         description: 'All notifications marked as read',
         content: { 'application/json': { schema: registeredMarkAllResponse } },
       },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid cutoff timestamp format' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
     },
   });

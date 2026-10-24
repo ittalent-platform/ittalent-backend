@@ -128,10 +128,12 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
   describe('markAllAsRead (UC-S2-NOTI-02)', () => {
     it('marks all active notifications as read and resets unread count', async () => {
       mockRepository.markAllAsRead.mockResolvedValue(5);
+      mockRepository.countUnread.mockResolvedValue(0);
 
       const response = await service.markAllAsRead(userId);
 
-      expect(mockRepository.markAllAsRead).toHaveBeenCalledWith(userId);
+      expect(mockRepository.markAllAsRead).toHaveBeenCalledWith(userId, undefined);
+      expect(mockRepository.countUnread).toHaveBeenCalledWith(userId);
       expect(response.updatedCount).toBe(5);
       expect(response.unreadCount).toBe(0);
       expect(response.message).toBe(NOTIFICATION_MESSAGES.ALL_MARKED_READ);
@@ -139,12 +141,29 @@ describe('NotificationsService (UC-S2-NOTI-01 through 04)', () => {
 
     it('returns empty message when no notifications needed updating (AC.1)', async () => {
       mockRepository.markAllAsRead.mockResolvedValue(0);
+      mockRepository.countUnread.mockResolvedValue(0);
 
       const response = await service.markAllAsRead(userId);
 
+      expect(mockRepository.markAllAsRead).toHaveBeenCalledWith(userId, undefined);
+      expect(mockRepository.countUnread).toHaveBeenCalledWith(userId);
       expect(response.updatedCount).toBe(0);
       expect(response.unreadCount).toBe(0);
       expect(response.message).toBe(NOTIFICATION_MESSAGES.NO_UPDATES_NEEDED);
+    });
+
+    it('marks notifications up to cutoff and returns remaining unread count', async () => {
+      const cutoff = '2026-10-24T10:00:00.000Z';
+      mockRepository.markAllAsRead.mockResolvedValue(3);
+      mockRepository.countUnread.mockResolvedValue(2);
+
+      const response = await service.markAllAsRead(userId, cutoff);
+
+      expect(mockRepository.markAllAsRead).toHaveBeenCalledWith(userId, new Date(cutoff));
+      expect(mockRepository.countUnread).toHaveBeenCalledWith(userId);
+      expect(response.updatedCount).toBe(3);
+      expect(response.unreadCount).toBe(2);
+      expect(response.message).toBe(NOTIFICATION_MESSAGES.ALL_MARKED_READ);
     });
   });
 

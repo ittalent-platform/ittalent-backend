@@ -148,6 +148,33 @@ describe('NotificationsRepository (BR-23 Scoping & Soft Delete)', () => {
       );
       expect(count).toBe(4);
     });
+
+    it('filters by createdAt when before cutoff Date is provided', async () => {
+      const userId = new Types.ObjectId().toString();
+      const cutoff = new Date('2026-10-24T10:00:00.000Z');
+
+      vi.spyOn(Notification, 'updateMany').mockReturnValue({
+        exec: vi.fn().mockResolvedValue({ modifiedCount: 2 }),
+      } as never);
+
+      const count = await repo.markAllAsRead(userId, cutoff);
+
+      expect(Notification.updateMany).toHaveBeenCalledWith(
+        {
+          recipient_id: new Types.ObjectId(userId),
+          deleted_at: null,
+          is_read: false,
+          createdAt: { $lte: cutoff },
+        },
+        {
+          $set: {
+            is_read: true,
+            read_at: expect.any(Date),
+          },
+        },
+      );
+      expect(count).toBe(2);
+    });
   });
 
   describe('softDeleteOne', () => {

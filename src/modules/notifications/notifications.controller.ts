@@ -9,6 +9,7 @@ import {
 } from './notifications.service.js';
 import type {
   DeviceTokenParam,
+  MarkAllReadQuery,
   NotificationIdParam,
   NotificationListQuery,
   RegisterDeviceTokenBody,
@@ -67,7 +68,8 @@ export class NotificationsController {
 
   markAllAsRead = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = await this.service.markAllAsRead(req.user!.id);
+      const query = (res.locals.validated?.query ?? req.query) as MarkAllReadQuery | undefined;
+      const result = await this.service.markAllAsRead(req.user!.id, query?.before);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
