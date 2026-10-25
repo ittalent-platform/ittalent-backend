@@ -7,11 +7,15 @@ import { AuthService } from '../../../src/modules/auth/auth.service.js';
 import { AUTH_MESSAGES } from '../../../src/modules/auth/auth.constants.js';
 import type { AuthRepository } from '../../../src/modules/auth/auth.repository.js';
 import type { UsersService } from '../../../src/modules/users/users.service.js';
+import type { UserAuditsService } from '../../../src/modules/user-audits/user-audits.service.js';
 import { env } from '../../../src/config/env.js';
+
+const CHANGE_PASSWORD_USER_ID = '507f1f77bcf86cd799439011';
 
 describe('AuthService', () => {
   let mockAuthRepo: Partial<AuthRepository>;
   let mockUserService: Partial<UsersService>;
+  let mockAudits: Partial<UserAuditsService>;
   let authService: AuthService;
 
   beforeEach(() => {
@@ -27,6 +31,7 @@ describe('AuthService', () => {
       findPasswordResetTokenByHash: vi.fn(),
       revokePriorPasswordResetTokens: vi.fn(),
       updateLocalAccountPassword: vi.fn(),
+      withTransaction: vi.fn(async (operation) => operation({} as never)),
     };
     mockUserService = {
       existsByEmail: vi.fn(),
@@ -37,6 +42,8 @@ describe('AuthService', () => {
       findByEmail: vi.fn(),
       updateStatus: vi.fn(),
       incrementAuthVersion: vi.fn(),
+      incrementAuthVersionForCurrentActiveUser: vi.fn(),
+      findByIdWithSession: vi.fn(),
       markEmailVerified: vi.fn(),
       getUserById: vi.fn(),
       mapUserDto: vi.fn((user) => ({
@@ -52,9 +59,11 @@ describe('AuthService', () => {
       })),
       blockExpiredInactiveUsers: vi.fn(),
     };
+    mockAudits = { record: vi.fn().mockResolvedValue(undefined) };
     authService = new AuthService(
       mockAuthRepo as AuthRepository,
       mockUserService as UsersService,
+      mockAudits as UserAuditsService,
     );
   });
 
@@ -685,6 +694,32 @@ describe('AuthService', () => {
   });
 
   describe('changePassword', () => {
+    const currentSession = { role: 'user', authVersion: 1 };
+
+    beforeEach(() => {
+      mockUserService.findByIdWithSession = vi.fn().mockResolvedValue({
+        _id: CHANGE_PASSWORD_USER_ID,
+        email: 'user@example.com',
+        role: 'user',
+        status: 'active',
+        email_verified: true,
+        auth_version: 1,
+      } as never);
+    });
+
+    it('rejects confirmation mismatch before opening a credential transaction', async () => {
+      await expect(authService.changePassword(CHANGE_PASSWORD_USER_ID, {
+        currentPassword: 'currentPassword123',
+        newPassword: 'newPassword123',
+        confirmation: 'differentPassword123',
+      }, currentSession)).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PASSWORD_CONFIRMATION_INVALID',
+      });
+      expect(mockAuthRepo.withTransaction).not.toHaveBeenCalled();
+      expect(mockAuthRepo.updateLocalAccountPassword).not.toHaveBeenCalled();
+    });
+
     it('throws 400 if user account has no password hash', async () => {
       mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
         _id: 'account-1',
@@ -693,12 +728,14 @@ describe('AuthService', () => {
       } as never);
 
       await expect(
-        authService.changePassword('user-1', {
+        authService.changePassword(CHANGE_PASSWORD_USER_ID, {
           currentPassword: 'currentPassword123',
           newPassword: 'newPassword123',
-        }),
+          confirmation: 'newPassword123',
+        }, currentSession),
       ).rejects.toMatchObject({
         statusCode: 400,
+        code: 'ACCOUNT_HAS_NO_PASSWORD',
       });
     });
 
@@ -712,13 +749,15 @@ describe('AuthService', () => {
       } as never);
 
       await expect(
-        authService.changePassword('user-1', {
+        authService.changePassword(CHANGE_PASSWORD_USER_ID, {
           currentPassword: 'wrongPassword123',
           newPassword: 'newPassword123',
-        }),
+          confirmation: 'newPassword123',
+        }, currentSession),
       ).rejects.toMatchObject({
         statusCode: 400,
         message: AUTH_MESSAGES.INVALID_CURRENT_PASSWORD,
+        code: 'CURRENT_CREDENTIAL_INVALID',
       });
     });
 
@@ -731,30 +770,40 @@ describe('AuthService', () => {
         password_hash: passwordHash,
       } as never);
       mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
-      mockUserService.incrementAuthVersion = vi.fn().mockResolvedValue({
-        _id: 'user-1',
+      mockUserService.incrementAuthVersionForCurrentActiveUser = vi.fn().mockResolvedValue({
+        _id: CHANGE_PASSWORD_USER_ID,
         email: 'user@example.com',
         role: 'user',
         auth_version: 2,
       } as never);
 
-      const result = await authService.changePassword('user-1', {
+      const result = await authService.changePassword(CHANGE_PASSWORD_USER_ID, {
         currentPassword: 'currentPassword123',
         newPassword: 'newPassword123',
-      });
+        confirmation: 'newPassword123',
+      }, currentSession);
 
       expect(result.success).toBe(true);
-      expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith('user-1', expect.any(String));
-      expect(mockUserService.incrementAuthVersion).toHaveBeenCalledWith('user-1');
+      expect(mockAuthRepo.updateLocalAccountPassword).toHaveBeenCalledWith(CHANGE_PASSWORD_USER_ID, expect.any(String), expect.anything());
+      expect(mockUserService.incrementAuthVersionForCurrentActiveUser).toHaveBeenCalledWith(
+        CHANGE_PASSWORD_USER_ID,
+        1,
+        'user',
+        expect.anything(),
+      );
+      expect(mockAudits.record).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'password_changed',
+        changes: { credential: 'updated', sessions: 'revoked_except_current' },
+      }), expect.anything());
       expect(result.data.tokens).toBeDefined();
-      const decodedAccess = jwt.verify(result.data.tokens!.accessToken, env.JWT_ACCESS_SECRET) as { av: number };
+      const decodedAccess = jwt.verify(result.data.tokens.accessToken, env.JWT_ACCESS_SECRET) as { av: number };
       expect(decodedAccess.av).toBe(2);
       const savedHash = (mockAuthRepo.updateLocalAccountPassword as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as string;
       expect(await bcrypt.compare('newPassword123', savedHash)).toBe(true);
       expect(await bcrypt.compare('currentPassword123', savedHash)).toBe(false);
     });
 
-    it('does not increment auth_version when revokeOtherSessions is explicitly false', async () => {
+    it('rejects reusing the current password', async () => {
       const passwordHash = await bcrypt.hash('currentPassword123', 10);
       mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({
         _id: 'account-1',
@@ -762,31 +811,37 @@ describe('AuthService', () => {
         provider: 'local',
         password_hash: passwordHash,
       } as never);
-      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
-      mockUserService.findById = vi.fn().mockResolvedValue({
-        _id: 'user-1',
-        email: 'user@example.com',
-        role: 'user',
-        auth_version: 1,
-      } as never);
-
-      const result = await authService.changePassword('user-1', {
+      await expect(authService.changePassword(CHANGE_PASSWORD_USER_ID, {
         currentPassword: 'currentPassword123',
-        newPassword: 'newPassword123',
-        revokeOtherSessions: false,
+        newPassword: 'currentPassword123',
+        confirmation: 'currentPassword123',
+      }, currentSession)).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'PASSWORD_UNCHANGED',
       });
 
-      expect(result.success).toBe(true);
-      expect(mockUserService.incrementAuthVersion).not.toHaveBeenCalled();
-      expect(mockUserService.findById).toHaveBeenCalledWith('user-1');
-      expect(result.data.tokens).toBeDefined();
+      expect(mockAuthRepo.updateLocalAccountPassword).not.toHaveBeenCalled();
+      expect(mockUserService.incrementAuthVersionForCurrentActiveUser).not.toHaveBeenCalled();
+      expect(mockAudits.record).not.toHaveBeenCalled();
     });
 
-    it('rejects reusing the current password', async () => {
-      const passwordHash = await bcrypt.hash('Current123!', 10);
+    it('aborts the operation when the audit write fails', async () => {
+      const passwordHash = await bcrypt.hash('currentPassword123', 10);
       mockAuthRepo.findLocalAccountByUserId = vi.fn().mockResolvedValue({ password_hash: passwordHash } as never);
-      await expect(authService.changePassword('user-1', { currentPassword: 'Current123!', newPassword: 'Current123!' })).rejects.toMatchObject({ statusCode: 400 });
-      expect(mockAuthRepo.updateLocalAccountPassword).not.toHaveBeenCalled();
+      mockAuthRepo.updateLocalAccountPassword = vi.fn().mockResolvedValue(undefined);
+      mockUserService.incrementAuthVersionForCurrentActiveUser = vi.fn().mockResolvedValue({
+        _id: CHANGE_PASSWORD_USER_ID,
+        email: 'user@example.com',
+        role: 'user',
+        auth_version: 2,
+      } as never);
+      mockAudits.record = vi.fn().mockRejectedValue(new Error('audit unavailable'));
+
+      await expect(authService.changePassword(CHANGE_PASSWORD_USER_ID, {
+        currentPassword: 'currentPassword123',
+        newPassword: 'newPassword123',
+        confirmation: 'newPassword123',
+      }, currentSession)).rejects.toThrow('audit unavailable');
     });
   });
 

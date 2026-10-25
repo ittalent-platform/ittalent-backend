@@ -1,4 +1,5 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { z } from 'zod';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
@@ -70,6 +71,29 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
   const registeredChangePasswordResponse = registry.register(
     'ChangePasswordResponse',
     changePasswordResponseSchema,
+  );
+  const registeredChangePasswordError = registry.register(
+    'ChangePasswordError',
+    z.object({
+      success: z.literal(false),
+      message: z.string(),
+      code: z.enum([
+        'CURRENT_CREDENTIAL_INVALID',
+        'AUTHENTICATION_REQUIRED',
+        'INVALID_AUTHENTICATION_TOKEN',
+        'PASSWORD_POLICY_INVALID',
+        'PASSWORD_CONFIRMATION_INVALID',
+        'PASSWORD_UNCHANGED',
+        'ACCOUNT_HAS_NO_PASSWORD',
+        'EMAIL_NOT_VERIFIED',
+        'ACCOUNT_INACTIVE',
+        'ACCOUNT_SUSPENDED',
+        'ACCOUNT_BLOCKED',
+        'SESSION_REVOKED',
+        'RATE_LIMITED',
+        'VALIDATION_ERROR',
+      ]),
+    }),
   );
 
 
@@ -324,6 +348,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
     path: '/api/v1/auth/change-password',
     tags: ['Auth'],
     summary: 'Change account password while authenticated',
+    description: 'Requires currentPassword, newPassword, and matching confirmation. The server applies the fixed policy of revoking other sessions by incrementing authVersion while returning replacement tokens that keep the current session usable. Client session-control flags are rejected.',
     security: [{ bearerAuth: [] }],
     request: {
       body: {
@@ -344,13 +369,20 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         },
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
-        description: 'Invalid current password or account has no local password',
+        description: 'Current credential invalid, no local credential, password policy invalid, password unchanged, or confirmation mismatch',
+        content: { 'application/json': { schema: registeredChangePasswordError } },
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
-        description: 'Authentication required',
+        description: 'Authentication required or session is no longer current',
+        content: { 'application/json': { schema: registeredChangePasswordError } },
+      },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: {
+        description: 'Persisted account is unverified, inactive, suspended, or blocked',
+        content: { 'application/json': { schema: registeredChangePasswordError } },
       },
       [HTTP_STATUS.HTTP_429_TOO_MANY_REQUESTS]: {
-        description: 'Too many password change attempts',
+        description: 'Too many password change attempts (`RATE_LIMITED`)',
+        content: { 'application/json': { schema: registeredChangePasswordError } },
       },
     },
   });

@@ -1,13 +1,17 @@
 import { Readable } from 'node:stream';
 import type { Request, Response } from 'express';
+import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AVATAR_MAX_BYTES, isValidAvatar, uploadAvatar } from '../../../src/middleware/avatar-upload.middleware.js';
 import { HTTP_STATUS } from '../../../src/shared/constants/http-status.js';
 
-const VALID_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
-const VALID_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
-const VALID_WEBP = Buffer.concat([Buffer.from('RIFF', 'ascii'), Buffer.alloc(4), Buffer.from('WEBP', 'ascii')]);
+async function imageFixture(format: 'jpeg' | 'png' | 'webp', width = 2, height = 2): Promise<Buffer> {
+  const image = sharp({ create: { width, height, channels: 3, background: '#336699' } });
+  if (format === 'jpeg') return image.jpeg().toBuffer();
+  if (format === 'png') return image.png().toBuffer();
+  return image.webp().toBuffer();
+}
 
 function createMultipartRequest(body?: Buffer, boundary = '----TestBoundary'): Request {
   const stream = Readable.from(body ? [body] : []);
@@ -44,19 +48,23 @@ describe('avatar-upload.middleware', () => {
       'image/jpg',
       'image/pjpeg',
       'image/jpeg; charset=binary',
-    ])('accepts valid JPEG buffer with MIME type %s', (mimeType) => {
-      expect(isValidAvatar(VALID_JPEG, mimeType)).toBe(true);
+    ])('accepts valid JPEG buffer with MIME type %s', async (mimeType) => {
+      expect(isValidAvatar(await imageFixture('jpeg'), mimeType)).toBe(true);
     });
 
-    it('accepts valid PNG and WebP buffers', () => {
-      expect(isValidAvatar(VALID_PNG, 'image/png')).toBe(true);
-      expect(isValidAvatar(VALID_WEBP, 'image/webp')).toBe(true);
+    it('accepts structurally complete PNG and WebP buffers', async () => {
+      expect(isValidAvatar(await imageFixture('png'), 'image/png')).toBe(true);
+      expect(isValidAvatar(await imageFixture('webp'), 'image/webp')).toBe(true);
     });
 
-    it('rejects mismatched signature or unsupported MIME types', () => {
+    it('rejects mismatched signatures, unsupported types, truncation, and executable suffixes', async () => {
+      const png = await imageFixture('png');
+      const jpeg = await imageFixture('jpeg');
       expect(isValidAvatar(Buffer.from('not-an-image'), 'image/jpeg')).toBe(false);
-      expect(isValidAvatar(VALID_PNG, 'image/jpeg')).toBe(false);
-      expect(isValidAvatar(VALID_JPEG, 'image/gif')).toBe(false);
+      expect(isValidAvatar(png, 'image/jpeg')).toBe(false);
+      expect(isValidAvatar(jpeg, 'image/gif')).toBe(false);
+      expect(isValidAvatar(png.subarray(0, png.length - 2), 'image/png')).toBe(false);
+      expect(isValidAvatar(Buffer.concat([png, Buffer.from('MZ')]), 'image/png')).toBe(false);
     });
   });
 
@@ -85,13 +93,14 @@ describe('avatar-upload.middleware', () => {
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST,
-          message: 'Only valid JPEG, PNG, and WebP images are accepted',
+          message: 'Only decodable JPEG, PNG, and WebP images are accepted',
+          code: 'AVATAR_INVALID_CONTENT',
         }),
       );
     });
 
     it('calls next() without error when a valid JPEG (image/jpg) is uploaded', async () => {
-      const body = buildMultipartBody('avatar', 'photo.jpg', 'image/jpg', VALID_JPEG);
+      const body = buildMultipartBody('avatar', 'photo.jpg', 'image/jpg', await imageFixture('jpeg'));
       const req = createMultipartRequest(body);
       const next = vi.fn();
 
@@ -101,7 +110,7 @@ describe('avatar-upload.middleware', () => {
       expect(req.file).toBeDefined();
     });
 
-    it('maps LIMIT_FILE_SIZE MulterError to 400 "Avatar file cannot exceed 5MB"', async () => {
+    it('maps LIMIT_FILE_SIZE MulterError to a provider-neutral technical-limit error', async () => {
       const oversized = Buffer.alloc(AVATAR_MAX_BYTES + 1024, 0xff);
       const body = buildMultipartBody('avatar', 'huge.jpg', 'image/jpeg', oversized);
       const req = createMultipartRequest(body);
@@ -112,9 +121,24 @@ describe('avatar-upload.middleware', () => {
       expect(next).toHaveBeenCalledWith(
         expect.objectContaining({
           statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST,
-          message: 'Avatar file cannot exceed 5MB',
+          message: 'Avatar exceeds the configured technical upload limit',
+          code: 'AVATAR_FILE_TOO_LARGE',
         }),
       );
+    });
+
+    it('rejects SVG and decoded images beyond the configured dimension bound', async () => {
+      const svgBody = buildMultipartBody('avatar', 'image.svg', 'image/svg+xml', Buffer.from('<svg/>'));
+      const svgReq = createMultipartRequest(svgBody);
+      const svgNext = vi.fn();
+      await uploadAvatar(svgReq, {} as Response, svgNext);
+      expect(svgNext).toHaveBeenCalledWith(expect.objectContaining({ code: 'AVATAR_INVALID_CONTENT' }));
+
+      const widePng = await imageFixture('png', 4_097, 1);
+      const wideReq = createMultipartRequest(buildMultipartBody('avatar', 'wide.png', 'image/png', widePng));
+      const wideNext = vi.fn();
+      await uploadAvatar(wideReq, {} as Response, wideNext);
+      expect(wideNext).toHaveBeenCalledWith(expect.objectContaining({ code: 'AVATAR_DIMENSIONS_INVALID' }));
     });
   });
 });

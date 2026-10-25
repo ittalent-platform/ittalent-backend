@@ -37,8 +37,8 @@ export class MyProfileController {
 
   uploadAvatar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.file) throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, PROFILE_MESSAGES.AVATAR_REQUIRED);
-      const result = await this.service.replaceAvatar(currentUserId(req.user?.id), req.file);
+      // uploadAvatar middleware rejects missing files before this controller runs.
+      const result = await this.service.replaceAvatar(currentUserId(req.user?.id), req.file!);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);

@@ -46,6 +46,8 @@ export interface StorageUploadInput {
   resourceType?: 'raw' | 'image' | 'auto';
   mimeType?: string;
   resourceLabel?: string;
+  /** Provider-neutral object key chosen by the owning domain. */
+  storageKey?: string;
 }
 
 export interface StorageUploadResult {
@@ -56,16 +58,53 @@ export interface StorageUploadResult {
   size: number;
 }
 
+function normalizeOwnedPathComponent(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function ownedKeyPrefix(namespace: string, ownerId: string, prefix: string): string {
+  const safeNamespace = namespace
+    .split('/')
+    .map(normalizeOwnedPathComponent)
+    .filter((component) => component.length > 0)
+    .join('/');
+  const safeOwner = normalizeOwnedPathComponent(ownerId);
+  const safePrefix = normalizeOwnedPathComponent(prefix);
+  return `${safeNamespace}/${safeOwner}/${safePrefix}-`;
+}
+
+const OWNED_KEY_SUFFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
+
 export class StorageService {
   isConfigured(): boolean {
     return isCloudinaryConfigured();
+  }
+
+  createOwnedKey(
+    namespace: string,
+    ownerId: string,
+    prefix: string,
+    extension: string,
+    resourceType: 'raw' | 'image' = 'raw',
+  ): string {
+    const safeExtension = extension.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const extensionSuffix = resourceType === 'raw' && safeExtension ? `.${safeExtension}` : '';
+    return `${ownedKeyPrefix(namespace, ownerId, prefix)}${randomUUID()}${extensionSuffix}`;
+  }
+
+  ownsKey(storageKey: string, namespace: string, ownerId: string, prefix: string): boolean {
+    const expectedPrefix = ownedKeyPrefix(namespace, ownerId, prefix);
+    const keySuffix = storageKey.slice(expectedPrefix.length);
+    return storageKey.startsWith(expectedPrefix)
+      && !storageKey.includes('..')
+      && OWNED_KEY_SUFFIX_PATTERN.test(keySuffix);
   }
 
   async uploadFile(input: StorageUploadInput): Promise<StorageUploadResult> {
     const ext = input.fileName.split('.').pop()?.toLowerCase() ?? 'bin';
     const folder = input.folder ?? 'italent/documents';
     const prefix = input.prefix ?? 'document';
-    const publicId = `${prefix}-${randomUUID()}.${ext}`;
+    const generatedId = `${prefix}-${randomUUID()}.${ext}`;
     const resourceType = input.resourceType ?? 'raw';
     const mimeType = input.mimeType ?? 'application/octet-stream';
     const resourceLabel = input.resourceLabel ?? 'Document';
@@ -77,7 +116,9 @@ export class StorageService {
     const cloudinary = getCloudinary();
     const result = await new Promise<{ secure_url?: string; public_id?: string }>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder, public_id: publicId, resource_type: resourceType },
+        input.storageKey
+          ? { public_id: input.storageKey, resource_type: resourceType }
+          : { folder, public_id: generatedId, resource_type: resourceType },
         (error, output) => {
           if (error || !output) {
             reject(error ?? new Error(`${resourceLabel} upload failed`));
@@ -112,9 +153,11 @@ export class StorageService {
     try {
       const cloudinary = getCloudinary();
       const res = await cloudinary.uploader.destroy(storageKey, { resource_type: resourceType });
-      return res?.result === 'ok';
+      return res?.result === 'ok' || res?.result === 'not found';
     } catch (error) {
-      console.error('[storage:delete:error]', error);
+      console.error('[storage:delete:error]', {
+        message: error instanceof Error ? error.message : 'Unknown storage deletion failure',
+      });
       return false;
     }
   }

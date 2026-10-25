@@ -21,6 +21,11 @@ const DEFAULT_VERIFICATION_ATTEMPT_RATE_LIMIT_WINDOW_SECONDS = TIME_SECONDS.TEN_
 const DEFAULT_VERIFICATION_ATTEMPT_RATE_LIMIT_MAX_ATTEMPTS = 5;
 const DEFAULT_CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS = TIME_SECONDS.FIFTEEN_MINUTES;
 const DEFAULT_CHANGE_PASSWORD_RATE_LIMIT_MAX_ATTEMPTS = 5;
+const BYTES_PER_MEGABYTE = 1_048_576;
+const DEFAULT_AVATAR_MAX_MEGABYTES = 5;
+const DEFAULT_AVATAR_MAX_UPLOAD_BYTES = DEFAULT_AVATAR_MAX_MEGABYTES * BYTES_PER_MEGABYTE;
+const DEFAULT_AVATAR_MAX_PIXELS = 16_777_216;
+const DEFAULT_AVATAR_MAX_DIMENSION = 4_096;
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(PORT_MAX_LIMIT).default(DEFAULT_PORT),
@@ -60,6 +65,11 @@ const envSchema = z.object({
   VERIFICATION_ATTEMPT_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(DEFAULT_VERIFICATION_ATTEMPT_RATE_LIMIT_MAX_ATTEMPTS),
   CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(DEFAULT_CHANGE_PASSWORD_RATE_LIMIT_WINDOW_SECONDS),
   CHANGE_PASSWORD_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().positive().default(DEFAULT_CHANGE_PASSWORD_RATE_LIMIT_MAX_ATTEMPTS),
+  // Technical safety bounds. These are deployment configuration, not published product policy.
+  AVATAR_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(DEFAULT_AVATAR_MAX_UPLOAD_BYTES),
+  AVATAR_MAX_PIXELS: z.coerce.number().int().positive().default(DEFAULT_AVATAR_MAX_PIXELS),
+  AVATAR_MAX_DIMENSION: z.coerce.number().int().positive().default(DEFAULT_AVATAR_MAX_DIMENSION),
+  AVATAR_STORAGE_NAMESPACE: z.string().trim().min(1).default('profile-avatars'),
 });
 
 export const env = envSchema.parse(process.env);

@@ -522,6 +522,15 @@ export class UsersService {
     return this.repository.incrementAuthVersion(id);
   }
 
+  async incrementAuthVersionForCurrentActiveUser(
+    id: string,
+    expectedAuthVersion: number,
+    expectedRole: UserRole,
+    session: mongoose.ClientSession,
+  ): Promise<UserDoc | null> {
+    return this.repository.incrementAuthVersionForCurrentActiveUser(id, expectedAuthVersion, expectedRole, session);
+  }
+
   async markEmailVerified(id: string): Promise<UserDoc | null> {
     return this.repository.markEmailVerified(id);
   }

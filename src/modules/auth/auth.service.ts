@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import type { ClientSession, Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 
 import { env } from '../../config/env.js';
 import type { AccountDoc } from '../../models/account.model.js';
@@ -15,7 +15,8 @@ import {
   sendVerificationEmail,
 } from '../../shared/services/email.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
-import { AUTH_CONFIG, AUTH_MESSAGES, type VerificationStage } from './auth.constants.js';
+import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
+import { AUTH_CONFIG, AUTH_ERROR_CODES, AUTH_MESSAGES, type VerificationStage } from './auth.constants.js';
 import { authRepository, type AuthRepository } from './auth.repository.js';
 import type {
   AuthResponse,
@@ -46,10 +47,16 @@ interface TokenPayload {
 
 type ValidExpiresIn = NonNullable<jwt.SignOptions['expiresIn']>;
 
+export interface CurrentSessionContext {
+  role: string;
+  authVersion: number;
+}
+
 export class AuthService {
   constructor(
     private readonly repository: AuthRepository = authRepository,
     private readonly userService: UsersService = usersService,
+    private readonly audits: UserAuditsService = userAuditsService,
   ) {}
 
   private hashToken(token: string): string {
@@ -356,44 +363,100 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: string, input: ChangePasswordRequest): Promise<ChangePasswordResponse> {
-    const account = await this.repository.findLocalAccountByUserId(userId);
-    if (!account?.password_hash) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.ACCOUNT_HAS_NO_PASSWORD);
+  async changePassword(
+    userId: string,
+    input: ChangePasswordRequest,
+    currentSession: CurrentSessionContext,
+  ): Promise<ChangePasswordResponse> {
+    if (input.newPassword !== input.confirmation) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_400_BAD_REQUEST,
+        AUTH_MESSAGES.PASSWORD_CONFIRMATION_INVALID,
+        AUTH_ERROR_CODES.PASSWORD_CONFIRMATION_INVALID,
+      );
     }
+    return this.repository.withTransaction<ChangePasswordResponse>(async (session) => {
+      const userObjectId = new Types.ObjectId(userId);
+      const persistedUser = await this.userService.findByIdWithSession(userObjectId, session);
+      if (
+        !persistedUser
+        || persistedUser.status !== 'active'
+        || persistedUser.email_verified !== true
+        || persistedUser.role !== currentSession.role
+        || (persistedUser.auth_version ?? 0) !== currentSession.authVersion
+      ) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          AUTH_MESSAGES.SESSION_NO_LONGER_CURRENT,
+          AUTH_ERROR_CODES.SESSION_REVOKED,
+        );
+      }
 
-    const isCurrentValid = await bcrypt.compare(input.currentPassword, account.password_hash);
-    if (!isCurrentValid) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.INVALID_CURRENT_PASSWORD);
-    }
+      const account = await this.repository.findLocalAccountByUserId(userId, session);
+      if (!account?.password_hash) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          AUTH_MESSAGES.ACCOUNT_HAS_NO_PASSWORD,
+          AUTH_ERROR_CODES.ACCOUNT_HAS_NO_PASSWORD,
+        );
+      }
 
-    if (await bcrypt.compare(input.newPassword, account.password_hash)) {
-      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, AUTH_MESSAGES.PASSWORD_UNCHANGED);
-    }
+      const isCurrentValid = await bcrypt.compare(input.currentPassword, account.password_hash);
+      if (!isCurrentValid) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          AUTH_MESSAGES.INVALID_CURRENT_PASSWORD,
+          AUTH_ERROR_CODES.CURRENT_CREDENTIAL_INVALID,
+        );
+      }
 
-    const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
-    await this.repository.updateLocalAccountPassword(userId, newPasswordHash);
+      if (await bcrypt.compare(input.newPassword, account.password_hash)) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          AUTH_MESSAGES.PASSWORD_UNCHANGED,
+          AUTH_ERROR_CODES.PASSWORD_UNCHANGED,
+        );
+      }
 
-    const shouldRevoke = input.revokeOtherSessions ?? true;
-    const user =
-      shouldRevoke && typeof this.userService.incrementAuthVersion === 'function'
-        ? await this.userService.incrementAuthVersion(userId)
-        : await this.userService.findById(userId);
+      const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
+      await this.repository.updateLocalAccountPassword(userId, newPasswordHash, session);
 
-    const tokens = user
-      ? this.issueTokens({
-          _id: user._id,
-          email: user.email,
-          role: user.role ?? 'user',
-          auth_version: user.auth_version ?? 0,
-        })
-      : undefined;
+      const updatedUser = await this.userService.incrementAuthVersionForCurrentActiveUser(
+        userId,
+        currentSession.authVersion,
+        persistedUser.role ?? 'user',
+        session,
+      );
+      if (!updatedUser) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_401_UNAUTHORIZED,
+          AUTH_MESSAGES.SESSION_NO_LONGER_CURRENT,
+          AUTH_ERROR_CODES.SESSION_REVOKED,
+        );
+      }
 
-    return {
-      success: true,
-      message: AUTH_MESSAGES.PASSWORD_CHANGED_SUCCESS,
-      data: tokens ? { tokens } : {},
-    };
+      await this.audits.record({
+        targetUserId: userObjectId,
+        actorId: userObjectId,
+        action: 'password_changed',
+        changes: { credential: 'updated', sessions: 'revoked_except_current' },
+        version: updatedUser.auth_version ?? 0,
+      }, session);
+
+      // Token signing remains inside the transaction callback so a signing failure aborts the credential change.
+      const tokens = this.issueTokens({
+        _id: updatedUser._id,
+        email: updatedUser.email,
+        role: updatedUser.role ?? currentSession.role,
+        auth_version: updatedUser.auth_version ?? 0,
+      });
+
+      return {
+        success: true,
+        message: AUTH_MESSAGES.PASSWORD_CHANGED_SUCCESS,
+        data: { tokens },
+      };
+    });
   }
 
   async hasLocalPassword(userId: string): Promise<boolean> {

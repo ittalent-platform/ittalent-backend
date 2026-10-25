@@ -7,6 +7,8 @@ export interface AuthenticatedUser {
   email: string;
   role: string;
   authVersion?: number;
+  status?: string;
+  emailVerified?: boolean;
 }
 
 declare module 'express-serve-static-core' {

@@ -23,7 +23,7 @@ export const authenticate: RequestHandler = (req: Request, _res: Response, next:
       : undefined;
 
   if (!token) {
-    next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication token missing or malformed'));
+    next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication token missing or malformed', 'AUTHENTICATION_REQUIRED'));
     return;
   }
 
@@ -31,13 +31,13 @@ export const authenticate: RequestHandler = (req: Request, _res: Response, next:
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtPayload;
 
     if (!decoded.sub || !decoded.email || !decoded.role) {
-      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Invalid token payload'));
+      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Invalid token payload', 'INVALID_AUTHENTICATION_TOKEN'));
       return;
     }
     req.user = { id: decoded.sub, email: decoded.email, role: decoded.role, authVersion: decoded.av ?? 0 } satisfies AuthenticatedUser;
     next();
   } catch {
-    next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Invalid or expired authentication token'));
+    next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Invalid or expired authentication token', 'INVALID_AUTHENTICATION_TOKEN'));
   }
 };
 
@@ -74,6 +74,27 @@ function isCurrentSession(
   const grace = user.status === 'inactive' && windowStart !== undefined
     && Date.now() - new Date(windowStart).getTime() <= env.EMAIL_VERIFICATION_WINDOW_MS;
   return (user.status === 'active' || grace) && user.role === token.role && (user.auth_version ?? 0) === (token.av ?? 0);
+}
+
+function currentAccountStateError(status: UserData['status'], emailVerified: boolean): ReturnType<typeof createHttpError> {
+  if (!emailVerified) {
+    return createHttpError(
+      HTTP_STATUS.HTTP_403_FORBIDDEN,
+      'Email verification is required for this operation',
+      'EMAIL_NOT_VERIFIED',
+    );
+  }
+  if (status === 'suspended') {
+    return createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Account is suspended', 'ACCOUNT_SUSPENDED');
+  }
+  if (status === 'blocked') {
+    return createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Account is blocked', 'ACCOUNT_BLOCKED');
+  }
+  return createHttpError(
+    HTTP_STATUS.HTTP_403_FORBIDDEN,
+    'An active account is required for this operation',
+    'ACCOUNT_INACTIVE',
+  );
 }
 
 export function authorize(...allowedRoles: string[]): RequestHandler {
@@ -125,11 +146,60 @@ export const authenticateCurrentUser: RequestHandler = async (req: Request, _res
     return;
   }
   try {
-    const user = await User.findById(req.user.id).select('role status auth_version createdAt verification_started_at').lean().exec();
+    const user = await User.findById(req.user.id).select('email role status email_verified auth_version createdAt verification_started_at').lean().exec();
     if (!user || !isCurrentSession(user, { role: req.user.role, av: req.user.authVersion })) {
-      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Account is inactive or the session has been revoked'));
+      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'The session is no longer current', 'SESSION_REVOKED'));
       return;
     }
+    req.user = {
+      ...req.user,
+      email: user.email,
+      role: user.role ?? req.user.role,
+      authVersion: user.auth_version ?? 0,
+      status: user.status ?? 'inactive',
+      emailVerified: user.email_verified === true,
+    };
+    next();
+  } catch {
+    next(createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Unable to validate the current account state'));
+  }
+};
+
+/** Require a persisted verified and active account for security-sensitive self mutations. */
+export const requireVerifiedActiveUser: RequestHandler = async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+  if (!req.user) {
+    next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required', 'AUTHENTICATION_REQUIRED'));
+    return;
+  }
+
+  try {
+    const user = await User.findById(req.user.id)
+      .select('email role status email_verified auth_version')
+      .lean()
+      .exec();
+
+    if (
+      !user
+      || user.role !== req.user.role
+      || (user.auth_version ?? 0) !== (req.user.authVersion ?? 0)
+    ) {
+      next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'The session is no longer current', 'SESSION_REVOKED'));
+      return;
+    }
+
+    if (user.status !== 'active' || user.email_verified !== true) {
+      next(currentAccountStateError(user.status, user.email_verified === true));
+      return;
+    }
+
+    req.user = {
+      ...req.user,
+      email: user.email,
+      role: user.role,
+      authVersion: user.auth_version ?? 0,
+      status: user.status,
+      emailVerified: true,
+    };
     next();
   } catch {
     next(createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, 'Unable to validate the current account state'));

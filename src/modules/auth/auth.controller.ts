@@ -187,7 +187,10 @@ export class AuthController {
       }
 
       const input = res.locals.validated?.body as ChangePasswordRequest;
-      const result = await this.service.changePassword(req.user.id, input);
+      const result = await this.service.changePassword(req.user.id, input, {
+        role: req.user.role,
+        authVersion: req.user.authVersion ?? 0,
+      });
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
