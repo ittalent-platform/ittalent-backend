@@ -410,6 +410,14 @@ export class AuthService {
         );
       }
 
+      if (await bcrypt.compare(input.newPassword, account.password_hash)) {
+        throw createHttpError(
+          HTTP_STATUS.HTTP_400_BAD_REQUEST,
+          AUTH_MESSAGES.PASSWORD_UNCHANGED,
+          AUTH_ERROR_CODES.PASSWORD_UNCHANGED,
+        );
+      }
+
       const newPasswordHash = await bcrypt.hash(input.newPassword, AUTH_CONFIG.BCRYPT_SALT_ROUNDS);
       await this.repository.updateLocalAccountPassword(userId, newPasswordHash, session);
 

@@ -83,6 +83,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         'INVALID_AUTHENTICATION_TOKEN',
         'PASSWORD_POLICY_INVALID',
         'PASSWORD_CONFIRMATION_INVALID',
+        'PASSWORD_UNCHANGED',
         'ACCOUNT_HAS_NO_PASSWORD',
         'EMAIL_NOT_VERIFIED',
         'ACCOUNT_INACTIVE',
@@ -368,7 +369,7 @@ export function registerAuthOpenApi(registry: OpenAPIRegistry): void {
         },
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
-        description: 'Current credential invalid, no local credential, password policy invalid, or confirmation mismatch',
+        description: 'Current credential invalid, no local credential, password policy invalid, password unchanged, or confirmation mismatch',
         content: { 'application/json': { schema: registeredChangePasswordError } },
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {

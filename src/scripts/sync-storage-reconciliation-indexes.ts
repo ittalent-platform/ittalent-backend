@@ -14,3 +14,5 @@ syncStorageReconciliationIndexes().catch(async (error: unknown) => {
   await disconnectDatabase().catch(() => undefined);
   process.exitCode = 1;
 });
+import 'dotenv/config';
+
