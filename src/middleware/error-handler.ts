@@ -56,9 +56,8 @@ function getMessage(error: unknown): string {
 
 function getErrorCode(error: unknown): string | undefined {
   if (error instanceof ZodError) {
-    const field = error.issues[0]?.path[0];
-    if (field === 'newPassword') return 'PASSWORD_POLICY_INVALID';
-    if (field === 'confirmation') return 'PASSWORD_CONFIRMATION_INVALID';
+    const semanticCode = getZodIssueErrorCode(error.issues);
+    if (semanticCode) return semanticCode;
     return 'VALIDATION_ERROR';
   }
   if (typeof error !== 'object' || error === null) {
@@ -68,6 +67,21 @@ function getErrorCode(error: unknown): string | undefined {
   const maybeCode = 'code' in error ? (error as { code?: unknown }).code : undefined;
 
   return typeof maybeCode === 'string' ? maybeCode : undefined;
+}
+
+function getZodIssueErrorCode(issues: readonly unknown[]): string | undefined {
+  for (const issue of issues) {
+    if (typeof issue !== 'object' || issue === null) continue;
+    const params = 'params' in issue ? issue.params : undefined;
+    if (typeof params === 'object' && params !== null && 'errorCode' in params && typeof params.errorCode === 'string') {
+      return params.errorCode;
+    }
+    const nestedIssues = 'issues' in issue && Array.isArray(issue.issues) ? issue.issues : [];
+    const nestedErrors = 'errors' in issue && Array.isArray(issue.errors) ? issue.errors.flat() : [];
+    const nestedCode = getZodIssueErrorCode([...nestedIssues, ...nestedErrors]);
+    if (nestedCode) return nestedCode;
+  }
+  return undefined;
 }
 
 export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {

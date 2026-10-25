@@ -58,22 +58,46 @@ export interface StorageUploadResult {
   size: number;
 }
 
+function normalizeOwnedPathComponent(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function ownedKeyPrefix(namespace: string, ownerId: string, prefix: string): string {
+  const safeNamespace = namespace
+    .split('/')
+    .map(normalizeOwnedPathComponent)
+    .filter((component) => component.length > 0)
+    .join('/');
+  const safeOwner = normalizeOwnedPathComponent(ownerId);
+  const safePrefix = normalizeOwnedPathComponent(prefix);
+  return `${safeNamespace}/${safeOwner}/${safePrefix}-`;
+}
+
+const OWNED_KEY_SUFFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
+
 export class StorageService {
   isConfigured(): boolean {
     return isCloudinaryConfigured();
   }
 
-  createOwnedKey(namespace: string, ownerId: string, prefix: string, extension: string): string {
-    const safeNamespace = namespace.replace(/[^a-zA-Z0-9/_-]/g, '').replace(/^\/+|\/+$/g, '');
-    const safeOwner = ownerId.replace(/[^a-zA-Z0-9_-]/g, '');
-    const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '');
+  createOwnedKey(
+    namespace: string,
+    ownerId: string,
+    prefix: string,
+    extension: string,
+    resourceType: 'raw' | 'image' = 'raw',
+  ): string {
     const safeExtension = extension.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-    return `${safeNamespace}/${safeOwner}/${safePrefix}-${randomUUID()}.${safeExtension}`;
+    const extensionSuffix = resourceType === 'raw' && safeExtension ? `.${safeExtension}` : '';
+    return `${ownedKeyPrefix(namespace, ownerId, prefix)}${randomUUID()}${extensionSuffix}`;
   }
 
   ownsKey(storageKey: string, namespace: string, ownerId: string, prefix: string): boolean {
-    const expectedPrefix = `${namespace.replace(/^\/+|\/+$/g, '')}/${ownerId}/${prefix}-`;
-    return storageKey.startsWith(expectedPrefix) && !storageKey.includes('..');
+    const expectedPrefix = ownedKeyPrefix(namespace, ownerId, prefix);
+    const keySuffix = storageKey.slice(expectedPrefix.length);
+    return storageKey.startsWith(expectedPrefix)
+      && !storageKey.includes('..')
+      && OWNED_KEY_SUFFIX_PATTERN.test(keySuffix);
   }
 
   async uploadFile(input: StorageUploadInput): Promise<StorageUploadResult> {

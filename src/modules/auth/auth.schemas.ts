@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { userDtoSchema } from '../users/users.schemas.js';
-import { AUTH_CONFIG, PASSWORD_REGEX, USERNAME_REGEX } from './auth.constants.js';
+import { AUTH_CONFIG, AUTH_ERROR_CODES, PASSWORD_REGEX, USERNAME_REGEX } from './auth.constants.js';
 
 export const passwordSchema = z
   .string()
@@ -153,13 +153,32 @@ export const resetPasswordResponseSchema = z.object({
 
 export type ResetPasswordResponse = z.infer<typeof resetPasswordResponseSchema>;
 
+const changePasswordNewPasswordSchema = z.string().superRefine((value, context) => {
+  const checked = passwordSchema.safeParse(value);
+  if (!checked.success) {
+    for (const issue of checked.error.issues) {
+      context.addIssue({
+        code: 'custom',
+        message: issue.message,
+        params: { errorCode: AUTH_ERROR_CODES.PASSWORD_POLICY_INVALID },
+      });
+    }
+  }
+});
+
 export const changePasswordRequestSchema = z.strictObject({
   currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: passwordSchema,
+  newPassword: changePasswordNewPasswordSchema,
   confirmation: z.string().min(1, 'Password confirmation is required'),
-}).refine((value) => value.newPassword === value.confirmation, {
-  message: 'Password confirmation does not match',
-  path: ['confirmation'],
+}).superRefine((value, context) => {
+  if (value.newPassword !== value.confirmation) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Password confirmation does not match',
+      path: ['confirmation'],
+      params: { errorCode: AUTH_ERROR_CODES.PASSWORD_CONFIRMATION_INVALID },
+    });
+  }
 });
 
 export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;

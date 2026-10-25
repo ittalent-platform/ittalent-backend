@@ -148,7 +148,13 @@ export class MyProfileService {
     this.assertVerifiedActive(user);
 
     const extension = file.mimetype === 'image/jpeg' ? 'jpeg' : file.mimetype.split('/')[1] ?? 'bin';
-    const expectedKey = this.storage.createOwnedKey(env.AVATAR_STORAGE_NAMESPACE, userId, AVATAR_PREFIX, extension);
+    const expectedKey = this.storage.createOwnedKey(
+      env.AVATAR_STORAGE_NAMESPACE,
+      userId,
+      AVATAR_PREFIX,
+      extension,
+      'image',
+    );
     const uploaded = await this.storage.uploadFile({
       buffer: file.buffer,
       fileName: file.originalname,

@@ -93,4 +93,39 @@ describe('UsersRepository lookups for other modules', () => {
       await expect(repository.acquireAdminMutationLock(new Types.ObjectId(), {} as never)).rejects.toThrow('Active administrator lock record missing');
     });
   });
+
+  describe('incrementAuthVersionForCurrentActiveUser', () => {
+    it('atomically accepts an explicit or missing legacy auth version zero without weakening account guards', async () => {
+      const chain = query(null);
+      const update = vi.spyOn(User, 'findOneAndUpdate').mockReturnValue(chain as never);
+      const session = {} as never;
+
+      await repository.incrementAuthVersionForCurrentActiveUser('user-1', 0, 'user', session);
+
+      expect(update).toHaveBeenCalledWith(
+        {
+          _id: 'user-1',
+          role: 'user',
+          status: 'active',
+          email_verified: true,
+          $or: [{ auth_version: 0 }, { auth_version: { $exists: false } }],
+        },
+        { $inc: { auth_version: 1 } },
+        { returnDocument: 'after', session },
+      );
+    });
+
+    it('requires an exact non-zero auth version', async () => {
+      const chain = query(null);
+      const update = vi.spyOn(User, 'findOneAndUpdate').mockReturnValue(chain as never);
+
+      await repository.incrementAuthVersionForCurrentActiveUser('user-1', 2, 'user', {} as never);
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ auth_version: 2 }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
 });

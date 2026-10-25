@@ -23,13 +23,17 @@ describe('StorageService', () => {
   });
 
   describe('provider-neutral owned keys', () => {
-    it('generates an owner-scoped key and rejects foreign traversal keys', () => {
+    it('canonicalizes components consistently and keeps image public ids extension-free', () => {
       const service = new StorageService();
-      const key = service.createOwnedKey('profile-avatars', 'user-123', 'avatar', 'png');
-      expect(key).toMatch(/^profile-avatars\/user-123\/avatar-[0-9a-f-]+\.png$/);
-      expect(service.ownsKey(key, 'profile-avatars', 'user-123', 'avatar')).toBe(true);
-      expect(service.ownsKey('profile-avatars/other/avatar-id.png', 'profile-avatars', 'user-123', 'avatar')).toBe(false);
-      expect(service.ownsKey('profile-avatars/user-123/avatar-../foreign.png', 'profile-avatars', 'user-123', 'avatar')).toBe(false);
+      const namespace = 'profile avatars/owned$space';
+      const imageKey = service.createOwnedKey(namespace, 'user-123', 'avatar', 'png', 'image');
+      const rawKey = service.createOwnedKey(namespace, 'user-123', 'document', 'pdf');
+      expect(imageKey).toMatch(/^profileavatars\/ownedspace\/user-123\/avatar-[0-9a-f-]+$/);
+      expect(rawKey).toMatch(/^profileavatars\/ownedspace\/user-123\/document-[0-9a-f-]+\.pdf$/);
+      expect(service.ownsKey(imageKey, namespace, 'user-123', 'avatar')).toBe(true);
+      expect(service.ownsKey('profileavatars/ownedspace/other/avatar-550e8400-e29b-41d4-a716-446655440000', namespace, 'user-123', 'avatar')).toBe(false);
+      expect(service.ownsKey('profileavatars/ownedspace/user-123/avatar-admin-550e8400-e29b-41d4-a716-446655440000', namespace, 'user-123', 'avatar')).toBe(false);
+      expect(service.ownsKey('profileavatars/ownedspace/user-123/avatar-../foreign', namespace, 'user-123', 'avatar')).toBe(false);
     });
   });
 
@@ -133,7 +137,7 @@ describe('StorageService', () => {
 
     it('passes an explicit domain-owned storage key through the provider adapter', async () => {
       vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(true);
-      const storageKey = 'profile-avatars/user-123/avatar-owned.png';
+      const storageKey = 'profile-avatars/user-123/avatar-550e8400-e29b-41d4-a716-446655440000';
       const mockUploadStream = vi.fn().mockImplementation((options, callback) => ({
         end: () => {
           expect(options).toMatchObject({ public_id: storageKey, resource_type: 'image' });

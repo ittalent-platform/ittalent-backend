@@ -314,13 +314,16 @@ export class UsersRepository {
     expectedRole: UserRole,
     session: ClientSession,
   ): Promise<UserDoc | null> {
+    const authVersionFilter = expectedAuthVersion === 0
+      ? { $or: [{ auth_version: 0 }, { auth_version: { $exists: false } }] }
+      : { auth_version: expectedAuthVersion };
     return User.findOneAndUpdate(
       {
         _id: id,
         role: expectedRole,
         status: 'active',
         email_verified: true,
-        auth_version: expectedAuthVersion,
+        ...authVersionFilter,
       },
       { $inc: { auth_version: 1 } },
       { returnDocument: 'after', session },

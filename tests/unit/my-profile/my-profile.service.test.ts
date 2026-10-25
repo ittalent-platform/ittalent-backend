@@ -247,7 +247,7 @@ describe('MyProfileService', () => {
       findById: vi.fn().mockResolvedValue({ ...user, avatar_storage_key: previousKey }),
     } as unknown as MyProfileRepository;
     const storage = {
-      createOwnedKey: vi.fn().mockReturnValue(`profile-avatars/${user._id}/avatar-new.png`),
+      createOwnedKey: vi.fn().mockReturnValue(`profile-avatars/${user._id}/avatar-new`),
       uploadFile: vi.fn().mockRejectedValue(new Error('storage unavailable')),
       deleteFile: vi.fn(),
     } as unknown as StorageService;
@@ -261,7 +261,7 @@ describe('MyProfileService', () => {
   });
 
   it('deletes a newly uploaded image if saving its URL fails', async () => {
-    const storageKey = `profile-avatars/${user._id}/avatar-new.png`;
+    const storageKey = `profile-avatars/${user._id}/avatar-new`;
     const repository = {
       findById: vi.fn().mockResolvedValue(user),
       withTransaction: vi.fn().mockRejectedValue(new Error('db unavailable')),
@@ -286,7 +286,7 @@ describe('MyProfileService', () => {
   });
 
   it('never attaches a storage key that does not match the server-owned key', async () => {
-    const expectedKey = `profile-avatars/${user._id}/avatar-expected.png`;
+    const expectedKey = `profile-avatars/${user._id}/avatar-expected`;
     const repository = transactionalRepository({ findById: vi.fn().mockResolvedValue(user) });
     const storage = {
       createOwnedKey: vi.fn().mockReturnValue(expectedKey),
@@ -305,7 +305,7 @@ describe('MyProfileService', () => {
   });
 
   it('does not affect the existing avatar when saving a new upload fails', async () => {
-    const storageKey = `profile-avatars/${user._id}/avatar-new.png`;
+    const storageKey = `profile-avatars/${user._id}/avatar-new`;
     const repository = {
       findById: vi.fn().mockResolvedValue(user),
       withTransaction: vi.fn().mockRejectedValue(new Error('audit unavailable')),
@@ -326,7 +326,7 @@ describe('MyProfileService', () => {
   });
 
   it('commits the new avatar before deleting the previous asset', async () => {
-    const storageKey = `profile-avatars/${user._id}/avatar-new.png`;
+    const storageKey = `profile-avatars/${user._id}/avatar-new`;
     const previousKey = `profile-avatars/${user._id}/avatar-old.png`;
     const updatedUser = { ...user, avatar_url: 'https://example.test/new.png', avatar_storage_key: storageKey, version: 2 };
     const repository = transactionalRepository({

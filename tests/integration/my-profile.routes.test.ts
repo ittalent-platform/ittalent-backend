@@ -60,7 +60,7 @@ describe('my profile routes', () => {
 
   it('rejects unauthenticated avatar and password changes', async () => {
     const avatar = await fetch(`${baseUrl}/api/v1/me/profile/avatar`, { method: 'PATCH' });
-    const password = await fetch(`${baseUrl}/api/v1/auth/change-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: 'Old123!a', newPassword: 'New123!a' }) });
+    const password = await fetch(`${baseUrl}/api/v1/auth/change-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: 'Old123!a', newPassword: 'New123!a', confirmation: 'New123!a' }) });
     expect(avatar.status).toBe(401);
     expect(password.status).toBe(401);
   });
