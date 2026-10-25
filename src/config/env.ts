@@ -26,7 +26,6 @@ const DEFAULT_AVATAR_MAX_MEGABYTES = 5;
 const DEFAULT_AVATAR_MAX_UPLOAD_BYTES = DEFAULT_AVATAR_MAX_MEGABYTES * BYTES_PER_MEGABYTE;
 const DEFAULT_AVATAR_MAX_PIXELS = 16_777_216;
 const DEFAULT_AVATAR_MAX_DIMENSION = 4_096;
-const DEFAULT_STORAGE_RECONCILIATION_INTERVAL_MS = TIME_MS.ONE_MINUTE;
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(PORT_MAX_LIMIT).default(DEFAULT_PORT),
@@ -71,7 +70,6 @@ const envSchema = z.object({
   AVATAR_MAX_PIXELS: z.coerce.number().int().positive().default(DEFAULT_AVATAR_MAX_PIXELS),
   AVATAR_MAX_DIMENSION: z.coerce.number().int().positive().default(DEFAULT_AVATAR_MAX_DIMENSION),
   AVATAR_STORAGE_NAMESPACE: z.string().trim().min(1).default('profile-avatars'),
-  STORAGE_RECONCILIATION_INTERVAL_MS: z.coerce.number().int().positive().default(DEFAULT_STORAGE_RECONCILIATION_INTERVAL_MS),
 });
 
 export const env = envSchema.parse(process.env);

@@ -7,10 +7,6 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { storageService, type StorageService } from '../../shared/services/storage.service.js';
 import { authService, type AuthService } from '../auth/auth.service.js';
-import {
-  storageReconciliationsService,
-  type StorageReconciliationsService,
-} from '../storage-reconciliations/storage-reconciliations.service.js';
 import { userAuditsService, type UserAuditsService } from '../user-audits/user-audits.service.js';
 import { usersService, type UsersService } from '../users/users.service.js';
 import { AVATAR_PREFIX, PROFILE_ERROR_CODES, PROFILE_MESSAGES } from './my-profile.constants.js';
@@ -39,7 +35,6 @@ export class MyProfileService {
     private readonly auth: AuthService = authService,
     private readonly users: UsersService = usersService,
     private readonly audits: UserAuditsService = userAuditsService,
-    private readonly reconciliations: StorageReconciliationsService = storageReconciliationsService,
     private readonly enterpriseNameLookup: (enterpriseId: string) => Promise<string | null> = async (enterpriseId) => {
       const { enterprisesService } = await import('../enterprises/enterprises.service.js');
       return enterprisesService.getActiveEnterpriseName(enterpriseId);
@@ -169,8 +164,7 @@ export class MyProfileService {
       || !this.storage.ownsKey(uploaded.storageKey, env.AVATAR_STORAGE_NAMESPACE, userId, AVATAR_PREFIX)
     ) {
       if (this.storage.ownsKey(uploaded.storageKey, env.AVATAR_STORAGE_NAMESPACE, userId, AVATAR_PREFIX)) {
-        const deleted = await this.storage.deleteFile(uploaded.storageKey, 'image');
-        if (!deleted) await this.reconciliations.schedule({ storageKey: uploaded.storageKey, reason: 'orphaned_upload' });
+        await this.storage.deleteFile(uploaded.storageKey, 'image');
       }
       throw createHttpError(
         HTTP_STATUS.HTTP_502_BAD_GATEWAY,
@@ -195,18 +189,14 @@ export class MyProfileService {
           changes: { avatar: 'updated' },
           version: this.currentVersion(updated),
         }, session);
-        if (previousKey && previousKey !== uploaded.storageKey) {
-          await this.reconciliations.schedule({ storageKey: previousKey, reason: 'displaced_asset' }, session);
-        }
         return { user: updated, previousKey };
       });
     } catch (error) {
       try {
-        const deleted = await this.storage.deleteFile(uploaded.storageKey, 'image');
-        if (!deleted) await this.reconciliations.schedule({ storageKey: uploaded.storageKey, reason: 'orphaned_upload' });
+        await this.storage.deleteFile(uploaded.storageKey, 'image');
       } catch (cleanupError) {
-        console.error('[avatar:cleanup-schedule:error]', {
-          message: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup scheduling failure',
+        console.error('[avatar:cleanup:error]', {
+          message: cleanupError instanceof Error ? cleanupError.message : 'Unknown cleanup failure',
         });
       }
       throw error;
@@ -214,10 +204,8 @@ export class MyProfileService {
 
     if (transactionResult.previousKey && transactionResult.previousKey !== uploaded.storageKey) {
       try {
-        const deleted = await this.storage.deleteFile(transactionResult.previousKey, 'image');
-        if (deleted) await this.reconciliations.markCompleted(transactionResult.previousKey);
+        await this.storage.deleteFile(transactionResult.previousKey, 'image');
       } catch (cleanupError) {
-        // The pending reconciliation record was committed with the avatar change and remains retryable.
         console.error('[avatar:displaced-cleanup:error]', {
           message: cleanupError instanceof Error ? cleanupError.message : 'Unknown displaced-avatar cleanup failure',
         });
