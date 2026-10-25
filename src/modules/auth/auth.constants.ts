@@ -17,6 +17,7 @@ export const AUTH_MESSAGES = {
   PASSWORD_CHANGED_SUCCESS: 'Password changed successfully.',
   PASSWORD_CONFIRMATION_INVALID: 'Password confirmation does not match',
   INVALID_CURRENT_PASSWORD: 'The current credential could not be verified.',
+  PASSWORD_UNCHANGED: 'New password must be different from the current password.',
   ACCOUNT_HAS_NO_PASSWORD: 'The current credential could not be verified.',
   SESSION_NO_LONGER_CURRENT: 'The session is no longer current',
 } as const;
@@ -24,6 +25,7 @@ export const AUTH_MESSAGES = {
 export const AUTH_ERROR_CODES = {
   PASSWORD_CONFIRMATION_INVALID: 'PASSWORD_CONFIRMATION_INVALID',
   CURRENT_CREDENTIAL_INVALID: 'CURRENT_CREDENTIAL_INVALID',
+  PASSWORD_UNCHANGED: 'PASSWORD_UNCHANGED',
   ACCOUNT_HAS_NO_PASSWORD: 'ACCOUNT_HAS_NO_PASSWORD',
   SESSION_REVOKED: 'SESSION_REVOKED',
 } as const;
