@@ -1,3 +1,4 @@
+/* eslint-disable */
 import 'dotenv/config';
 import { connectDatabase, disconnectDatabase } from '../config/db.js';
 import { User } from '../models/user.model.js';

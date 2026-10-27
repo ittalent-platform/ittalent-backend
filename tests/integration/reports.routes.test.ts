@@ -100,7 +100,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_201_CREATED);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; data: { ticket_id: string } };
       expect(json.success).toBe(true);
       expect(json.data.ticket_id).toBe('REP-2026-1042');
     });
@@ -145,7 +145,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; items: unknown[]; kpis: { pending: number } };
       expect(json.success).toBe(true);
       expect(json.items.length).toBe(1);
       expect(json.kpis.pending).toBe(1);
@@ -161,7 +161,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; data: { ticket_id: string } };
       expect(json.success).toBe(true);
       expect(json.data.ticket_id).toBe('REP-2026-1042');
     });
@@ -184,7 +184,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; data: { status: string } };
       expect(json.success).toBe(true);
       expect(json.data.status).toBe('withdrawn');
     });
@@ -203,7 +203,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean };
       expect(json.success).toBe(true);
     });
   });
@@ -231,7 +231,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; items: unknown[] };
       expect(json.success).toBe(true);
       expect(json.items.length).toBe(1);
     });
@@ -258,7 +258,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; data: { status: string } };
       expect(json.success).toBe(true);
       expect(json.data.status).toBe('reviewing');
     });
@@ -289,7 +289,7 @@ describe('Reports API Routes (Integration)', () => {
       });
 
       expect(res.status).toBe(HTTP_STATUS.HTTP_200_OK);
-      const json = await res.json();
+      const json = (await res.json()) as { success: boolean; data: { status: string } };
       expect(json.success).toBe(true);
       expect(json.data.status).toBe('resolved');
     });

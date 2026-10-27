@@ -121,6 +121,8 @@ describe('ReportsService (UC-30 to UC-36)', () => {
           reason_category: 'other',
           title: 'Testing self report',
           description: 'Attempting to report own account profile.',
+          evidence_files: [],
+          is_anonymous: false,
         }),
       ).rejects.toThrow(REPORT_MESSAGES.SELF_REPORT_FORBIDDEN);
     });
@@ -149,6 +151,8 @@ describe('ReportsService (UC-30 to UC-36)', () => {
           reason_category: 'misleading_info',
           title: 'Own job report attempt',
           description: 'Trying to report my own job posting.',
+          evidence_files: [],
+          is_anonymous: false,
         }),
       ).rejects.toThrow(REPORT_MESSAGES.SELF_REPORT_FORBIDDEN);
     });
@@ -178,6 +182,8 @@ describe('ReportsService (UC-30 to UC-36)', () => {
           reason_category: 'scam_fraud',
           title: 'Duplicate pending attempt',
           description: 'Reporting again within 24 hours of first pending submission.',
+          evidence_files: [],
+          is_anonymous: false,
         }),
       ).rejects.toThrow(REPORT_MESSAGES.DUPLICATE_PENDING);
     });
@@ -253,7 +259,7 @@ describe('ReportsService (UC-30 to UC-36)', () => {
 
       const result = await service.getReporterReportDetail(reporterId, 'REP-2026-1042');
       expect(result.ticket_id).toBe('REP-2026-1042');
-      expect((result as Record<string, unknown>).internal_notes).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).internal_notes).toBeUndefined();
       expect(result.message_to_reporter).toBe('We have taken down this listing.');
     });
 
