@@ -21,7 +21,7 @@ import { userInvitationsRouter } from './user-invitations/user-invitations.route
 import { userAuditsRouter } from './user-audits/user-audits.routes.js';
 import { userEmailChangesRouter } from './user-email-changes/user-email-changes.routes.js';
 import { wishlistRouter } from './wishlist/index.js';
-import { reportsRouter } from './reports/index.js';
+import { adminReportsRouter, reportsRouter } from './reports/index.js';
 
 export function registerRoutes(app: Express): void {
   const apiV1Router = Router();
@@ -38,6 +38,8 @@ export function registerRoutes(app: Express): void {
   apiV1Router.use('/me/applications', applicationsRouter);
   apiV1Router.use('/me/wishlist', wishlistRouter);
   apiV1Router.use('/me/reports', reportsRouter);
+  apiV1Router.use('/reports', adminReportsRouter);
+  apiV1Router.use('/admin/reports', adminReportsRouter);
   apiV1Router.use(certificateLinksRouter);
   apiV1Router.use(portfolioLinksRouter);
   apiV1Router.use(recruiterApplicationsRouter);

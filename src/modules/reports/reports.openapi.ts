@@ -2,6 +2,8 @@ import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
+  adminReportsQuerySchema,
+  adminResolveReportSchema,
   createReportBodySchema,
   createReportResponseSchema,
   paginatedReportsResponseSchema,
@@ -21,11 +23,14 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
   const hideResponse = registry.register('ReportHideResponse', reportHideResponseSchema);
   const idParam = registry.register('ReportIdParam', reportIdParamSchema);
   const querySchema = registry.register('ReportsQuery', reportsQuerySchema);
+  const resolveSchema = registry.register('AdminResolveReportRequest', adminResolveReportSchema);
+
+  // --- Applicant / Candidate Routes (/api/v1/me/reports) ---
 
   registry.registerPath({
     method: 'post',
     path: '/api/v1/me/reports',
-    tags: ['Reports'],
+    tags: ['Reports - Applicant'],
     summary: 'Submit a violation report against a job, company, or user',
     description:
       'Submits a violation report with statement and optional evidence files. Generates reference RPT-YYYY-NNNN and snapshots target metadata. Idempotent against double-clicks.',
@@ -41,38 +46,32 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
     },
     responses: {
       [HTTP_STATUS.HTTP_201_CREATED]: {
-        description: 'Report created successfully',
+        description: 'Report submitted successfully',
         content: { 'application/json': { schema: createResponse } },
       },
-      [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Report already submitted (idempotent)',
-        content: { 'application/json': { schema: createResponse } },
-      },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
-        description: 'Validation error, unsupported file type, or target unavailable',
-      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Validation failed or self-reporting forbidden' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Target entity not found' },
     },
   });
 
   registry.registerPath({
     method: 'get',
     path: '/api/v1/me/reports',
-    tags: ['Reports'],
-    summary: 'List my violation reports with status counts and search',
+    tags: ['Reports - Applicant'],
+    summary: 'List my submitted reports with status filters and search',
     description:
-      'Retrieves candidate submitted reports (excluding hidden ones) with tab counts (all, open, closed), search matching, and dynamic target availability.',
+      'Returns paginated reports with category badge counts (all, open, closed) and dynamic target availability check.',
     security: [{ bearerAuth: [] }],
     request: {
       query: querySchema,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Candidate reports retrieved successfully',
+        description: 'Reports listed successfully',
         content: { 'application/json': { schema: paginatedResponse } },
       },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid query parameters or unsupported filter' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
     },
@@ -81,10 +80,10 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
     method: 'get',
     path: '/api/v1/me/reports/{id}',
-    tags: ['Reports'],
+    tags: ['Reports - Applicant'],
     summary: 'Get report detail by ID or reference',
     description:
-      'Retrieves full report ticket details, evidence files, resolution feedback, and audit history timeline.',
+      'Returns complete report ticket with target snapshot, file downloads, timeline, and current resolution response.',
     security: [{ bearerAuth: [] }],
     request: {
       params: idParam,
@@ -96,17 +95,17 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
-      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found or not owned by user' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found or hidden' },
     },
   });
 
   registry.registerPath({
     method: 'post',
     path: '/api/v1/me/reports/{id}/withdraw',
-    tags: ['Reports'],
+    tags: ['Reports - Applicant'],
     summary: 'Withdraw a pending report',
     description:
-      'Self-withdraws a report that is currently pending review. Rejects with 409 Conflict if review has already begun.',
+      'Allows applicant to withdraw report if status is strictly pending. Rejects with 409 Conflict if review has started.',
     security: [{ bearerAuth: [] }],
     request: {
       params: idParam,
@@ -128,7 +127,7 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
   registry.registerPath({
     method: 'post',
     path: '/api/v1/me/reports/{id}/hide',
-    tags: ['Reports'],
+    tags: ['Reports - Applicant'],
     summary: 'Hide a closed report from my history',
     description:
       'Soft-hides a closed report (resolved, rejected, or withdrawn) from candidate list and counts. Compliance records remain preserved.',
@@ -147,6 +146,77 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
+    },
+  });
+
+  // --- Admin Violation Investigation Routes (/api/v1/reports) ---
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/reports',
+    tags: ['Reports - Admin'],
+    summary: 'View violation reports queue (Admin)',
+    description: 'Centralized administrator review queue of all submitted violation reports with KPI statistics.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      query: adminReportsQuerySchema,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Reports queue retrieved successfully' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/reports/{id}',
+    tags: ['Reports - Admin'],
+    summary: 'View report investigation workbench (Admin)',
+    description: 'Full investigation view for administrators with reporter details and internal notes.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: idParam,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Investigation details retrieved successfully' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/reports/{id}/claim',
+    tags: ['Reports - Admin'],
+    summary: 'Claim report ticket (Admin)',
+    description: 'Assign report ticket to current administrator and advance status to reviewing.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: idParam,
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Ticket claimed successfully' },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Ticket cannot be claimed' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/reports/{id}/resolve',
+    tags: ['Reports - Admin'],
+    summary: 'Finalize report resolution (Admin)',
+    description: 'Execute decisive resolution with atomic enforcement actions, internal notes, and reporter message.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: idParam,
+      body: { required: true, content: { 'application/json': { schema: resolveSchema } } },
+    },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Resolution finalized successfully' },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Ticket already resolved or invalid parameters' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
     },
   });
 }

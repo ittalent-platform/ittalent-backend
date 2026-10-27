@@ -1,101 +1,181 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  adminReportsQuerySchema,
+  adminResolveReportSchema,
   createReportBodySchema,
+  createReportSchema,
   paginatedReportsResponseSchema,
+  reporterReportsQuerySchema,
   reportDetailResponseSchema,
   reportHideResponseSchema,
   reportIdParamSchema,
   reportsQuerySchema,
   reportWithdrawResponseSchema,
+  withdrawReportSchema,
 } from '../../../src/modules/reports/reports.schemas.js';
 
-describe('Reports Validation Schemas', () => {
-  describe('createReportBodySchema', () => {
-    it('accepts valid report submission payload', () => {
+describe('Reports Schemas Unit Tests', () => {
+  describe('createReportSchema (PR #91 / Admin Intake)', () => {
+    it('validates a correct job report payload', () => {
       const validPayload = {
-        targetType: 'job',
-        targetId: '507f1f77bcf86cd799439011',
-        reason: 'misleading_information',
-        statement: 'The post salary says 50M but recruiter offered 20M.',
+        target_type: 'job',
+        target_id: '507f1f77bcf86cd799439011',
+        reason_category: 'scam_fraud',
+        title: 'Fake job offering unrealistic salary',
+        description: 'Employer demanded fee payment via personal bank account before interview.',
+        evidence_files: ['https://example.com/receipt.png'],
+        is_anonymous: true,
       };
 
-      const result = createReportBodySchema.safeParse(validPayload);
+      const result = createReportSchema.safeParse(validPayload);
       expect(result.success).toBe(true);
     });
 
-    it('rejects payload with invalid targetId format', () => {
+    it('rejects short title or description', () => {
       const invalidPayload = {
-        targetType: 'job',
-        targetId: 'invalid-id',
-        reason: 'misleading_information',
-        statement: 'Details here',
+        target_type: 'job',
+        target_id: '507f1f77bcf86cd799439011',
+        reason_category: 'scam_fraud',
+        title: 'No', // < 5 chars
+        description: 'Too short', // < 20 chars
       };
 
-      const result = createReportBodySchema.safeParse(invalidPayload);
+      const result = createReportSchema.safeParse(invalidPayload);
       expect(result.success).toBe(false);
     });
 
-    it('rejects empty or whitespace-only statement', () => {
-      const emptyPayload = {
-        targetType: 'job',
-        targetId: '507f1f77bcf86cd799439011',
-        reason: 'misleading_information',
-        statement: '   ',
+    it('rejects invalid ObjectId for target_id', () => {
+      const invalidPayload = {
+        target_type: 'enterprise',
+        target_id: 'invalid-id-format',
+        reason_category: 'fee_extortion',
+        title: 'Company demands recruitment deposit',
+        description: 'Demanded 2 million VND upfront security deposit during phone screen.',
       };
 
-      const result = createReportBodySchema.safeParse(emptyPayload);
+      const result = createReportSchema.safeParse(invalidPayload);
       expect(result.success).toBe(false);
     });
 
-    it('rejects invalid reason enum', () => {
-      const invalidReason = {
-        targetType: 'job',
-        targetId: '507f1f77bcf86cd799439011',
-        reason: 'unsupported_reason',
-        statement: 'Statement here',
+    it('rejects more than 5 evidence files', () => {
+      const invalidPayload = {
+        target_type: 'job',
+        target_id: '507f1f77bcf86cd799439011',
+        reason_category: 'other',
+        title: 'Multiple policy violations observed',
+        description: 'See the attached extensive list of screenshots as documentation.',
+        evidence_files: [
+          'https://example.com/1.png',
+          'https://example.com/2.png',
+          'https://example.com/3.png',
+          'https://example.com/4.png',
+          'https://example.com/5.png',
+          'https://example.com/6.png',
+        ],
       };
 
-      const result = createReportBodySchema.safeParse(invalidReason);
-      expect(result.success).toBe(false);
-    });
-
-    it('enforces maximum of 5 evidence files', () => {
-      const sixFiles = Array.from({ length: 6 }, (_, i) => ({
-        fileUrl: `https://example.com/file${i}.png`,
-        storageKey: `key-${i}`,
-        fileName: `file${i}.png`,
-        mimeType: 'image/png',
-        size: 1024,
-      }));
-
-      const payload = {
-        targetType: 'job',
-        targetId: '507f1f77bcf86cd799439011',
-        reason: 'scam_or_fraud',
-        statement: 'Scam post details',
-        evidenceFiles: sixFiles,
-      };
-
-      const result = createReportBodySchema.safeParse(payload);
+      const result = createReportSchema.safeParse(invalidPayload);
       expect(result.success).toBe(false);
     });
   });
 
-  describe('reportIdParamSchema', () => {
-    it('accepts 24-character hexadecimal ObjectId', () => {
-      const result = reportIdParamSchema.safeParse({ id: '507f1f77bcf86cd799439011' });
+  describe('createReportBodySchema (Candidate / MyReport)', () => {
+    it('accepts valid report submission payload', () => {
+      const result = createReportBodySchema.safeParse({
+        targetType: 'job',
+        targetId: '507f1f77bcf86cd799439011',
+        reason: 'scam_or_fraud',
+        statement: 'The employer requested cash payment before interview.',
+        idempotencyKey: 'idemp-12345',
+      });
       expect(result.success).toBe(true);
     });
 
-    it('accepts public reference string format (RPT-YYYY-NNNN)', () => {
-      const result = reportIdParamSchema.safeParse({ id: 'RPT-2026-0142' });
-      expect(result.success).toBe(true);
-    });
-
-    it('rejects malformed ID or reference', () => {
-      const result = reportIdParamSchema.safeParse({ id: 'not-valid' });
+    it('rejects invalid target type', () => {
+      const result = createReportBodySchema.safeParse({
+        targetType: 'unsupported_type',
+        targetId: '507f1f77bcf86cd799439011',
+        reason: 'scam_or_fraud',
+        statement: 'Statement here',
+      });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects empty statement', () => {
+      const result = createReportBodySchema.safeParse({
+        targetType: 'job',
+        targetId: '507f1f77bcf86cd799439011',
+        reason: 'scam_or_fraud',
+        statement: '',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('adminResolveReportSchema', () => {
+    it('requires action_taken when decision is resolved', () => {
+      const payloadWithoutAction = {
+        decision: 'resolved',
+        internal_notes: 'Verified policy violation from uploaded receipts.',
+        message_to_reporter: 'We have taken action and closed the fraudulent job.',
+      };
+
+      const result = adminResolveReportSchema.safeParse(payloadWithoutAction);
+      expect(result.success).toBe(false);
+    });
+
+    it('allows decision rejected without action_taken', () => {
+      const validRejectPayload = {
+        decision: 'rejected',
+        internal_notes: 'Insufficient evidence to verify fee extortion.',
+        message_to_reporter: 'Thank you for your report. We could not verify policy violation.',
+      };
+
+      const result = adminResolveReportSchema.safeParse(validRejectPayload);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('withdrawReportSchema', () => {
+    it('accepts optional withdrawal_reason', () => {
+      expect(withdrawReportSchema.safeParse({}).success).toBe(true);
+      expect(
+        withdrawReportSchema.safeParse({ withdrawal_reason: 'Resolved privately' }).success,
+      ).toBe(true);
+    });
+  });
+
+  describe('reporterReportsQuerySchema', () => {
+    it('defaults page to 1, limit to 10, status to all', () => {
+      const parsed = reporterReportsQuerySchema.parse({});
+      expect(parsed.page).toBe(1);
+      expect(parsed.limit).toBe(10);
+      expect(parsed.status).toBe('all');
+    });
+  });
+
+  describe('adminReportsQuerySchema', () => {
+    it('defaults status to pending, target_type to all', () => {
+      const parsed = adminReportsQuerySchema.parse({});
+      expect(parsed.status).toBe('pending');
+      expect(parsed.target_type).toBe('all');
+    });
+  });
+
+  describe('reportIdParamSchema', () => {
+    it('validates 24-hex ObjectId', () => {
+      expect(reportIdParamSchema.safeParse({ id: '507f1f77bcf86cd799439011' }).success).toBe(true);
+    });
+
+    it('validates public reference string format (RPT-YYYY-NNNN or REP-YYYY-XXXX)', () => {
+      expect(reportIdParamSchema.safeParse({ id: 'RPT-2026-0142' }).success).toBe(true);
+      expect(reportIdParamSchema.safeParse({ id: 'REP-2026-1042' }).success).toBe(true);
+    });
+
+    it('rejects empty or malformed ID', () => {
+      expect(reportIdParamSchema.safeParse({ id: '' }).success).toBe(false);
+      expect(reportIdParamSchema.safeParse({ id: 'not-valid-id' }).success).toBe(false);
     });
   });
 

@@ -53,5 +53,3 @@ registerBroadcastNotificationsOpenApi(registry);
 registerMyProfileOpenApi(registry);
 registerWishlistOpenApi(registry);
 registerReportsOpenApi(registry);
-
-
