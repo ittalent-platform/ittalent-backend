@@ -34,6 +34,7 @@ describe('document-upload middleware', () => {
   it('rejects with 400 when file is empty (size 0)', async () => {
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'empty.pdf',
         mimetype: 'application/pdf',
@@ -54,9 +55,64 @@ describe('document-upload middleware', () => {
     );
   });
 
+  it.each([
+    ['missing', undefined],
+    ['invalid', 'portfolio'],
+  ])('rejects %s document type before uploading', async (_label, type) => {
+    const pdfBuffer = Buffer.from(`${PDF_SIGNATURE} valid content`);
+    const req = {
+      headers: {},
+      body: type === undefined ? {} : { type },
+      file: {
+        originalname: 'resume.pdf',
+        mimetype: 'application/pdf',
+        buffer: pdfBuffer,
+        size: pdfBuffer.length,
+      },
+    } as unknown as Request;
+    const res = { locals: {} } as unknown as Response;
+    const next = vi.fn();
+    const uploadSpy = vi.spyOn(storageService, 'uploadFile');
+
+    await uploadDocument(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({ statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST }),
+    );
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['too long', `${'a'.repeat(252)}.pdf`],
+  ])('rejects a %s file name before uploading', async (_label, originalname) => {
+    const pdfBuffer = Buffer.from(`${PDF_SIGNATURE} valid content`);
+    const req = {
+      headers: {},
+      body: { type: 'cv' },
+      file: {
+        originalname,
+        mimetype: 'application/pdf',
+        buffer: pdfBuffer,
+        size: pdfBuffer.length,
+      },
+    } as unknown as Request;
+    const res = { locals: {} } as unknown as Response;
+    const next = vi.fn();
+    const uploadSpy = vi.spyOn(storageService, 'uploadFile');
+
+    await uploadDocument(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(
+      expect.objectContaining({ statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST }),
+    );
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
   it('rejects with 400 when file extension is not supported', async () => {
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'malware.exe',
         mimetype: 'application/octet-stream',
@@ -77,9 +133,40 @@ describe('document-upload middleware', () => {
     );
   });
 
+  it('accepts a file name with exactly 255 characters', async () => {
+    const pdfBuffer = Buffer.from(`${PDF_SIGNATURE} valid content`);
+    const originalname = `${'a'.repeat(251)}.pdf`;
+    const req = {
+      headers: {},
+      body: { type: 'cv' },
+      file: {
+        originalname,
+        mimetype: 'application/pdf',
+        buffer: pdfBuffer,
+        size: pdfBuffer.length,
+      },
+    } as unknown as Request;
+    const res = { locals: {} } as unknown as Response;
+    const next = vi.fn();
+    const mockUploadResult = {
+      fileUrl: 'https://storage.example.com/italent/documents/document-255.pdf',
+      storageKey: 'italent/documents/document-255.pdf',
+      fileName: originalname,
+      mimeType: 'application/pdf',
+      size: pdfBuffer.length,
+    };
+    const uploadSpy = vi.spyOn(storageService, 'uploadFile').mockResolvedValue(mockUploadResult);
+
+    await uploadDocument(req, res, next);
+
+    expect(uploadSpy).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('rejects with 400 when file mimetype does not match extension', async () => {
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'document.pdf',
         mimetype: 'image/png', // spoofed or mismatched mime
@@ -103,6 +190,7 @@ describe('document-upload middleware', () => {
   it('rejects with 400 when buffer magic bytes do not match PDF signature', async () => {
     const req = {
       headers: {},
+      body: { type: 'cover_letter' },
       file: {
         originalname: 'corrupt.pdf',
         mimetype: 'application/pdf',
@@ -126,6 +214,7 @@ describe('document-upload middleware', () => {
   it('rejects with 400 when buffer magic bytes do not match DOC signature', async () => {
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'corrupt.doc',
         mimetype: 'application/msword',
@@ -149,6 +238,7 @@ describe('document-upload middleware', () => {
   it('rejects with 400 when buffer magic bytes do not match DOCX signature', async () => {
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'corrupt.docx',
         mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -173,6 +263,7 @@ describe('document-upload middleware', () => {
     const pdfBuffer = Buffer.from(`${PDF_SIGNATURE} valid content`);
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'my-resume.pdf',
         mimetype: 'application/pdf',
@@ -212,6 +303,7 @@ describe('document-upload middleware', () => {
     const docBuffer = Buffer.concat([DOC_SIGNATURE, Buffer.from('valid doc content')]);
     const req = {
       headers: {},
+      body: { type: 'cover_letter' },
       file: {
         originalname: 'my-cover-letter.doc',
         mimetype: 'application/msword',
@@ -242,6 +334,7 @@ describe('document-upload middleware', () => {
     const docxBuffer = Buffer.concat([OFFICE_SIGNATURE, Buffer.from('valid docx content')]);
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'my-profile.docx',
         mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -272,6 +365,7 @@ describe('document-upload middleware', () => {
     const pdfBuffer = Buffer.from(`${PDF_SIGNATURE} test`);
     const req = {
       headers: {},
+      body: { type: 'cv' },
       file: {
         originalname: 'doc.pdf',
         mimetype: 'application/pdf',

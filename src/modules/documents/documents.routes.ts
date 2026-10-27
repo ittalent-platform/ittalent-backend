@@ -1,5 +1,9 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
+import {
+  authenticate,
+  authenticateCurrentUser,
+  authorize,
+} from '../../middleware/auth.middleware.js';
 import { uploadDocument } from '../../middleware/document-upload.middleware.js';
 import {
   validateBody,
@@ -18,6 +22,7 @@ export const documentsRouter = Router();
 documentsRouter.post(
   '/documents',
   authenticate,
+  authenticateCurrentUser,
   authorize('user'),
   uploadDocument,
   validateBody(documentUploadSchema),
@@ -47,6 +52,7 @@ documentsRouter.get(
 documentsRouter.patch(
   '/documents/:id/default',
   authenticate,
+  authenticateCurrentUser,
   authorize('user'),
   validateParams(documentIdParamSchema),
   documentsController.setDefaultMine,
@@ -54,6 +60,7 @@ documentsRouter.patch(
 documentsRouter.delete(
   '/documents/:id',
   authenticate,
+  authenticateCurrentUser,
   authorize('user'),
   validateParams(documentIdParamSchema),
   documentsController.removeMine,
