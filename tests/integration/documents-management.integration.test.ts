@@ -18,6 +18,7 @@ import { connectDatabase, disconnectDatabase } from '../../src/config/db.js';
 import { disconnectRedis } from '../../src/config/redis.js';
 import { Application } from '../../src/models/application.model.js';
 import { Document } from '../../src/models/document.model.js';
+import { User } from '../../src/models/user.model.js';
 import { HTTP_STATUS } from '../../src/shared/constants/http-status.js';
 
 const ownerId = new Types.ObjectId();
@@ -85,14 +86,31 @@ describe('Document management integration', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([Application.deleteMany({}), Document.deleteMany({})]);
+    await Promise.all([
+      Application.deleteMany({}),
+      Document.deleteMany({}),
+      User.deleteMany({ _id: { $in: [ownerId, otherOwnerId, adminId] } }),
+    ]);
+    await User.create({
+      _id: ownerId,
+      email: `${String(ownerId)}@integration.test`,
+      username: `documents_owner_${String(ownerId)}`,
+      role: 'user',
+      status: 'active',
+      email_verified: true,
+      auth_version: 0,
+    });
   });
 
   afterEach(() => vi.unstubAllGlobals());
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    await Promise.all([Application.deleteMany({}), Document.deleteMany({})]);
+    await Promise.all([
+      Application.deleteMany({}),
+      Document.deleteMany({}),
+      User.deleteMany({ _id: { $in: [ownerId, otherOwnerId, adminId] } }),
+    ]);
     await disconnectRedis();
     await disconnectDatabase();
   });
@@ -236,5 +254,18 @@ describe('Document management integration', () => {
       { method: 'DELETE', headers: headers(ownerId) },
     );
     expect(blocked.status).toBe(HTTP_STATUS.HTTP_409_CONFLICT);
+  });
+
+  it('rejects a suspended user before changing a document', async () => {
+    const document = await createDocument(ownerId, 'suspended-user.pdf');
+    await User.updateOne({ _id: ownerId }, { $set: { status: 'suspended' } });
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/documents/${String(document._id)}/default`,
+      { method: 'PATCH', headers: headers(ownerId) },
+    );
+
+    expect(response.status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+    expect((await Document.findById(document._id).lean())?.is_default).toBe(false);
   });
 });

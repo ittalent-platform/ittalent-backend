@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import multer from 'multer';
 
+import { documentTypes } from '../models/document.model.js';
 import { HTTP_STATUS } from '../shared/constants/http-status.js';
 import { createHttpError } from '../shared/errors/http-error.js';
 import {
@@ -12,6 +13,7 @@ import {
 
 const BYTES_PER_MEGABYTE = 1_048_576;
 const MAX_DOCUMENT_FILE_SIZE_MB = 5;
+const MAX_DOCUMENT_FILE_NAME_LENGTH = 255;
 export const MAX_DOCUMENT_FILE_SIZE = MAX_DOCUMENT_FILE_SIZE_MB * BYTES_PER_MEGABYTE;
 
 const mimeTypes = {
@@ -41,6 +43,14 @@ export const uploadDocument: RequestHandler = async (req, res, next): Promise<vo
     const file = req.file;
     if (!file) {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Document file is required');
+    }
+
+    if (!documentTypes.some((type) => type === req.body?.type)) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Document type must be cv or cover_letter');
+    }
+
+    if (!file.originalname.trim() || file.originalname.length > MAX_DOCUMENT_FILE_NAME_LENGTH) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, 'Document file name must be between 1 and 255 characters');
     }
 
     const ext = extension(file.originalname);
