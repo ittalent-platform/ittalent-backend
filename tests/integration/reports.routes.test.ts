@@ -171,6 +171,8 @@ describe('Reports API Routes (Integration)', () => {
     it('withdraws pending report successfully', async () => {
       vi.spyOn(reportsService, 'withdrawReport').mockResolvedValue({
         message: 'Report withdrawn successfully',
+        status: 'withdrawn',
+        reference: mockReportDto.ticket_id,
         report: { ...mockReportDto, status: 'withdrawn' },
       });
 

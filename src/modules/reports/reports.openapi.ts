@@ -1,246 +1,199 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { z } from 'zod';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
   adminReportsQuerySchema,
   adminResolveReportSchema,
-  createReportSchema,
-  reporterReportsQuerySchema,
+  createReportBodySchema,
+  createReportResponseSchema,
+  paginatedReportsResponseSchema,
+  reportDetailResponseSchema,
+  reportHideResponseSchema,
   reportIdParamSchema,
-  withdrawReportSchema,
+  reportsQuerySchema,
+  reportWithdrawResponseSchema,
 } from './reports.schemas.js';
 
 export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
-  const createSchema = registry.register('CreateReportRequest', createReportSchema);
-  const withdrawSchema = registry.register('WithdrawReportRequest', withdrawReportSchema);
+  const createSchema = registry.register('CreateReportRequest', createReportBodySchema);
+  const createResponse = registry.register('CreateReportResponse', createReportResponseSchema);
+  const paginatedResponse = registry.register('PaginatedReportsResponse', paginatedReportsResponseSchema);
+  const detailResponse = registry.register('ReportDetailResponse', reportDetailResponseSchema);
+  const withdrawResponse = registry.register('ReportWithdrawResponse', reportWithdrawResponseSchema);
+  const hideResponse = registry.register('ReportHideResponse', reportHideResponseSchema);
+  const idParam = registry.register('ReportIdParam', reportIdParamSchema);
+  const querySchema = registry.register('ReportsQuery', reportsQuerySchema);
   const resolveSchema = registry.register('AdminResolveReportRequest', adminResolveReportSchema);
 
-  // Reporter Report Item Schema
-  const reporterReportItemSchema = z.object({
-    id: z.string(),
-    ticket_id: z.string(),
-    target_type: z.string(),
-    target_id: z.string(),
-    target_title: z.string(),
-    target_link: z.string().nullable().optional(),
-    reason_category: z.string(),
-    title: z.string(),
-    description: z.string(),
-    evidence_files: z.array(z.string()),
-    is_anonymous: z.boolean(),
-    status: z.string(),
-    withdrawal_reason: z.string().nullable().optional(),
-    withdrawn_at: z.string().nullable().optional(),
-    resolution_decision: z.string().nullable().optional(),
-    action_taken: z.string().nullable().optional(),
-    message_to_reporter: z.string().nullable().optional(),
-    resolved_at: z.string().nullable().optional(),
-    timeline: z.array(
-      z.object({
-        status: z.string(),
-        timestamp: z.string(),
-        note: z.string().nullable().optional(),
-      }),
-    ),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  });
+  // --- Applicant / Candidate Routes (/api/v1/me/reports) ---
 
-  const reporterListResponseSchema = z.object({
-    success: z.boolean(),
-    items: z.array(reporterReportItemSchema),
-    kpis: z.object({
-      total: z.number(),
-      pending: z.number(),
-      reviewing: z.number(),
-      resolved: z.number(),
-      rejected: z.number(),
-      withdrawn: z.number(),
-    }),
-    page: z.number(),
-    limit: z.number(),
-    total: z.number(),
-    totalPages: z.number(),
-  });
-
-  // UC-30: Create Report
   registry.registerPath({
     method: 'post',
-    path: '/api/v1/reports',
-    tags: ['Reports - Reporter'],
-    summary: 'Submit a violation report (UC-30)',
+    path: '/api/v1/me/reports',
+    tags: ['Reports - Applicant'],
+    summary: 'Submit a violation report against a job, company, or user',
     description:
-      'File a formal violation report against a target entity (job listing, company profile, or user) with category, statement, and evidence attachments.',
+      'Submits a violation report with statement and optional evidence files. Generates reference RPT-YYYY-NNNN and snapshots target metadata. Idempotent against double-clicks.',
     security: [{ bearerAuth: [] }],
     request: {
-      body: { required: true, content: { 'application/json': { schema: createSchema } } },
+      body: {
+        required: true,
+        content: {
+          'application/json': { schema: createSchema },
+          'multipart/form-data': { schema: createSchema },
+        },
+      },
     },
     responses: {
       [HTTP_STATUS.HTTP_201_CREATED]: {
-        description: 'Report created successfully',
-        content: {
-          'application/json': {
-            schema: z.object({ success: z.boolean(), data: reporterReportItemSchema }),
-          },
-        },
+        description: 'Report submitted successfully',
+        content: { 'application/json': { schema: createResponse } },
       },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Self-reporting attempt or duplicate pending report in 24h' },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Validation failed or self-reporting forbidden' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Target entity not found' },
     },
   });
 
-  // UC-31: List Reporter Reports
   registry.registerPath({
     method: 'get',
     path: '/api/v1/me/reports',
-    tags: ['Reports - Reporter'],
-    summary: 'View submitted reports history (UC-31)',
-    description: 'Retrieve paginated history of reports submitted by the authenticated user.',
+    tags: ['Reports - Applicant'],
+    summary: 'List my submitted reports with status filters and search',
+    description:
+      'Returns paginated reports with category badge counts (all, open, closed) and dynamic target availability check.',
     security: [{ bearerAuth: [] }],
     request: {
-      query: reporterReportsQuerySchema,
+      query: querySchema,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Reports retrieved successfully',
-        content: { 'application/json': { schema: reporterListResponseSchema } },
+        description: 'Reports listed successfully',
+        content: { 'application/json': { schema: paginatedResponse } },
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
     },
   });
 
-  // UC-32: View Reporter Report Detail
   registry.registerPath({
     method: 'get',
     path: '/api/v1/me/reports/{id}',
-    tags: ['Reports - Reporter'],
-    summary: 'View report detail (UC-32)',
-    description: 'Inspect complete detail and progress timeline of a submitted report.',
+    tags: ['Reports - Applicant'],
+    summary: 'Get report detail by ID or reference',
+    description:
+      'Returns complete report ticket with target snapshot, file downloads, timeline, and current resolution response.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
+      params: idParam,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
         description: 'Report detail retrieved successfully',
-        content: {
-          'application/json': {
-            schema: z.object({ success: z.boolean(), data: reporterReportItemSchema }),
-          },
-        },
+        content: { 'application/json': { schema: detailResponse } },
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
-      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found or hidden' },
     },
   });
 
-  // UC-33: Withdraw Report
   registry.registerPath({
-    method: 'patch',
+    method: 'post',
     path: '/api/v1/me/reports/{id}/withdraw',
-    tags: ['Reports - Reporter'],
-    summary: 'Withdraw a pending report (UC-33)',
-    description: 'Retract an active violation report before administrators have initiated formal review.',
+    tags: ['Reports - Applicant'],
+    summary: 'Withdraw a pending report',
+    description:
+      'Allows applicant to withdraw report if status is strictly pending. Rejects with 409 Conflict if review has started.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
-      body: { required: false, content: { 'application/json': { schema: withdrawSchema } } },
+      params: idParam,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
         description: 'Report withdrawn successfully',
-        content: {
-          'application/json': {
-            schema: z.object({
-              success: z.boolean(),
-              message: z.string(),
-              data: reporterReportItemSchema,
-            }),
-          },
-        },
+        content: { 'application/json': { schema: withdrawResponse } },
       },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Report is not in pending status' },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
+      [HTTP_STATUS.HTTP_409_CONFLICT]: {
+        description: 'Review has already started; cannot withdraw report',
+      },
     },
   });
 
-  // UC-34: Delete Report
   registry.registerPath({
-    method: 'delete',
-    path: '/api/v1/me/reports/{id}',
-    tags: ['Reports - Reporter'],
-    summary: 'Delete report from personal history (UC-34)',
-    description: 'Hide a terminal status report from personal history view while retaining audit records.',
+    method: 'post',
+    path: '/api/v1/me/reports/{id}/hide',
+    tags: ['Reports - Applicant'],
+    summary: 'Hide a closed report from my history',
+    description:
+      'Soft-hides a closed report (resolved, rejected, or withdrawn) from candidate list and counts. Compliance records remain preserved.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
+      params: idParam,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Report removed from history successfully',
-        content: {
-          'application/json': {
-            schema: z.object({ success: z.boolean(), message: z.string() }),
-          },
-        },
+        description: 'Report hidden successfully',
+        content: { 'application/json': { schema: hideResponse } },
       },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Active reports cannot be deleted' },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
+        description: 'Report is not closed; open reports cannot be hidden',
+      },
+      [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
+      [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Reporting is restricted to applicant accounts' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
     },
   });
 
-  // UC-35: Admin List Reports
+  // --- Admin Violation Investigation Routes (/api/v1/reports) ---
+
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/admin/reports',
+    path: '/api/v1/reports',
     tags: ['Reports - Admin'],
-    summary: 'View violation reports queue (UC-35)',
-    description: 'Centralized administrator review queue of all submitted violation reports.',
+    summary: 'View violation reports queue (Admin)',
+    description: 'Centralized administrator review queue of all submitted violation reports with KPI statistics.',
     security: [{ bearerAuth: [] }],
     request: {
       query: adminReportsQuerySchema,
     },
     responses: {
-      [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Reports queue retrieved successfully',
-      },
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Reports queue retrieved successfully' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
     },
   });
 
-  // UC-36: Admin Report Detail
   registry.registerPath({
     method: 'get',
-    path: '/api/v1/admin/reports/{id}',
+    path: '/api/v1/reports/{id}',
     tags: ['Reports - Admin'],
-    summary: 'View report investigation workbench (UC-36)',
+    summary: 'View report investigation workbench (Admin)',
     description: 'Full investigation view for administrators with reporter details and internal notes.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
+      params: idParam,
     },
     responses: {
-      [HTTP_STATUS.HTTP_200_OK]: {
-        description: 'Investigation details retrieved successfully',
-      },
+      [HTTP_STATUS.HTTP_200_OK]: { description: 'Investigation details retrieved successfully' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Admin privileges required' },
       [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Report not found' },
     },
   });
 
-  // UC-36: Admin Claim Ticket
   registry.registerPath({
     method: 'patch',
-    path: '/api/v1/admin/reports/{id}/claim',
+    path: '/api/v1/reports/{id}/claim',
     tags: ['Reports - Admin'],
-    summary: 'Claim report ticket (UC-36)',
+    summary: 'Claim report ticket (Admin)',
     description: 'Assign report ticket to current administrator and advance status to reviewing.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
+      params: idParam,
     },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: { description: 'Ticket claimed successfully' },
@@ -249,16 +202,15 @@ export function registerReportsOpenApi(registry: OpenAPIRegistry): void {
     },
   });
 
-  // UC-36: Admin Resolve Ticket
   registry.registerPath({
     method: 'patch',
-    path: '/api/v1/admin/reports/{id}/resolve',
+    path: '/api/v1/reports/{id}/resolve',
     tags: ['Reports - Admin'],
-    summary: 'Finalize report resolution (UC-36)',
+    summary: 'Finalize report resolution (Admin)',
     description: 'Execute decisive resolution with atomic enforcement actions, internal notes, and reporter message.',
     security: [{ bearerAuth: [] }],
     request: {
-      params: reportIdParamSchema,
+      params: idParam,
       body: { required: true, content: { 'application/json': { schema: resolveSchema } } },
     },
     responses: {

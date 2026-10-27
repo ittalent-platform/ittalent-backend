@@ -22,7 +22,7 @@ import { registerUserInvitationsOpenApi } from '../modules/user-invitations/user
 import { registerUserAuditsOpenApi } from '../modules/user-audits/user-audits.openapi.js';
 import { registerUserEmailChangesOpenApi } from '../modules/user-email-changes/user-email-changes.openapi.js';
 import { registerWishlistOpenApi } from '../modules/wishlist/index.js';
-import { registerReportsOpenApi } from '../modules/reports/reports.openapi.js';
+import { registerReportsOpenApi } from '../modules/reports/index.js';
 
 export const registry = new OpenAPIRegistry();
 
@@ -53,4 +53,3 @@ registerBroadcastNotificationsOpenApi(registry);
 registerMyProfileOpenApi(registry);
 registerWishlistOpenApi(registry);
 registerReportsOpenApi(registry);
-

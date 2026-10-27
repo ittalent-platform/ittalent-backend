@@ -1,87 +1,135 @@
 import { Router } from 'express';
 
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
+import {
+  authenticate,
+  authenticateCurrentUser,
+  authorize,
+} from '../../middleware/auth.middleware.js';
+import { parseReportEvidenceUpload } from '../../middleware/report-upload.middleware.js';
+import {
+  validateBody,
+  validateParams,
+  validateQuery,
+} from '../../middleware/validate.js';
+import { CANDIDATE_ROLES } from './reports.constants.js';
 import { reportsController } from './reports.controller.js';
 import {
   adminReportsQuerySchema,
   adminResolveReportSchema,
+  createReportBodySchema,
   createReportSchema,
-  reporterReportsQuerySchema,
   reportIdParamSchema,
-  withdrawReportSchema,
+  reportsQuerySchema,
 } from './reports.schemas.js';
 
-// Router for public/reporter submission: /api/v1/reports
-export const publicReportsRouter = Router();
-publicReportsRouter.use(authenticate);
+// Applicant Reports Router (mounted at /api/v1/me/reports)
+export const reportsRouter = Router();
 
-// UC-30: Create a report
-publicReportsRouter.post(
+reportsRouter.post(
   '/',
-  validateBody(createReportSchema),
-  reportsController.create,
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  parseReportEvidenceUpload,
+  validateBody(createReportBodySchema),
+  reportsController.submitReport,
 );
 
-// Router for personal reporter management: /api/v1/me/reports
-export const meReportsRouter = Router();
-meReportsRouter.use(authenticate);
-
-// UC-31: View list report of reporter
-meReportsRouter.get(
+reportsRouter.get(
   '/',
-  validateQuery(reporterReportsQuerySchema),
-  reportsController.listMine,
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  validateQuery(reportsQuerySchema),
+  reportsController.listReports,
 );
 
-// UC-32: View report detail of reporter
-meReportsRouter.get(
+reportsRouter.get(
+  '/counts',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  reportsController.getCounts,
+);
+
+reportsRouter.get(
   '/:id',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
   validateParams(reportIdParamSchema),
-  reportsController.getMineById,
+  reportsController.getReportDetail,
 );
 
-// UC-33: Withdraw a report
-meReportsRouter.patch(
+reportsRouter.post(
   '/:id/withdraw',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
   validateParams(reportIdParamSchema),
-  validateBody(withdrawReportSchema),
-  reportsController.withdrawMine,
+  reportsController.withdrawReport,
 );
 
-// UC-34: Delete report (soft-hide from history)
-meReportsRouter.delete(
+reportsRouter.patch(
+  '/:id/withdraw',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(reportIdParamSchema),
+  reportsController.withdrawReport,
+);
+
+reportsRouter.post(
+  '/:id/hide',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(reportIdParamSchema),
+  reportsController.hideReport,
+);
+
+reportsRouter.patch(
+  '/:id/hide',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
+  validateParams(reportIdParamSchema),
+  reportsController.hideReport,
+);
+
+reportsRouter.delete(
   '/:id',
+  authenticate,
+  authorize(...CANDIDATE_ROLES),
   validateParams(reportIdParamSchema),
   reportsController.deleteMine,
 );
 
-// Router for admin violation review queue: /api/v1/admin/reports
+export const meReportsRouter = reportsRouter;
+
+// Admin Violation Investigation Router (mounted at /api/v1/reports and aliased at /api/v1/admin/reports)
 export const adminReportsRouter = Router();
+
+// Intake endpoint for authenticated violation reports (POST /api/v1/reports)
+adminReportsRouter.post(
+  '/',
+  authenticate,
+  validateBody(createReportSchema),
+  reportsController.create,
+);
+
 adminReportsRouter.use(authenticate, authorize('admin'));
 
-// UC-35: View list report of reporter [Admin Review Queue]
 adminReportsRouter.get(
   '/',
   validateQuery(adminReportsQuerySchema),
   reportsController.listAdmin,
 );
 
-// UC-36: View report detail of reporter [Investigation & Resolution Console]
 adminReportsRouter.get(
   '/:id',
   validateParams(reportIdParamSchema),
   reportsController.getAdminById,
 );
 
-// UC-36: Claim ticket
 adminReportsRouter.patch(
   '/:id/claim',
   validateParams(reportIdParamSchema),
   reportsController.claimTicket,
 );
 
-// UC-36: Finalize resolution
 adminReportsRouter.patch(
   '/:id/resolve',
   validateParams(reportIdParamSchema),
