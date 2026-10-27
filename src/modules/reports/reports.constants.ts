@@ -14,7 +14,7 @@ export const REPORT_REASONS = [
 ] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 
-export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
+export const REPORT_REASON_LABELS: Record<string, string> = {
   scam_or_fraud: 'Scam or fraud',
   misleading_information: 'Misleading information',
   discrimination: 'Discrimination',
@@ -31,7 +31,7 @@ export const REPORT_STATUSES = [
 ] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
-export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
+export const REPORT_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
   reviewing: 'Reviewing',
   resolved: 'Resolved',
