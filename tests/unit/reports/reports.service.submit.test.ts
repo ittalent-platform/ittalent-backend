@@ -4,9 +4,9 @@ import { Enterprise } from '../../../src/models/enterprise.model.js';
 import { JobPosting } from '../../../src/models/job-posting.model.js';
 import { User } from '../../../src/models/user.model.js';
 import { REPORT_MESSAGES } from '../../../src/modules/reports/reports.constants.js';
-import { ReportsRepository } from '../../../src/modules/reports/reports.repository.js';
+import type { ReportsRepository } from '../../../src/modules/reports/reports.repository.js';
 import { ReportsService } from '../../../src/modules/reports/reports.service.js';
-import { StorageService } from '../../../src/shared/services/storage.service.js';
+import type { StorageService } from '../../../src/shared/services/storage.service.js';
 
 describe('ReportsService - submitReport Unit Tests', () => {
   let mockRepo: ReportsRepository;

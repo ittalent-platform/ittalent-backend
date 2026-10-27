@@ -22,6 +22,7 @@ import {
   REPORT_REASON_LABELS,
   REPORT_STATUS_LABELS,
   REPORT_TIME_LIMITS,
+  type ReportReason,
   type ReportStatus,
   type ReportTargetType,
 } from './reports.constants.js';
@@ -263,7 +264,7 @@ export class ReportsService {
     const reference = await this.repo.generateNextReference();
     const now = new Date();
 
-    const created = await this.repo.create({
+    await this.repo.create({
       reference,
       ticket_id: reference,
       reporter_id: new Types.ObjectId(reporterId),
@@ -388,7 +389,7 @@ export class ReportsService {
     );
 
     const history: ReportHistoryEntry[] = this.mapTimelineEvents(
-      report.status_history || (report as any).timeline || [],
+      report.status_history || (report as unknown as { timeline?: ReportStatusHistoryEntry[] }).timeline || [],
     );
 
     return {
@@ -428,7 +429,7 @@ export class ReportsService {
       ? noteOrInput
       : noteOrInput?.withdrawal_reason;
 
-    let report: any = null;
+    let report: ReportDoc | null = null;
     if (typeof this.repo.findByIdOrReference === 'function') {
       report = await this.repo.findByIdOrReference(idOrRef, reporterId);
     }
@@ -458,7 +459,7 @@ export class ReportsService {
       );
     }
 
-    let updated: any = null;
+    let updated: ReportDoc | null = null;
     if (typeof this.repo.withdrawIfPending === 'function') {
       updated = await this.repo.withdrawIfPending(idOrRef, reporterId, note);
     }
@@ -481,13 +482,13 @@ export class ReportsService {
     }
 
     const ref = updated.reference || updated.ticket_id || report.reference || report.ticket_id;
-    const mapped = isKhanhCall && typeof this.mapToReporterDto === 'function' ? this.mapToReporterDto(updated) : undefined;
+    const mapped = this.mapToReporterDto(updated);
 
     return {
       reference: ref,
       status: 'withdrawn',
       message: isKhanhCall ? REPORT_MESSAGES.WITHDRAWN : REPORT_MESSAGES.WITHDRAW_SUCCESS,
-      report: mapped as any,
+      report: mapped,
     };
   }
 
@@ -617,7 +618,7 @@ export class ReportsService {
         subtitle: targetLink || '',
       },
       reason_category: input.reason_category,
-      reason: input.reason_category as any,
+      reason: input.reason_category as unknown as ReportReason,
       title: input.title,
       description: input.description,
       statement: input.description,

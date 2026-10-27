@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ReportDoc } from '../../../src/models/report.model.js';
 import { REPORT_MESSAGES } from '../../../src/modules/reports/reports.constants.js';
-import { ReportsRepository } from '../../../src/modules/reports/reports.repository.js';
+import type { ReportsRepository } from '../../../src/modules/reports/reports.repository.js';
 import { ReportsService } from '../../../src/modules/reports/reports.service.js';
-import { StorageService } from '../../../src/shared/services/storage.service.js';
+import type { StorageService } from '../../../src/shared/services/storage.service.js';
 
 describe('ReportsService - Lifecycle Operations (Withdraw & Hide)', () => {
   let mockRepo: ReportsRepository;

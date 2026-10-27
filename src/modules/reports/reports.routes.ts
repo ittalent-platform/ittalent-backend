@@ -2,7 +2,6 @@ import { Router } from 'express';
 
 import {
   authenticate,
-  authenticateCurrentUser,
   authorize,
 } from '../../middleware/auth.middleware.js';
 import { parseReportEvidenceUpload } from '../../middleware/report-upload.middleware.js';
