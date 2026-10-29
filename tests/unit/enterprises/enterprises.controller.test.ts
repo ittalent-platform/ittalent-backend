@@ -289,6 +289,39 @@ describe('EnterprisesController', () => {
     });
   });
 
+  describe('getPublicEnterprise', () => {
+    const params = { enterpriseId: '507f1f77bcf86cd799439011' };
+
+    it('returns 200 OK with the public company page', async () => {
+      const company = { id: params.enterpriseId, name: 'Tech Alpha Inc', headquarters: { city: 'Hanoi', country: 'Vietnam' }, openRoleCount: 2 };
+      mockService.getPublicEnterprise = vi.fn().mockResolvedValue(company);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const res = { status, locals: { validated: { params } } } as never;
+      const next = vi.fn();
+
+      await controller.getPublicEnterprise({} as never, res, next);
+
+      expect(mockService.getPublicEnterprise).toHaveBeenCalledWith(params.enterpriseId);
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(company);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('passes a not-found error to next', async () => {
+      const failure = new Error('Enterprise not found');
+      mockService.getPublicEnterprise = vi.fn().mockRejectedValue(failure);
+      const status = vi.fn();
+      const res = { status, locals: { validated: { params } } } as never;
+      const next = vi.fn();
+
+      await controller.getPublicEnterprise({} as never, res, next);
+
+      expect(next).toHaveBeenCalledWith(failure);
+      expect(status).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getEnterpriseById', () => {
     it('returns 200 OK with enterprise detail', async () => {
       mockService.getEnterpriseById = vi.fn().mockResolvedValue(mockDetail);
