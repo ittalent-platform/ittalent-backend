@@ -431,6 +431,54 @@ describe('EnterprisesService', () => {
     });
   });
 
+  describe('listPublicEnterprises', () => {
+    it('lists Active enterprises as cards without contact, tax or account data', async () => {
+      mockRepo.findPage = vi.fn().mockResolvedValue({
+        items: [{ ...mockEnterpriseDoc, branches: [{ city: 'Ha Noi', country: 'Vietnam' }, { city: 'Da Nang', country: 'Vietnam' }] } as EnterpriseDoc],
+        total: 23,
+      });
+      mockRepo.countOpenRolesByEnterpriseIds = vi.fn().mockResolvedValue(new Map([[sampleEnterpriseId.toString(), 8]]));
+
+      const result = await service.listPublicEnterprises({ page: 2, limit: 10, keyword: 'tech', location: 'Da Nang', industry: 'Fintech, Gaming', company_size: '11-50,51-200' });
+
+      expect(mockRepo.findPage).toHaveBeenCalledWith(
+        { page: 2, limit: 10, keyword: 'tech', location: 'Da Nang', industries: ['Fintech', 'Gaming'], company_sizes: ['11-50', '51-200'] },
+        false,
+      );
+      expect(result).toMatchObject({ page: 2, limit: 10, total: 23, totalPages: 3 });
+      expect(result.items[0]).toEqual({
+        id: sampleEnterpriseId.toString(),
+        name: 'Tech Alpha Inc',
+        logoUrl: 'https://cdn.example.com/logo.png',
+        industry: 'Software Development',
+        companySize: '51-200',
+        shortDescription: 'Building high scalability cloud products',
+        cities: ['Da Nang', 'Ha Noi'],
+        openRoleCount: 8,
+      });
+    });
+
+    it('lists each office city once and skips blank or missing ones', async () => {
+      mockRepo.findPage = vi.fn().mockResolvedValue({
+        items: [
+          { ...mockEnterpriseDoc, address: { ...mockEnterpriseDoc.address, city: ' Ha Noi ' }, branches: [{ city: '' }, { city: '   ' }, { city: 'Ha Noi' }, { city: 'Da Nang ' }, {}] },
+          { ...mockEnterpriseDoc, address: undefined, branches: [{ city: 'Hue' }] },
+        ] as unknown as EnterpriseDoc[],
+        total: 2,
+      });
+      mockRepo.countOpenRolesByEnterpriseIds = vi.fn().mockResolvedValue(new Map());
+
+      const result = await service.listPublicEnterprises({ page: 1, limit: 10 });
+
+      expect(result.items.map((card) => card.cities)).toEqual([['Ha Noi', 'Da Nang'], ['Hue']]);
+    });
+
+    it('lists the industries with their company counts', async () => {
+      mockRepo.countActiveByIndustry = vi.fn().mockResolvedValue([{ industry: 'Fintech', count: 4 }]);
+      await expect(service.listPublicIndustries()).resolves.toEqual({ items: [{ industry: 'Fintech', count: 4 }] });
+    });
+  });
+
   describe('getEnterpriseById', () => {
     it('returns detail of active enterprise to unauthenticated guest', async () => {
       mockRepo.findById = vi.fn().mockResolvedValue(mockEnterpriseDoc as EnterpriseDoc);

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-import type { EnterpriseData, EnterpriseDoc } from '../../models/enterprise.model.js';
+import type { CompanySize, EnterpriseData, EnterpriseDoc } from '../../models/enterprise.model.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import type { PaginatedResult } from '../../shared/schemas/pagination.schemas.js';
@@ -19,9 +19,13 @@ import type {
   EnterpriseDetailDTO,
   EnterpriseListQuery,
   EnterpriseSummaryDTO,
+  PublicEnterpriseListQuery,
+  PublicEnterpriseSummaryDTO,
+  PublicIndustryListDTO,
   UpdateEnterpriseDTO,
   UpdateEnterpriseStatusDTO,
 } from './enterprises.schemas.js';
+import { parseFilterValues } from './enterprises.schemas.js';
 
 export class EnterprisesService {
   async incrementAdminMutationVersion(enterpriseId: mongoose.Types.ObjectId, session: mongoose.ClientSession): Promise<boolean> {
@@ -68,6 +72,25 @@ export class EnterprisesService {
       createdAt: enterprise.createdAt ? enterprise.createdAt.toISOString() : null,
       creatorAccountId: enterprise.creator_account_id ? String(enterprise.creator_account_id) : null,
     };
+  }
+
+  private mapPublicSummary(enterprise: EnterpriseDoc, openRoleCount: number): PublicEnterpriseSummaryDTO {
+    return {
+      id: String(enterprise._id),
+      name: enterprise.name,
+      logoUrl: enterprise.logo_url ?? null,
+      industry: enterprise.industry,
+      companySize: enterprise.company_size,
+      shortDescription: enterprise.short_description ?? null,
+      cities: this.publicCities(enterprise),
+      openRoleCount,
+    };
+  }
+
+  // The head office first, then the other offices; each city once, and a blank or missing one is skipped.
+  private publicCities(enterprise: EnterpriseDoc): string[] {
+    const names: (string | undefined)[] = [enterprise.address?.city, ...(enterprise.branches ?? []).map((branch) => branch?.city)];
+    return [...new Set(names.map((city) => city?.trim()).filter((city): city is string => Boolean(city)))];
   }
 
   private mapDetail(enterprise: EnterpriseDoc, activeJobsCount = 0): EnterpriseDetailDTO {
@@ -348,6 +371,31 @@ export class EnterprisesService {
       total,
       totalPages: Math.ceil(total / query.limit),
     };
+  }
+
+  // UC-BENT-01/03: the applicant's company list. Active enterprises only, whoever asks, and card fields only.
+  async listPublicEnterprises(query: PublicEnterpriseListQuery): Promise<PaginatedResult<PublicEnterpriseSummaryDTO>> {
+    const { page, limit, keyword, location } = query;
+    const { items, total } = await this.repository.findPage({
+      page,
+      limit,
+      keyword,
+      location,
+      industries: parseFilterValues(query.industry),
+      company_sizes: parseFilterValues(query.company_size) as CompanySize[],
+    }, false);
+    const openRoles = await this.repository.countOpenRolesByEnterpriseIds(items.map((enterprise) => String(enterprise._id)));
+    return {
+      items: items.map((enterprise) => this.mapPublicSummary(enterprise, openRoles.get(String(enterprise._id)) ?? 0)),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async listPublicIndustries(): Promise<PublicIndustryListDTO> {
+    return { items: await this.repository.countActiveByIndustry() };
   }
 
   async getEnterpriseById(

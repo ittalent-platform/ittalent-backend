@@ -8,6 +8,9 @@ import {
   enterpriseIdParamSchema,
   enterpriseListQuerySchema,
   enterpriseListResponseSchema,
+  publicEnterpriseListQuerySchema,
+  publicEnterpriseListResponseSchema,
+  publicIndustryListSchema,
   updateEnterpriseBodySchema,
   updateEnterpriseStatusBodySchema,
 } from './enterprises.schemas.js';
@@ -80,6 +83,41 @@ export function registerEnterprisesOpenApi(registry: OpenAPIRegistry): void {
       },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
         description: 'Invalid or unsupported query parameters',
+      },
+    },
+  });
+
+  // UC-BENT-01/03: company list for applicants
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/enterprises/public',
+    tags: ['Enterprises'],
+    summary: 'Browse, search and filter companies (public)',
+    description:
+      'No sign-in needed. Only Active enterprises, each with card fields only (no contact or tax data) and the number of open roles. ' +
+      '`keyword` matches the name, industry, city (head office or a branch), country or tech stack. `industry` and `company_size` take one value or a comma-separated list ' +
+      '("Fintech,Gaming"), and an enterprise matches any of them. `location` matches a city, district or province of the head office or a branch. ' +
+      'Sorted by name; `total` is the live count for the chosen filters.',
+    request: { query: publicEnterpriseListQuerySchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Paginated company cards',
+        content: { 'application/json': { schema: registry.register('PublicEnterpriseListResponse', publicEnterpriseListResponseSchema) } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid or unsupported query parameters' },
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/enterprises/public/industries',
+    tags: ['Enterprises'],
+    summary: 'Industries of the companies on the platform (public)',
+    description: 'Active enterprises per industry, most companies first, for the Industry filter. At most 100 industries.',
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Industries with their company counts',
+        content: { 'application/json': { schema: registry.register('PublicIndustryList', publicIndustryListSchema) } },
       },
     },
   });

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createEnterpriseBodySchema,
   enterpriseListQuerySchema,
+  parseFilterValues,
+  publicEnterpriseListQuerySchema,
   updateEnterpriseStatusBodySchema,
 } from '../../../src/modules/enterprises/enterprises.schemas.js';
 
@@ -191,6 +193,30 @@ describe('Enterprise Schemas', () => {
 
       const result = enterpriseListQuerySchema.safeParse(query);
       expect(result.success).toBe(false);
+    });
+  });
+  describe('publicEnterpriseListQuerySchema', () => {
+    it('applies paging defaults and accepts one value or a comma-separated list per multi-select filter', () => {
+      expect(publicEnterpriseListQuerySchema.parse({})).toEqual({ page: 1, limit: 20 });
+      const parsed = publicEnterpriseListQuerySchema.parse({ keyword: ' pay ', industry: 'Fintech, Gaming', company_size: '11-50,51-200', location: 'Ha Noi' });
+      expect(parsed).toMatchObject({ keyword: 'pay', industry: 'Fintech, Gaming', company_size: '11-50,51-200', location: 'Ha Noi' });
+      expect(parseFilterValues(parsed.industry)).toEqual(['Fintech', 'Gaming']);
+      expect(parseFilterValues(' a,, a , b ')).toEqual(['a', 'b']);
+      expect(parseFilterValues(undefined)).toEqual([]);
+    });
+
+    it('rejects an unsupported size, an empty or oversized list, a status filter and unknown parameters', () => {
+      for (const query of [
+        { company_size: '11-50,huge' },
+        { industry: ',' },
+        { industry: Array.from({ length: 21 }, (_, index) => `Industry ${index}`).join(',') },
+        { industry: 'x'.repeat(101) },
+        { status: 'pending' },
+        { limit: 0 },
+        { sort: 'name' },
+      ]) {
+        expect(publicEnterpriseListQuerySchema.safeParse(query).success).toBe(false);
+      }
     });
   });
 });
