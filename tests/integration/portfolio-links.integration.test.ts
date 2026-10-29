@@ -136,6 +136,28 @@ describe('Candidate portfolio links (UC-S4-PORT-01 / 02 / 03 / 04 / 06)', () => 
     expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3 } })).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
     expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3, url: 'javascript:alert(1)' } })).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
     expect((await call('GET', '?keyword=u1b')).body.items?.[0]).toMatchObject({ title: 'New', version: 3 });
+
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3, description: 'Notes' } })).body).toMatchObject({ description: 'Notes', version: 4 });
+    // A form that clears the field sends an empty string: the same as null.
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 4, description: '' } })).body).toMatchObject({ description: null, version: 5 });
+  });
+
+  it('stops a revoked, suspended or blocked session from reading the library', async () => {
+    const id = new Types.ObjectId();
+    await User.create({ _id: id, email: `${id}@example.test`, username: `candidate_${id}`, role: 'user', status: 'active', email_verified: true });
+    try {
+      const token = sign(id, 'user');
+      expect((await call('GET', '', { token })).status).toBe(HTTP_STATUS.HTTP_200_OK);
+      // Signing out everywhere changes the account's auth version, so the old token is stale.
+      await User.updateOne({ _id: id }, { $inc: { auth_version: 1 } });
+      expect((await call('GET', '', { token })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+      for (const status of ['suspended', 'blocked']) {
+        await User.updateOne({ _id: id }, { auth_version: 0, status });
+        expect((await call('GET', '', { token })).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
+      }
+    } finally {
+      await User.deleteOne({ _id: id });
+    }
   });
 
   it('searches only the owner\'s links by title, URL or description, case-insensitively and literally', async () => {

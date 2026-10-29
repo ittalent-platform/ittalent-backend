@@ -41,7 +41,7 @@ export function registerPortfolioLinksOpenApi(registry: OpenAPIRegistry): void {
     request: { query: querySchema },
     responses: {
       [HTTP_STATUS.HTTP_200_OK]: { description: 'Stable page of owned links, newest first', content: { 'application/json': { schema: pageSchema } } },
-      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid pagination' },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid pagination or search query' },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: { description: 'Authentication required or session revoked' },
       [HTTP_STATUS.HTTP_403_FORBIDDEN]: { description: 'Candidate role required' },
       [HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE]: { description: 'Portfolio link storage unavailable' },
@@ -53,7 +53,7 @@ export function registerPortfolioLinksOpenApi(registry: OpenAPIRegistry): void {
     path: '/api/v1/me/portfolio-links/{id}',
     tags: ['Portfolio Links'],
     summary: 'Update the title, URL or description of an owned portfolio link',
-    description: 'A field that is left out keeps its value; `description: null` removes it. Send the version that was loaded for editing. Earlier application snapshots are not changed. An update that changes nothing, or the retry of one that already committed, returns the stored link without a new version.',
+    description: 'A field that is left out keeps its value; `description: null` or an empty string removes it. Send the version that was loaded for editing. Earlier application snapshots are not changed. An update that changes nothing, or the retry of one that already committed, returns the stored link without a new version.',
     security: [{ bearerAuth: [] }],
     request: { params: portfolioLinkIdParamSchema, body: { required: true, content: { 'application/json': { schema: updateSchema } } } },
     responses: {

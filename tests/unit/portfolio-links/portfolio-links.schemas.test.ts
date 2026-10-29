@@ -30,10 +30,15 @@ describe('portfolio link schemas', () => {
     expect(portfolioLinkListQuerySchema.safeParse({ search: 'x' }).success).toBe(false);
   });
 
-  it('accepts a partial update with the expected version, and a null description to remove it', () => {
+  it('accepts a partial update with the expected version, and a null, empty or blank description to remove it', () => {
     expect(updatePortfolioLinkSchema.parse({ expectedVersion: 2, title: ' New ' })).toEqual({ expectedVersion: 2, title: 'New' });
     expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, url: 'https://me.example/new' })).toEqual({ expectedVersion: 1, url: 'https://me.example/new' });
     expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description: null })).toEqual({ expectedVersion: 1, description: null });
+    // A form that clears the field sends "" (or spaces): the same as null, and it counts as a change.
+    for (const description of ['', '   ']) {
+      expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description })).toEqual({ expectedVersion: 1, description: null });
+    }
+    expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description: ' Notes ' })).toEqual({ expectedVersion: 1, description: 'Notes' });
   });
 
   it('rejects an update without a version or any change, with an unsafe URL, a blank field or unknown keys', () => {
@@ -43,7 +48,7 @@ describe('portfolio link schemas', () => {
       { expectedVersion: 1 },
       { expectedVersion: 1, url: 'javascript:alert(1)' },
       { expectedVersion: 1, title: '   ' },
-      { expectedVersion: 1, description: '' },
+      { expectedVersion: 1, description: 'x'.repeat(1001) },
       { expectedVersion: 1, title: 'New', owner_id: 'x' },
     ]) {
       expect(updatePortfolioLinkSchema.safeParse(body).success).toBe(false);

@@ -15,13 +15,16 @@ export const createPortfolioLinkSchema = z.strictObject({
   description: descriptionSchema.optional(),
 });
 
+// A form that clears the field sends "" (or only spaces); null says the same. Both remove the description.
+const clearableDescriptionSchema = z.string().trim().max(PORTFOLIO_LINKS.DESCRIPTION_MAX_LENGTH).transform((value) => (value === '' ? null : value));
+
 // UC-S4-PORT-02: only title, URL and description can change. A field that is left out keeps its value; a null
-// description removes it. expectedVersion is the version the Candidate was editing.
+// or empty description removes it. expectedVersion is the version the Candidate was editing.
 export const updatePortfolioLinkSchema = z.strictObject({
   expectedVersion: z.number().int().min(1),
   title: titleSchema.optional(),
   url: urlSchema.optional(),
-  description: descriptionSchema.nullable().optional(),
+  description: clearableDescriptionSchema.nullable().optional(),
 }).refine((body) => body.title !== undefined || body.url !== undefined || body.description !== undefined, { message: PORTFOLIO_LINK_MESSAGES.NO_CHANGES });
 
 export const portfolioLinkIdParamSchema = z.object({ id: objectIdSchema('portfolio link ID') });

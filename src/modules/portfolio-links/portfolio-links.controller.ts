@@ -25,7 +25,8 @@ export class PortfolioLinksController {
   list: RequestHandler = async (req, res, next): Promise<void> => {
     try {
       if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
-      res.json(await this.service.list(req.user.id, res.locals.validated?.query as PortfolioLinkListQuery));
+      const result = await this.service.list(req.user.id, res.locals.validated?.query as PortfolioLinkListQuery);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
@@ -35,7 +36,8 @@ export class PortfolioLinksController {
     try {
       if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
       const { id } = res.locals.validated?.params as { id: string };
-      res.json(await this.service.update(req.user.id, id, res.locals.validated?.body as UpdatePortfolioLinkInput));
+      const result = await this.service.update(req.user.id, id, res.locals.validated?.body as UpdatePortfolioLinkInput);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
