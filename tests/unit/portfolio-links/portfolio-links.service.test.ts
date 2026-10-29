@@ -26,6 +26,7 @@ describe('PortfolioLinksService', () => {
       findByUrl: vi.fn().mockResolvedValue(null),
       findPage: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       findOwned: vi.fn(),
+      updateGuarded: vi.fn(),
       deleteGuarded: vi.fn(),
     } as unknown as PortfolioLinksRepository;
     users = { findById: vi.fn().mockResolvedValue({ role: 'user', status: 'active', email_verified: true }) } as unknown as UsersService;
@@ -62,6 +63,7 @@ describe('PortfolioLinksService', () => {
       vi.mocked(users.findById).mockResolvedValue(user as never);
       await expect(service.create(ownerId, input, 'op-1')).rejects.toMatchObject({ statusCode: 403 });
       await expect(service.delete(ownerId, String(new Types.ObjectId()), 1)).rejects.toMatchObject({ statusCode: 403 });
+      await expect(service.update(ownerId, String(new Types.ObjectId()), { expectedVersion: 1, title: 'New' })).rejects.toMatchObject({ statusCode: 403 });
     }
     expect(repository.create).not.toHaveBeenCalled();
   });
@@ -70,7 +72,55 @@ describe('PortfolioLinksService', () => {
     vi.mocked(repository.findPage).mockResolvedValue({ items: [item({ description: 'Projects' })], total: 21 });
     const result = await new PortfolioLinksService(repository, users).list(ownerId, { page: 2, limit: 10 });
     expect(result).toMatchObject({ page: 2, limit: 10, total: 21, totalPages: 3, items: [{ description: 'Projects' }] });
-    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 2, 10);
+    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 2, 10, undefined);
+  });
+
+  it('passes the search keyword to the owner\'s list', async () => {
+    await new PortfolioLinksService(repository, users).list(ownerId, { page: 1, limit: 20, keyword: 'react' });
+    expect(repository.findPage).toHaveBeenCalledWith(ownerId, 1, 20, 'react');
+  });
+
+  it('updates against the expected version, normalises the URL and returns the next version', async () => {
+    const id = String(new Types.ObjectId());
+    vi.mocked(repository.findOwned).mockResolvedValue(item());
+    vi.mocked(repository.updateGuarded).mockResolvedValue(item({ title: 'New', url: 'https://me.example/new', version: 2 }));
+    const result = await new PortfolioLinksService(repository, users).update(ownerId, id, { expectedVersion: 1, title: 'New', url: 'https://me.example/new' });
+    expect(result).toMatchObject({ title: 'New', url: 'https://me.example/new', version: 2 });
+    expect(repository.updateGuarded).toHaveBeenCalledWith(ownerId, id, 1, { title: 'New', url: 'https://me.example/new' });
+    vi.mocked(repository.findOwned).mockResolvedValue(item({ description: 'Projects' }));
+    await new PortfolioLinksService(repository, users).update(ownerId, id, { expectedVersion: 1, description: null });
+    expect(repository.updateGuarded).toHaveBeenLastCalledWith(ownerId, id, 1, { description: null });
+  });
+
+  it('returns the stored link without a new version for an unchanged edit and for the retry of a committed update (A2)', async () => {
+    const id = String(new Types.ObjectId());
+    const service = new PortfolioLinksService(repository, users);
+    vi.mocked(repository.findOwned).mockResolvedValue(item());
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'My site', description: null })).resolves.toMatchObject({ version: 1 });
+    vi.mocked(repository.findOwned).mockResolvedValue(item({ title: 'New', version: 2 }));
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'New' })).resolves.toMatchObject({ title: 'New', version: 2 });
+    expect(repository.updateGuarded).not.toHaveBeenCalled();
+  });
+
+  it('refuses an update that is missing, stale, lost to a concurrent edit, or duplicates another URL', async () => {
+    const id = String(new Types.ObjectId());
+    const service = new PortfolioLinksService(repository, users);
+    vi.mocked(repository.findOwned).mockResolvedValue(null);
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'New' })).rejects.toMatchObject({ statusCode: 404 });
+
+    vi.mocked(repository.findOwned).mockResolvedValue(item({ version: 3 }));
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'New' })).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+    expect(repository.updateGuarded).not.toHaveBeenCalled();
+
+    vi.mocked(repository.findOwned).mockResolvedValue(item());
+    vi.mocked(repository.updateGuarded).mockResolvedValueOnce(null);
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'New' })).rejects.toMatchObject({ statusCode: 409, code: 'VERSION_CONFLICT' });
+
+    vi.mocked(repository.updateGuarded).mockRejectedValueOnce({ code: 11_000 });
+    await expect(service.update(ownerId, id, { expectedVersion: 1, url: 'https://me.example/taken' })).rejects.toMatchObject({ statusCode: 409, code: 'DUPLICATE_PORTFOLIO_URL' });
+
+    vi.mocked(repository.updateGuarded).mockRejectedValueOnce(new Error('down'));
+    await expect(service.update(ownerId, id, { expectedVersion: 1, title: 'New' })).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it('deletes with a matching version, and reports not-found, stale and lost-race cases', async () => {

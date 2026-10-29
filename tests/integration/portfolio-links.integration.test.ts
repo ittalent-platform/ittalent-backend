@@ -48,7 +48,7 @@ async function call(method: string, path: string, options: { token?: string; key
   return { status: response.status, body: (response.status === HTTP_STATUS.HTTP_204_NO_CONTENT ? {} : await response.json()) as Body };
 }
 
-describe('Candidate portfolio links (UC-S4-PORT-01 / 03 / 04)', () => {
+describe('Candidate portfolio links (UC-S4-PORT-01 / 02 / 03 / 04 / 06)', () => {
   beforeAll(async () => {
     await connectDatabase();
     databaseConnected = true;
@@ -113,6 +113,45 @@ describe('Candidate portfolio links (UC-S4-PORT-01 / 03 / 04)', () => {
     expect((await call('GET', '', { token: recruiterToken })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
     expect((await fetch(`${baseUrl}/api/v1/me/portfolio-links`)).status).toBe(HTTP_STATUS.HTTP_401_UNAUTHORIZED);
     expect((await call('GET', '?limit=0')).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+  });
+
+  it('updates one link per version, keeps the rest, and refuses stale, foreign, duplicate and empty updates', async () => {
+    const created = await call('POST', '', { key: 'u-1', body: { title: 'Old', url: 'https://me.example/u1', description: 'Projects' } });
+    await call('POST', '', { key: 'u-2', body: { title: 'Other', url: 'https://me.example/u2' } });
+    const id = created.body.id!;
+
+    const renamed = await call('PATCH', `/${id}`, { body: { expectedVersion: 1, title: 'New' } });
+    expect(renamed.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(renamed.body).toMatchObject({ id, title: 'New', url: 'https://me.example/u1', description: 'Projects', version: 2 });
+    // The same edit again is a retry: no third version.
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 1, title: 'New' } })).body.version).toBe(2);
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 1, title: 'Another' } })).body.code).toBe('VERSION_CONFLICT');
+
+    const cleared = await call('PATCH', `/${id}`, { body: { expectedVersion: 2, description: null, url: 'https://me.example/u1b' } });
+    expect(cleared.body).toMatchObject({ url: 'https://me.example/u1b', description: null, version: 3 });
+
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3, url: 'https://me.example/u2' } })).body.code).toBe('DUPLICATE_PORTFOLIO_URL');
+    expect((await call('PATCH', `/${id}`, { token: otherToken, body: { expectedVersion: 3, title: 'Mine now' } })).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await call('PATCH', `/${id}`, { token: recruiterToken, body: { expectedVersion: 3, title: 'HR' } })).status).toBe(HTTP_STATUS.HTTP_403_FORBIDDEN);
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3 } })).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    expect((await call('PATCH', `/${id}`, { body: { expectedVersion: 3, url: 'javascript:alert(1)' } })).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
+    expect((await call('GET', '?keyword=u1b')).body.items?.[0]).toMatchObject({ title: 'New', version: 3 });
+  });
+
+  it('searches only the owner\'s links by title, URL or description, case-insensitively and literally', async () => {
+    await call('POST', '', { key: 's-1', body: { title: 'React Dashboard', url: 'https://me.example/s1', description: 'Charts' } });
+    await call('POST', '', { key: 's-2', body: { title: 'Plain', url: 'https://me.example/s2?x=a.b', description: 'Built with Vue' } });
+    await call('POST', '', { token: otherToken, key: 's-3', body: { title: 'React secret', url: 'https://other.example/s3' } });
+    const titles = async (query: string): Promise<(string | undefined)[]> => (await call('GET', query)).body.items?.map((link) => link.title) ?? [];
+
+    expect(await titles('?keyword=react')).toEqual(['React Dashboard']);
+    expect(await titles('?keyword=VUE')).toEqual(['Plain']);
+    expect(await titles('?keyword=me.example/s1')).toEqual(['React Dashboard']);
+    expect(await titles('?keyword=a.b')).toEqual(['Plain']);
+    expect(await titles('?keyword=a.c')).toEqual([]);
+    expect(await titles('?keyword=.*')).toEqual([]);
+    expect((await call('GET', '?keyword=react&limit=1&page=2')).body).toMatchObject({ total: 1, items: [] });
+    expect((await call('GET', '?keyword=')).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
   });
 
   it('deletes only the owner\'s link with a matching version', async () => {

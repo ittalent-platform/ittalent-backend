@@ -3,7 +3,7 @@ import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { PORTFOLIO_LINK_MESSAGES } from './portfolio-links.constants.js';
 import { portfolioLinksService, type PortfolioLinksService } from './portfolio-links.service.js';
-import { idempotencyKeySchema, type CreatePortfolioLinkInput, type PortfolioLinkListQuery } from './portfolio-links.schemas.js';
+import { idempotencyKeySchema, type CreatePortfolioLinkInput, type PortfolioLinkListQuery, type UpdatePortfolioLinkInput } from './portfolio-links.schemas.js';
 
 export class PortfolioLinksController {
   constructor(private readonly service: PortfolioLinksService = portfolioLinksService) {}
@@ -26,6 +26,16 @@ export class PortfolioLinksController {
     try {
       if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
       res.json(await this.service.list(req.user.id, res.locals.validated?.query as PortfolioLinkListQuery));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  update: RequestHandler = async (req, res, next): Promise<void> => {
+    try {
+      if (!req.user) throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Authentication required');
+      const { id } = res.locals.validated?.params as { id: string };
+      res.json(await this.service.update(req.user.id, id, res.locals.validated?.body as UpdatePortfolioLinkInput));
     } catch (error) {
       next(error);
     }
