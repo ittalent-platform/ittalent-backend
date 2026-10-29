@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createPortfolioLinkSchema, deletePortfolioLinkQuerySchema, portfolioLinkListQuerySchema } from '../../../src/modules/portfolio-links/portfolio-links.schemas.js';
+import { createPortfolioLinkSchema, deletePortfolioLinkQuerySchema, portfolioLinkListQuerySchema, updatePortfolioLinkSchema } from '../../../src/modules/portfolio-links/portfolio-links.schemas.js';
 
 describe('portfolio link schemas', () => {
   it('accepts a safe external HTTPS link with an optional description', () => {
@@ -28,5 +28,36 @@ describe('portfolio link schemas', () => {
     expect(deletePortfolioLinkQuerySchema.safeParse({ expectedVersion: '0' }).success).toBe(false);
     expect(portfolioLinkListQuerySchema.parse({})).toMatchObject({ page: 1, limit: 20 });
     expect(portfolioLinkListQuerySchema.safeParse({ search: 'x' }).success).toBe(false);
+  });
+
+  it('accepts a partial update with the expected version, and a null, empty or blank description to remove it', () => {
+    expect(updatePortfolioLinkSchema.parse({ expectedVersion: 2, title: ' New ' })).toEqual({ expectedVersion: 2, title: 'New' });
+    expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, url: 'https://me.example/new' })).toEqual({ expectedVersion: 1, url: 'https://me.example/new' });
+    expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description: null })).toEqual({ expectedVersion: 1, description: null });
+    // A form that clears the field sends "" (or spaces): the same as null, and it counts as a change.
+    for (const description of ['', '   ']) {
+      expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description })).toEqual({ expectedVersion: 1, description: null });
+    }
+    expect(updatePortfolioLinkSchema.parse({ expectedVersion: 1, description: ' Notes ' })).toEqual({ expectedVersion: 1, description: 'Notes' });
+  });
+
+  it('rejects an update without a version or any change, with an unsafe URL, a blank field or unknown keys', () => {
+    for (const body of [
+      { title: 'New' },
+      { expectedVersion: 0, title: 'New' },
+      { expectedVersion: 1 },
+      { expectedVersion: 1, url: 'javascript:alert(1)' },
+      { expectedVersion: 1, title: '   ' },
+      { expectedVersion: 1, description: 'x'.repeat(1001) },
+      { expectedVersion: 1, title: 'New', owner_id: 'x' },
+    ]) {
+      expect(updatePortfolioLinkSchema.safeParse(body).success).toBe(false);
+    }
+  });
+
+  it('trims the search keyword and rejects an empty or over-long one', () => {
+    expect(portfolioLinkListQuerySchema.parse({ keyword: '  react ' })).toMatchObject({ keyword: 'react' });
+    expect(portfolioLinkListQuerySchema.safeParse({ keyword: '   ' }).success).toBe(false);
+    expect(portfolioLinkListQuerySchema.safeParse({ keyword: 'x'.repeat(101) }).success).toBe(false);
   });
 });
