@@ -31,6 +31,8 @@ const owner = new Types.ObjectId();
 // Every name and industry carries this tag, so the assertions do not depend on other test files' data.
 const tag = `pb${new Types.ObjectId().toHexString().slice(-8)}`;
 const createdIds: Types.ObjectId[] = [];
+let nimbusId: Types.ObjectId;
+let hiddenIds: Types.ObjectId[] = [];
 
 async function company(name: string, industry: string, size: CompanySize, city: string, extra: Record<string, unknown> = {}): Promise<Types.ObjectId> {
   const id = new Types.ObjectId();
@@ -59,16 +61,29 @@ async function get(path: string): Promise<{ status: number; body: ListBody & Rec
 
 const names = async (query: string): Promise<string[]> => (await get(`/public?keyword=${tag}&${query}`)).body.items.map((card) => card.name.replace(`${tag} `, ''));
 
-describe('Public company browse (UC-BENT-01 / 03)', () => {
+describe('Public company browse and page (UC-BENT-01 / 02 / 03)', () => {
   beforeAll(async () => {
     await connectDatabase();
     databaseConnected = true;
-    const nimbus = await company('Nimbus Pay', 'Fintech', '51-200', 'Ha Noi', { branches: [{ street: '2 Side St', city: 'Ho Chi Minh City', district: 'District 1', country: 'Vietnam' }, { street: '3 Side St', city: 'Ha Noi', state_province: 'Red River Delta', country: 'Vietnam' }], short_description: 'Payments' });
+    const nimbus = await company('Nimbus Pay', 'Fintech', '51-200', 'Ha Noi', {
+      branches: [{ street: '2 Side St', city: 'Ho Chi Minh City', district: 'District 1', country: 'Vietnam' }, { street: '3 Side St', city: 'Ha Noi', state_province: 'Red River Delta', country: 'Vietnam' }],
+      short_description: 'Payments',
+      description: 'Payment infrastructure for online merchants.',
+      tech_stack: ['Go', 'Kafka'],
+      benefits: ['13th month salary'],
+      website: 'https://nimbuspay.example',
+      founded_year: 2018,
+      legal_name: 'Nimbus Pay JSC',
+      social_links: { linkedin: 'https://linkedin.com/company/nimbuspay' },
+    });
+    nimbusId = nimbus;
     await company('Lumen Labs', 'Software', '11-50', 'Ho Chi Minh City');
     await company('Song Han', 'Software', '501-1000', 'Da Nang', { branches: [{ street: '9 Coast Rd', city: `${tag}Quy Nhon`, country: 'Vietnam' }] });
-    await company('Kite Health', 'Healthtech', '201-500', 'Da Nang', { status: 'pending' });
-    await company('Orbit Games', 'Gaming', '51-200', 'Da Nang', { status: 'suspended' });
-    await company('Gone Co', 'Fintech', '51-200', 'Ha Noi', { status: 'deleted', is_deleted: true });
+    hiddenIds = [
+      await company('Kite Health', 'Healthtech', '201-500', 'Da Nang', { status: 'pending' }),
+      await company('Orbit Games', 'Gaming', '51-200', 'Da Nang', { status: 'suspended' }),
+      await company('Gone Co', 'Fintech', '51-200', 'Ha Noi', { status: 'deleted', is_deleted: true }),
+    ];
     const job = (title: string, extra: Record<string, unknown>): Record<string, unknown> => {
       const jobId = new Types.ObjectId();
       return { _id: jobId, enterprise_id: nimbus, posted_by_user_id: owner, title, slug: `${tag}-${jobId.toHexString()}`, status: 'published', ...extra };
@@ -138,5 +153,32 @@ describe('Public company browse (UC-BENT-01 / 03)', () => {
     const result = (await get('/public/industries')).body as unknown as { items: { industry: string; count: number }[] };
     const mine = result.items.filter((item) => item.industry.startsWith(tag));
     expect(mine).toEqual([{ industry: `${tag}Software`, count: 2 }, { industry: `${tag}Fintech`, count: 1 }]);
+  });
+  it('shows a company page with public profile fields only, and agrees with the open jobs list', async () => {
+    const page = await get(`/${nimbusId}/public`);
+    expect(page.status).toBe(HTTP_STATUS.HTTP_200_OK);
+    expect(page.body).toMatchObject({
+      id: String(nimbusId),
+      name: `${tag} Nimbus Pay`,
+      description: 'Payment infrastructure for online merchants.',
+      techStack: ['Go', 'Kafka'],
+      benefits: ['13th month salary'],
+      website: 'https://nimbuspay.example',
+      foundedYear: 2018,
+      headquarters: { city: 'Ha Noi', country: 'Vietnam' },
+      cities: ['Ha Noi', 'Ho Chi Minh City'],
+      socialLinks: { linkedin: 'https://linkedin.com/company/nimbuspay' },
+      coverUrl: null,
+      openRoleCount: 1,
+    });
+    for (const hidden of ['email', 'phone', 'taxCode', 'tax_code', 'legalName', 'status', 'creatorAccountId', 'statusReason']) expect(page.body).not.toHaveProperty(hidden);
+
+    const jobs = await (await fetch(`${baseUrl}/api/v1/job-postings?enterprise_id=${nimbusId}`)).json() as { items: unknown[] };
+    expect(jobs.items).toHaveLength(page.body.openRoleCount as number);
+  });
+
+  it('answers 404 for a company that is not Active, is unknown or is removed, and 400 for a bad id', async () => {
+    for (const id of [...hiddenIds, new Types.ObjectId()]) expect((await get(`/${id}/public`)).status).toBe(HTTP_STATUS.HTTP_404_NOT_FOUND);
+    expect((await get('/not-an-id/public')).status).toBe(HTTP_STATUS.HTTP_400_BAD_REQUEST);
   });
 });
