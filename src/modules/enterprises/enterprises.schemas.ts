@@ -209,6 +209,55 @@ export const enterpriseListQuerySchema = z.strictObject({
 
 export type EnterpriseListQuery = z.infer<typeof enterpriseListQuerySchema>;
 
+// UC-BENT-01/03: `industry` and `company_size` take one value or a comma-separated list for multi-select filters.
+export function parseFilterValues(value: string | undefined): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(ENTERPRISE_CONFIG.FILTER_SEPARATOR).map((item) => item.trim()).filter(Boolean))];
+}
+
+const industryFilterSchema = z.string().refine((value) => {
+  const items = parseFilterValues(value);
+  return items.length > 0 && items.length <= ENTERPRISE_CONFIG.FILTER_MAX_VALUES && items.every((item) => item.length <= ENTERPRISE_CONFIG.KEYWORD_MAX_LENGTH);
+}, ENTERPRISE_MESSAGES.INVALID_INDUSTRY_FILTER);
+
+const sizeFilterSchema = z.string().refine((value) => {
+  const items = parseFilterValues(value);
+  return items.length > 0 && items.every((item) => (companySizes as readonly string[]).includes(item));
+}, ENTERPRISE_MESSAGES.INVALID_SIZE_FILTER);
+
+// Public browse: only Active enterprises, so there is no `status` filter.
+export const publicEnterpriseListQuerySchema = z.strictObject({
+  ...paginationQueryShape,
+  keyword: searchTextSchema.optional(),
+  industry: industryFilterSchema.optional(),
+  company_size: sizeFilterSchema.optional(),
+  location: searchTextSchema.optional(),
+});
+
+export type PublicEnterpriseListQuery = z.infer<typeof publicEnterpriseListQuerySchema>;
+
+// What a company card shows. No contact data, tax data or account ids.
+export const publicEnterpriseSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  logoUrl: z.string().nullable(),
+  industry: z.string(),
+  companySize: z.string(),
+  shortDescription: z.string().nullable(),
+  cities: z.array(z.string()),
+  openRoleCount: z.number().int(),
+});
+
+export type PublicEnterpriseSummaryDTO = z.infer<typeof publicEnterpriseSummarySchema>;
+
+export const publicEnterpriseListResponseSchema = paginatedResponseSchema(publicEnterpriseSummarySchema);
+
+export const publicIndustryListSchema = z.object({
+  items: z.array(z.object({ industry: z.string(), count: z.number().int() })),
+});
+
+export type PublicIndustryListDTO = z.infer<typeof publicIndustryListSchema>;
+
 export const enterpriseSummarySchema = z.object({
   id: z.string(),
   name: z.string(),

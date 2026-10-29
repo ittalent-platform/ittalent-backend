@@ -8,6 +8,7 @@ import type {
   CreateEnterpriseDTO,
   EnterpriseIdParam,
   EnterpriseListQuery,
+  PublicEnterpriseListQuery,
   UpdateEnterpriseDTO,
   UpdateEnterpriseStatusDTO,
 } from './enterprises.schemas.js';
@@ -85,6 +86,23 @@ export class EnterprisesController {
 
       const result = await this.service.listEnterprises(query, role);
       res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listPublicEnterprises: RequestHandler = async (_req, res, next) => {
+    try {
+      const query = res.locals.validated?.query as PublicEnterpriseListQuery;
+      res.status(HTTP_STATUS.HTTP_200_OK).json(await this.service.listPublicEnterprises(query));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listPublicIndustries: RequestHandler = async (_req, res, next) => {
+    try {
+      res.status(HTTP_STATUS.HTTP_200_OK).json(await this.service.listPublicIndustries());
     } catch (error) {
       next(error);
     }

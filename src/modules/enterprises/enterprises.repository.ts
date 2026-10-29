@@ -8,7 +8,7 @@ import {
   type EnterpriseStatus,
 } from '../../models/enterprise.model.js';
 import { JobPosting } from '../../models/job-posting.model.js';
-import { PUBLIC_ENTERPRISE_STATUS } from './enterprises.constants.js';
+import { ENTERPRISE_CONFIG, PUBLIC_ENTERPRISE_STATUS } from './enterprises.constants.js';
 
 export interface FindEnterprisesParams {
   page: number;
@@ -17,6 +17,9 @@ export interface FindEnterprisesParams {
   industry?: string | undefined;
   location?: string | undefined;
   company_size?: CompanySize | undefined;
+  // Multi-select filters of the public browse; each matches any of its values.
+  industries?: string[] | undefined;
+  company_sizes?: CompanySize[] | undefined;
   status?: EnterpriseStatus | undefined;
 }
 
@@ -115,8 +118,16 @@ export class EnterprisesRepository {
       filter.industry = equalsRegex(params.industry);
     }
 
+    if (params.industries?.length) {
+      filter.industry = { $in: params.industries.map(equalsRegex) };
+    }
+
     if (params.company_size) {
       filter.company_size = params.company_size;
+    }
+
+    if (params.company_sizes?.length) {
+      filter.company_size = { $in: params.company_sizes };
     }
 
     if (params.location) {
@@ -126,6 +137,8 @@ export class EnterprisesRepository {
         { 'address.country': locRegex },
         { 'address.state_province': locRegex },
         { 'address.district': locRegex },
+        // A company shows in a city where it has an office, not only where it is based.
+        { 'branches.city': locRegex },
       ];
       if (filter.$or) {
         filter.$and = [{ $or: filter.$or }, { $or: locFilter }];
@@ -176,6 +189,17 @@ export class EnterprisesRepository {
       },
       { returnDocument: 'after' },
     ).exec();
+  }
+
+  // Active enterprises per industry, for the public filter sheet.
+  async countActiveByIndustry(): Promise<{ industry: string; count: number }[]> {
+    const rows = await Enterprise.aggregate<{ _id: string; count: number }>([
+      { $match: { status: PUBLIC_ENTERPRISE_STATUS, is_deleted: false } },
+      { $group: { _id: '$industry', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: ENTERPRISE_CONFIG.INDUSTRY_FACET_LIMIT },
+    ]).exec();
+    return rows.map((row) => ({ industry: row._id, count: row.count }));
   }
 
   // Published, not-yet-expired job postings per enterprise, for the public company list.

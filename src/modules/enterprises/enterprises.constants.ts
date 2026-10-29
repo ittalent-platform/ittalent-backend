@@ -12,6 +12,8 @@ export const ENTERPRISE_MESSAGES = {
 
   INVALID_STATUS_TRANSITION: 'The requested status transition violates platform lifecycle rules',
   REASON_REQUIRED: 'A justification reason of at least 10 characters is mandatory when suspending or rejecting an enterprise',
+  INVALID_INDUSTRY_FILTER: 'industry must be one value or a comma-separated list of industries',
+  INVALID_SIZE_FILTER: 'company_size must be one value or a comma-separated list of supported company sizes',
   CANNOT_DELETE_WITH_ACTIVE_JOBS: 'Cannot delete enterprise with active job postings. Please close all postings first',
 
   CREATED_SUCCESS: 'Enterprise profile registered successfully and submitted for administrative review',
@@ -47,6 +49,12 @@ export const ENTERPRISE_CONFIG = {
 
   KEYWORD_MIN_LENGTH: 1,
   KEYWORD_MAX_LENGTH: 100,
+
+  // Multi-select filters of the public browse: "Fintech,Gaming".
+  FILTER_SEPARATOR: ',',
+  FILTER_MAX_VALUES: 20,
+  // The public industry list is bounded.
+  INDUSTRY_FACET_LIMIT: 100,
 
   REASON_MIN_LENGTH: 10,
   REASON_MAX_LENGTH: 500,
