@@ -63,9 +63,9 @@ describe('Public company browse (UC-BENT-01 / 03)', () => {
   beforeAll(async () => {
     await connectDatabase();
     databaseConnected = true;
-    const nimbus = await company('Nimbus Pay', 'Fintech', '51-200', 'Ha Noi', { branches: [{ street: '2 Side St', city: 'Ho Chi Minh City', country: 'Vietnam' }, { street: '3 Side St', city: 'Ha Noi', country: 'Vietnam' }], short_description: 'Payments' });
+    const nimbus = await company('Nimbus Pay', 'Fintech', '51-200', 'Ha Noi', { branches: [{ street: '2 Side St', city: 'Ho Chi Minh City', district: 'District 1', country: 'Vietnam' }, { street: '3 Side St', city: 'Ha Noi', state_province: 'Red River Delta', country: 'Vietnam' }], short_description: 'Payments' });
     await company('Lumen Labs', 'Software', '11-50', 'Ho Chi Minh City');
-    await company('Song Han', 'Software', '501-1000', 'Da Nang');
+    await company('Song Han', 'Software', '501-1000', 'Da Nang', { branches: [{ street: '9 Coast Rd', city: `${tag}Quy Nhon`, country: 'Vietnam' }] });
     await company('Kite Health', 'Healthtech', '201-500', 'Da Nang', { status: 'pending' });
     await company('Orbit Games', 'Gaming', '51-200', 'Da Nang', { status: 'suspended' });
     await company('Gone Co', 'Fintech', '51-200', 'Ha Noi', { status: 'deleted', is_deleted: true });
@@ -119,6 +119,10 @@ describe('Public company browse (UC-BENT-01 / 03)', () => {
     expect(await names('location=Da Nang')).toEqual(['Song Han']);
     // A branch counts as being in its city.
     expect(await names('location=Ho Chi Minh')).toEqual(['Lumen Labs', 'Nimbus Pay']);
+    // A branch's district and province count like the head office's, and its city is found by the keyword too.
+    expect(await names('location=District 1')).toEqual(['Nimbus Pay']);
+    expect(await names('location=red river')).toEqual(['Nimbus Pay']);
+    expect((await get(`/public?keyword=${tag}Quy%20Nhon`)).body.items.map((card) => card.name)).toEqual([`${tag} Song Han`]);
     expect(await names(`industry=${tag}Software&company_size=11-50&location=Ho Chi Minh`)).toEqual(['Lumen Labs']);
     expect(await names('company_size=1-10')).toEqual([]);
     expect((await get(`/public?keyword=${tag}&limit=1&page=2`)).body).toMatchObject({ total: 3, totalPages: 3, items: [{ name: `${tag} Nimbus Pay` }] });

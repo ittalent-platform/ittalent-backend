@@ -31,8 +31,8 @@ enterprisesRouter.get(
 );
 
 // UC-BENT-01/03: the applicant's public company list and its industry filter. Registered before /:enterpriseId.
-enterprisesRouter.get('/public', validateQuery(publicEnterpriseListQuerySchema), enterprisesController.listPublicEnterprises);
 enterprisesRouter.get('/public/industries', enterprisesController.listPublicIndustries);
+enterprisesRouter.get('/public', validateQuery(publicEnterpriseListQuerySchema), enterprisesController.listPublicEnterprises);
 
 // UC-17 / UC-ME-ENT-01: View my enterprise profile (direct endpoint)
 enterprisesRouter.get(

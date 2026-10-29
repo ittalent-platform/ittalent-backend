@@ -110,6 +110,8 @@ export class EnterprisesRepository {
         { industry: keywordRegex },
         { 'address.city': keywordRegex },
         { 'address.country': keywordRegex },
+        // A branch city counts as well, so "Da Nang" also finds a company based elsewhere with an office there.
+        { 'branches.city': keywordRegex },
         { tech_stack: keywordRegex },
       ];
     }
@@ -137,8 +139,11 @@ export class EnterprisesRepository {
         { 'address.country': locRegex },
         { 'address.state_province': locRegex },
         { 'address.district': locRegex },
-        // A company shows in a city where it has an office, not only where it is based.
+        // A company shows where it has an office, not only where it is based: same fields as the head office.
         { 'branches.city': locRegex },
+        { 'branches.country': locRegex },
+        { 'branches.state_province': locRegex },
+        { 'branches.district': locRegex },
       ];
       if (filter.$or) {
         filter.$and = [{ $or: filter.$or }, { $or: locFilter }];

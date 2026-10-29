@@ -94,7 +94,9 @@ export class EnterprisesController {
   listPublicEnterprises: RequestHandler = async (_req, res, next) => {
     try {
       const query = res.locals.validated?.query as PublicEnterpriseListQuery;
-      res.status(HTTP_STATUS.HTTP_200_OK).json(await this.service.listPublicEnterprises(query));
+
+      const result = await this.service.listPublicEnterprises(query);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }
@@ -102,7 +104,8 @@ export class EnterprisesController {
 
   listPublicIndustries: RequestHandler = async (_req, res, next) => {
     try {
-      res.status(HTTP_STATUS.HTTP_200_OK).json(await this.service.listPublicIndustries());
+      const result = await this.service.listPublicIndustries();
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
     } catch (error) {
       next(error);
     }

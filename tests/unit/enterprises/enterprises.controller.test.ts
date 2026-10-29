@@ -228,6 +228,67 @@ describe('EnterprisesController', () => {
     });
   });
 
+  describe('listPublicEnterprises', () => {
+    const query = { page: 1, limit: 20, keyword: 'tech', industries: ['Fintech'] };
+    const page = { items: [{ id: '507f1f77bcf86cd799439011', name: 'Tech Alpha Inc', cities: ['Hanoi'], openRoleCount: 2 }], page: 1, limit: 20, total: 1, totalPages: 1 };
+
+    it('returns 200 OK with the serialized page of company cards', async () => {
+      mockService.listPublicEnterprises = vi.fn().mockResolvedValue(page);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const res = { status, locals: { validated: { query } } } as never;
+      const next = vi.fn();
+
+      await controller.listPublicEnterprises({} as never, res, next);
+
+      expect(mockService.listPublicEnterprises).toHaveBeenCalledWith(query);
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(page);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('passes a service error to next', async () => {
+      const failure = new Error('database down');
+      mockService.listPublicEnterprises = vi.fn().mockRejectedValue(failure);
+      const status = vi.fn();
+      const res = { status, locals: { validated: { query } } } as never;
+      const next = vi.fn();
+
+      await controller.listPublicEnterprises({} as never, res, next);
+
+      expect(next).toHaveBeenCalledWith(failure);
+      expect(status).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listPublicIndustries', () => {
+    it('returns 200 OK with the industries and their company counts', async () => {
+      const industries = { items: [{ industry: 'Fintech', count: 4 }] };
+      mockService.listPublicIndustries = vi.fn().mockResolvedValue(industries);
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const next = vi.fn();
+
+      await controller.listPublicIndustries({} as never, { status } as never, next);
+
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(industries);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('passes a service error to next', async () => {
+      const failure = new Error('database down');
+      mockService.listPublicIndustries = vi.fn().mockRejectedValue(failure);
+      const status = vi.fn();
+      const next = vi.fn();
+
+      await controller.listPublicIndustries({} as never, { status } as never, next);
+
+      expect(next).toHaveBeenCalledWith(failure);
+      expect(status).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getEnterpriseById', () => {
     it('returns 200 OK with enterprise detail', async () => {
       mockService.getEnterpriseById = vi.fn().mockResolvedValue(mockDetail);

@@ -82,10 +82,15 @@ export class EnterprisesService {
       industry: enterprise.industry,
       companySize: enterprise.company_size,
       shortDescription: enterprise.short_description ?? null,
-      // The head office first, then the other offices; a city is listed once.
-      cities: [...new Set([enterprise.address.city, ...(enterprise.branches ?? []).map((branch) => branch.city)])],
+      cities: this.publicCities(enterprise),
       openRoleCount,
     };
+  }
+
+  // The head office first, then the other offices; each city once, and a blank or missing one is skipped.
+  private publicCities(enterprise: EnterpriseDoc): string[] {
+    const names: (string | undefined)[] = [enterprise.address?.city, ...(enterprise.branches ?? []).map((branch) => branch?.city)];
+    return [...new Set(names.map((city) => city?.trim()).filter((city): city is string => Boolean(city)))];
   }
 
   private mapDetail(enterprise: EnterpriseDoc, activeJobsCount = 0): EnterpriseDetailDTO {

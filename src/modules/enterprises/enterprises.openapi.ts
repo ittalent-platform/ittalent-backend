@@ -95,7 +95,7 @@ export function registerEnterprisesOpenApi(registry: OpenAPIRegistry): void {
     summary: 'Browse, search and filter companies (public)',
     description:
       'No sign-in needed. Only Active enterprises, each with card fields only (no contact or tax data) and the number of open roles. ' +
-      '`keyword` matches the name, industry, city, country or tech stack. `industry` and `company_size` take one value or a comma-separated list ' +
+      '`keyword` matches the name, industry, city (head office or a branch), country or tech stack. `industry` and `company_size` take one value or a comma-separated list ' +
       '("Fintech,Gaming"), and an enterprise matches any of them. `location` matches a city, district or province of the head office or a branch. ' +
       'Sorted by name; `total` is the live count for the chosen filters.',
     request: { query: publicEnterpriseListQuerySchema },
