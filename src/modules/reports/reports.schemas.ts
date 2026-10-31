@@ -114,9 +114,9 @@ export type ReportsQuery = z.infer<typeof reportsQuerySchema>;
 export const adminReportsQuerySchema = z.strictObject({
   page: z.coerce.number().int().min(1).default(REPORT_PAGINATION.DEFAULT_PAGE),
   limit: z.coerce.number().int().min(1).max(REPORT_PAGINATION.MAX_LIMIT).default(REPORT_PAGINATION.DEFAULT_LIMIT),
-  status: z.enum(['all', ...REPORT_STATUSES]).optional().default('pending'),
+  status: z.enum(['all', 'open', 'closed', ...REPORT_STATUSES]).optional().default('pending'),
   target_type: z.enum(['all', ...REPORT_TARGET_TYPES]).optional().default('all'),
-  category: z.enum(['all', ...REPORT_REASON_CATEGORIES]).optional().default('all'),
+  category: z.enum(['all', ...REPORT_REASON_CATEGORIES, ...REPORT_REASONS]).optional().default('all'),
   search: z.string().trim().optional(),
 });
 
@@ -289,17 +289,14 @@ export interface ReporterReportItemDto {
 }
 
 export interface AdminReportItemDto extends ReporterReportItemDto {
-  reporter: {
-    id: string;
-    email: string;
-    full_name: string | null;
-    username: string | null;
-    created_at?: string | null;
-  };
+  reference?: string;
+  reason?: string;
+  statement?: string;
+  files?: ReportFileResponse[];
   assigned_admin?: {
     id: string;
     email: string;
-    full_name: string;
+    full_name: string | null;
   } | null;
   reviewed_at?: string | null;
   internal_notes?: string | null;

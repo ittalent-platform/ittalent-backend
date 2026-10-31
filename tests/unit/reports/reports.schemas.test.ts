@@ -161,6 +161,15 @@ describe('Reports Schemas Unit Tests', () => {
       expect(parsed.status).toBe('pending');
       expect(parsed.target_type).toBe('all');
     });
+
+    it('accepts grouped open/closed status filters and 5 modern candidate reasons', () => {
+      for (const status of ['open', 'closed', 'all', 'pending', 'reviewing', 'resolved', 'rejected', 'withdrawn']) {
+        expect(adminReportsQuerySchema.safeParse({ status }).success).toBe(true);
+      }
+      for (const category of ['scam_or_fraud', 'misleading_information', 'discrimination', 'inappropriate_content', 'something_else']) {
+        expect(adminReportsQuerySchema.safeParse({ category }).success).toBe(true);
+      }
+    });
   });
 
   describe('reportIdParamSchema', () => {

@@ -864,21 +864,39 @@ export class ReportsService {
     },
   ): AdminReportItemDto {
     const base = this.mapToReporterDto(doc);
-    const reporterUser = doc.reporter_id;
     const assignedAdmin = doc.assigned_admin_id;
+    const rawFiles = doc.evidence_files || [];
+    const files: ReportFileResponse[] = rawFiles.map(
+      (file: (ReportEvidenceFile & { _id?: Types.ObjectId }) | string, idx: number) => {
+        if (typeof file === 'string') {
+          const fallbackName = file.split(/[?#]/)[0]?.split('/').pop() || `evidence-${idx + 1}`;
+          return {
+            id: `file-${idx + 1}`,
+            fileName: fallbackName,
+            size: 0,
+            mimeType: 'application/octet-stream',
+            downloadUrl: file,
+          };
+        }
+        return {
+          id: file._id ? file._id.toString() : file.storage_key || `file-${idx + 1}`,
+          fileName: file.file_name || 'evidence-file',
+          size: file.size || 0,
+          mimeType: file.mime_type || 'application/octet-stream',
+          downloadUrl: file.file_url,
+        };
+      },
+    );
 
     return {
       ...base,
-      reporter: {
-        id: reporterUser?._id ? reporterUser._id.toString() : (reporterUser?.toString?.() ?? ''),
-        email: reporterUser?.email ?? 'Unknown',
-        full_name: reporterUser?.full_name ?? null,
-        username: reporterUser?.username ?? null,
-        created_at: reporterUser?.createdAt ? new Date(reporterUser.createdAt).toISOString() : null,
-      },
+      reference: doc.reference || base.ticket_id,
+      reason: doc.reason || base.reason_category,
+      statement: doc.statement || base.description,
+      files,
       assigned_admin: assignedAdmin
         ? {
-            id: assignedAdmin._id ? assignedAdmin._id.toString() : assignedAdmin.toString(),
+            id: assignedAdmin._id ? assignedAdmin._id.toString() : (assignedAdmin.toString?.() ?? ''),
             email: assignedAdmin.email ?? '',
             full_name: assignedAdmin.full_name ?? null,
           }

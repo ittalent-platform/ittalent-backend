@@ -61,7 +61,6 @@ export class ReportsRepository {
       ? { _id: new Types.ObjectId(id) }
       : { $or: [{ reference: id }, { ticket_id: id }] };
     return Report.findOne(query)
-      .populate('reporter_id', 'email full_name username createdAt')
       .populate('assigned_admin_id', 'email full_name')
       .exec();
   }
@@ -246,8 +245,13 @@ export class ReportsRepository {
     query: AdminReportsQuery,
   ): Promise<{ items: ReportDoc[]; total: number; kpis: ReportKpisDto }> {
     const filter: Record<string, unknown> = {};
+    const andConditions: Record<string, unknown>[] = [];
 
-    if (query.status && query.status !== 'all') {
+    if (query.status === 'open') {
+      filter.status = { $in: OPEN_REPORT_STATUSES };
+    } else if (query.status === 'closed') {
+      filter.status = { $in: CLOSED_REPORT_STATUSES };
+    } else if (query.status && query.status !== 'all') {
       filter.status = query.status;
     }
 
@@ -256,24 +260,44 @@ export class ReportsRepository {
     }
 
     if (query.category && query.category !== 'all') {
-      filter.$or = [{ reason_category: query.category }, { reason: query.category }];
+      const CATEGORY_ALIASES: Record<string, string[]> = {
+        scam_or_fraud: ['scam_or_fraud', 'scam_fraud'],
+        scam_fraud: ['scam_fraud', 'scam_or_fraud'],
+        misleading_information: ['misleading_information', 'misleading_info'],
+        misleading_info: ['misleading_info', 'misleading_information'],
+        inappropriate_content: ['inappropriate_content', 'offensive_content'],
+        offensive_content: ['offensive_content', 'inappropriate_content'],
+        something_else: ['something_else', 'other'],
+        other: ['other', 'something_else'],
+      };
+      const candidates = CATEGORY_ALIASES[query.category] ?? [query.category];
+      andConditions.push({
+        $or: [{ reason_category: { $in: candidates } }, { reason: { $in: candidates } }],
+      });
     }
 
     if (query.search) {
       const searchRegex = new RegExp(escapeRegex(query.search.trim()), 'i');
-      filter.$or = [
-        { ticket_id: searchRegex },
-        { reference: searchRegex },
-        { target_title: searchRegex },
-        { 'target_snapshot.title': searchRegex },
-        { title: searchRegex },
-      ];
+      andConditions.push({
+        $or: [
+          { ticket_id: searchRegex },
+          { reference: searchRegex },
+          { target_title: searchRegex },
+          { 'target_snapshot.title': searchRegex },
+          { title: searchRegex },
+        ],
+      });
+    }
+
+    if (andConditions.length === 1 && andConditions[0]) {
+      Object.assign(filter, andConditions[0]);
+    } else if (andConditions.length > 1) {
+      filter.$and = andConditions;
     }
 
     const [items, total, pending, reviewing, resolved, rejected, withdrawn] = await Promise.all([
       Report.find(filter)
-        .populate('reporter_id', 'email full_name username createdAt')
-        .populate('assigned_admin_id', 'email full_name')
+          .populate('assigned_admin_id', 'email full_name')
         .sort({ createdAt: -1 })
         .skip((query.page - 1) * query.limit)
         .limit(query.limit)
