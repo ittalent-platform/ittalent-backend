@@ -416,6 +416,46 @@ describe('ReportsService (UC-30 to UC-36)', () => {
       expect(notificationsService.dispatch).toHaveBeenCalledTimes(1);
     });
 
+    it('omits reporter PII and preserves original uploaded fileName on admin DTO (BR-PROP-REP-003)', async () => {
+      mockRepository.findById.mockResolvedValue({
+        _id: new Types.ObjectId(),
+        reference: 'RPT-2026-0099',
+        ticket_id: 'RPT-2026-0099',
+        reporter_id: {
+          _id: new Types.ObjectId(reporterId),
+          email: 'secret-candidate@example.com',
+          full_name: 'Secret Candidate',
+          username: 'secretcand',
+        },
+        status: 'pending',
+        target_type: 'job',
+        target_id: new Types.ObjectId(targetJobId),
+        target_title: 'Senior Go Engineer',
+        reason: 'scam_or_fraud',
+        reason_category: 'scam_or_fraud',
+        statement: 'Upfront payment demanded.',
+        evidence_files: [
+          {
+            file_url: 'https://res.cloudinary.com/demo/image/upload/v1/italent/reports/evidence/evidence-uuid.png',
+            storage_key: 'italent/reports/evidence/evidence-uuid',
+            file_name: 'chat-screenshot.png',
+            mime_type: 'image/png',
+            size: 12040,
+          },
+        ],
+        timeline: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const dto = await service.getAdminReportById('RPT-2026-0099');
+      expect((dto as unknown as Record<string, unknown>).reporter).toBeUndefined();
+      expect(JSON.stringify(dto)).not.toContain('secret-candidate@example.com');
+      expect(JSON.stringify(dto)).not.toContain('secretcand');
+      expect(dto.files).toHaveLength(1);
+      expect(dto.files?.[0]?.fileName).toBe('chat-screenshot.png');
+    });
+
     it('rejects modification if ticket is already in terminal state (BR-ADM-REP-06)', async () => {
       mockRepository.findById.mockResolvedValue({
         _id: new Types.ObjectId(),

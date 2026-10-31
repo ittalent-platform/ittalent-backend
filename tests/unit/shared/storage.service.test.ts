@@ -135,6 +135,36 @@ describe('StorageService', () => {
       expect(result.size).toBe(dummyBuffer.length);
     });
 
+    it('omits file extension from generated public_id when resourceType is image to prevent .png.png URLs', async () => {
+      vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(true);
+      let capturedPublicId = '';
+      const mockUploadStream = vi.fn().mockImplementation((options, callback) => ({
+        end: () => {
+          capturedPublicId = String(options.public_id ?? '');
+          callback(null, {
+            secure_url: `https://res.cloudinary.com/test/image/upload/v1/italent/reports/evidence/${capturedPublicId}.png`,
+            public_id: `italent/reports/evidence/${capturedPublicId}`,
+          });
+        },
+      }));
+      vi.spyOn(cloudinaryConfig, 'getCloudinary').mockReturnValue({
+        uploader: { upload_stream: mockUploadStream },
+      } as unknown as ReturnType<typeof cloudinaryConfig.getCloudinary>);
+
+      const res = await storageService.uploadFile({
+        buffer: Buffer.from('png bytes'),
+        fileName: 'evidence.png',
+        folder: 'italent/reports/evidence',
+        prefix: 'evidence',
+        resourceType: 'image',
+      });
+
+      expect(capturedPublicId).toMatch(/^evidence-[0-9a-f-]+$/);
+      expect(capturedPublicId.endsWith('.png')).toBe(false);
+      expect(res.fileUrl.endsWith('.png.png')).toBe(false);
+      expect(res.fileName).toBe('evidence.png');
+    });
+
     it('passes an explicit domain-owned storage key through the provider adapter', async () => {
       vi.spyOn(cloudinaryConfig, 'isCloudinaryConfigured').mockReturnValue(true);
       const storageKey = 'profile-avatars/user-123/avatar-550e8400-e29b-41d4-a716-446655440000';
