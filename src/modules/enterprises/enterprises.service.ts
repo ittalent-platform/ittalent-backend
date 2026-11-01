@@ -8,6 +8,7 @@ import { notificationsService, type NotificationsService } from '../notification
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   ENTERPRISE_MESSAGES,
+  PUBLIC_ENTERPRISE_STATUS,
   VALID_STATUS_TRANSITIONS,
 } from './enterprises.constants.js';
 import {
@@ -19,6 +20,7 @@ import type {
   EnterpriseDetailDTO,
   EnterpriseListQuery,
   EnterpriseSummaryDTO,
+  PublicEnterpriseDetailDTO,
   PublicEnterpriseListQuery,
   PublicEnterpriseSummaryDTO,
   PublicIndustryListDTO,
@@ -91,6 +93,32 @@ export class EnterprisesService {
   private publicCities(enterprise: EnterpriseDoc): string[] {
     const names: (string | undefined)[] = [enterprise.address?.city, ...(enterprise.branches ?? []).map((branch) => branch?.city)];
     return [...new Set(names.map((city) => city?.trim()).filter((city): city is string => Boolean(city)))];
+  }
+
+  private mapPublicDetail(enterprise: EnterpriseDoc, openRoleCount: number): PublicEnterpriseDetailDTO {
+    return {
+      ...this.mapPublicSummary(enterprise, openRoleCount),
+      coverUrl: enterprise.cover_url ?? null,
+      description: enterprise.description ?? null,
+      cultureSummary: enterprise.culture_summary ?? null,
+      subIndustries: enterprise.sub_industries ?? [],
+      companyType: enterprise.company_type ?? null,
+      foundedYear: enterprise.founded_year ?? null,
+      headquarters: { city: enterprise.address.city, country: enterprise.address.country },
+      website: enterprise.website || null,
+      techStack: enterprise.tech_stack ?? [],
+      benefits: enterprise.benefits ?? [],
+      workingDays: enterprise.working_days ?? null,
+      mediaGallery: enterprise.media_gallery ?? [],
+      socialLinks: enterprise.social_links
+        ? {
+            linkedin: enterprise.social_links.linkedin,
+            facebook: enterprise.social_links.facebook,
+            github: enterprise.social_links.github,
+            twitter: enterprise.social_links.twitter,
+          }
+        : null,
+    };
   }
 
   private mapDetail(enterprise: EnterpriseDoc, activeJobsCount = 0): EnterpriseDetailDTO {
@@ -392,6 +420,16 @@ export class EnterprisesService {
       total,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  // UC-BENT-02: a company that is not Active (pending, suspended, removed) is "not available", whoever asks.
+  async getPublicEnterprise(id: string): Promise<PublicEnterpriseDetailDTO> {
+    const enterprise = await this.repository.findById(id);
+    if (!enterprise || enterprise.status !== PUBLIC_ENTERPRISE_STATUS) {
+      throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, ENTERPRISE_MESSAGES.NOT_FOUND);
+    }
+    const openRoles = await this.repository.countOpenRolesByEnterpriseIds([id]);
+    return this.mapPublicDetail(enterprise, openRoles.get(id) ?? 0);
   }
 
   async listPublicIndustries(): Promise<PublicIndustryListDTO> {

@@ -250,6 +250,25 @@ export const publicEnterpriseSummarySchema = z.object({
 
 export type PublicEnterpriseSummaryDTO = z.infer<typeof publicEnterpriseSummarySchema>;
 
+// UC-BENT-02: the company page. Public profile content only: no contact, tax or registration data, status or account ids.
+export const publicEnterpriseDetailSchema = publicEnterpriseSummarySchema.extend({
+  coverUrl: z.string().nullable(),
+  description: z.string().nullable(),
+  cultureSummary: z.string().nullable(),
+  subIndustries: z.array(z.string()),
+  companyType: z.string().nullable(),
+  foundedYear: z.number().int().nullable(),
+  headquarters: z.object({ city: z.string(), country: z.string() }),
+  website: z.string().nullable(),
+  techStack: z.array(z.string()),
+  benefits: z.array(z.string()),
+  workingDays: z.string().nullable(),
+  mediaGallery: z.array(z.string()),
+  socialLinks: enterpriseSocialLinksSchema.nullable(),
+});
+
+export type PublicEnterpriseDetailDTO = z.infer<typeof publicEnterpriseDetailSchema>;
+
 export const publicEnterpriseListResponseSchema = paginatedResponseSchema(publicEnterpriseSummarySchema);
 
 export const publicIndustryListSchema = z.object({

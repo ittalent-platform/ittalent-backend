@@ -8,6 +8,7 @@ import {
   enterpriseIdParamSchema,
   enterpriseListQuerySchema,
   enterpriseListResponseSchema,
+  publicEnterpriseDetailSchema,
   publicEnterpriseListQuerySchema,
   publicEnterpriseListResponseSchema,
   publicIndustryListSchema,
@@ -119,6 +120,26 @@ export function registerEnterprisesOpenApi(registry: OpenAPIRegistry): void {
         description: 'Industries with their company counts',
         content: { 'application/json': { schema: registry.register('PublicIndustryList', publicIndustryListSchema) } },
       },
+    },
+  });
+
+  // UC-BENT-02: company page for applicants
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/enterprises/{enterpriseId}/public',
+    tags: ['Enterprises'],
+    summary: 'View a company page (public)',
+    description:
+      'No sign-in needed. Profile content only (about, tech stack, benefits, offices, website, open role count); no contact, tax or registration data. ' +
+      'A company that is not Active answers 404, like one that does not exist. Its open jobs are listed by `GET /api/v1/job-postings?enterprise_id=`.',
+    request: { params: enterpriseIdParamSchema },
+    responses: {
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'Public company profile',
+        content: { 'application/json': { schema: registry.register('PublicEnterpriseDetail', publicEnterpriseDetailSchema) } },
+      },
+      [HTTP_STATUS.HTTP_400_BAD_REQUEST]: { description: 'Invalid enterprise ID format' },
+      [HTTP_STATUS.HTTP_404_NOT_FOUND]: { description: 'Company not found or not available' },
     },
   });
 

@@ -473,6 +473,31 @@ describe('EnterprisesService', () => {
       expect(result.items.map((card) => card.cities)).toEqual([['Ha Noi', 'Da Nang'], ['Hue']]);
     });
 
+    it('shows a company page with public profile fields only', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValue(mockEnterpriseDoc as EnterpriseDoc);
+      mockRepo.countOpenRolesByEnterpriseIds = vi.fn().mockResolvedValue(new Map([[sampleEnterpriseId.toString(), 2]]));
+
+      const page = await service.getPublicEnterprise(sampleEnterpriseId.toString());
+
+      expect(page).toMatchObject({
+        name: 'Tech Alpha Inc',
+        description: 'Tech Alpha is an engineering-first technology firm.',
+        headquarters: { city: 'Da Nang', country: 'Vietnam' },
+        cities: ['Da Nang'],
+        techStack: ['Node.js', 'TypeScript', 'Kubernetes'],
+        benefits: ['13th month salary', 'Yearly performance bonus'],
+        website: 'https://techalpha.io',
+        openRoleCount: 2,
+      });
+      for (const hidden of ['email', 'phone', 'taxCode', 'legalName', 'status', 'creatorAccountId']) expect(page).not.toHaveProperty(hidden);
+    });
+
+    it('treats a company that is not Active, or does not exist, as not found', async () => {
+      mockRepo.findById = vi.fn().mockResolvedValueOnce({ ...mockEnterpriseDoc, status: 'suspended' } as EnterpriseDoc).mockResolvedValueOnce(null);
+      await expect(service.getPublicEnterprise(sampleEnterpriseId.toString())).rejects.toMatchObject({ statusCode: 404 });
+      await expect(service.getPublicEnterprise(sampleEnterpriseId.toString())).rejects.toMatchObject({ statusCode: 404 });
+    });
+
     it('lists the industries with their company counts', async () => {
       mockRepo.countActiveByIndustry = vi.fn().mockResolvedValue([{ industry: 'Fintech', count: 4 }]);
       await expect(service.listPublicIndustries()).resolves.toEqual({ items: [{ industry: 'Fintech', count: 4 }] });

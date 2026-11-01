@@ -111,6 +111,17 @@ export class EnterprisesController {
     }
   };
 
+  getPublicEnterprise: RequestHandler = async (_req, res, next) => {
+    try {
+      const params = res.locals.validated?.params as EnterpriseIdParam;
+
+      const result = await this.service.getPublicEnterprise(params.enterpriseId);
+      res.status(HTTP_STATUS.HTTP_200_OK).json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getEnterpriseById: RequestHandler = async (req, res, next) => {
     try {
       const params = res.locals.validated?.params as EnterpriseIdParam;
