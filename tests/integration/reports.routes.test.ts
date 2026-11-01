@@ -38,13 +38,15 @@ describe('Reports API Routes (Integration)', () => {
 
   const mockAdminReportDto = {
     ...mockReportDto,
-    reporter: {
-      id: candidateId,
-      email: 'candidate@test.com',
-      full_name: 'Nguyen Van A',
-      username: 'nguyenvana',
-      created_at: new Date().toISOString(),
-    },
+    files: [
+      {
+        id: 'file-1',
+        fileName: 'receipt.png',
+        size: 2048,
+        mimeType: 'image/png',
+        downloadUrl: 'https://example.com/receipt.png',
+      },
+    ],
     assigned_admin: null,
     reviewed_at: null,
     internal_notes: 'Under investigation',

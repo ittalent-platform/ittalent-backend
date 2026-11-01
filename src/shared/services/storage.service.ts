@@ -104,7 +104,10 @@ export class StorageService {
     const ext = input.fileName.split('.').pop()?.toLowerCase() ?? 'bin';
     const folder = input.folder ?? 'italent/documents';
     const prefix = input.prefix ?? 'document';
-    const generatedId = `${prefix}-${randomUUID()}.${ext}`;
+    const generatedId =
+      (input.resourceType ?? 'raw') === 'image'
+        ? `${prefix}-${randomUUID()}`
+        : `${prefix}-${randomUUID()}.${ext}`;
     const resourceType = input.resourceType ?? 'raw';
     const mimeType = input.mimeType ?? 'application/octet-stream';
     const resourceLabel = input.resourceLabel ?? 'Document';
