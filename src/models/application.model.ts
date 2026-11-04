@@ -69,6 +69,10 @@ export interface ApplicationData {
   certificates: ApplicationCertificateSnapshot[];
   // Append-only internal notes recorded by recruiters for team evaluation.
   notes: ApplicationNoteEntry[];
+  // BR-APP-009: set when the applicant sent an Idempotency-Key; a retry with the same key and the same
+  // content gets this application back instead of a second one. Never returned to clients.
+  idempotency_key?: string;
+  request_hash?: string;
 }
 
 const statusHistorySchema = new Schema<ApplicationStatusHistoryEntry>(
@@ -121,6 +125,8 @@ const applicationSchema = new Schema<ApplicationData>(
     status_history: { type: [statusHistorySchema], default: [] },
     certificates: { type: [certificateSnapshotSchema], default: [] },
     notes: { type: [noteSchema], default: [] },
+    idempotency_key: { type: String, select: false },
+    request_hash: { type: String, select: false },
   },
   {
     timestamps: true,
@@ -139,6 +145,12 @@ applicationSchema.index({ job_id: 1, applicant_id: 1, createdAt: -1 });
 applicationSchema.index({ job_id: 1, status: 1 });
 applicationSchema.index({ applicant_id: 1, createdAt: -1 });
 applicationSchema.index({ applicant_id: 1, 'certificates.certificate_id': 1 });
+// BR-APP-009: one application per (applicant, Idempotency-Key). Partial, because applications created before
+// this field existed, or without a key, have none.
+applicationSchema.index(
+  { applicant_id: 1, idempotency_key: 1 },
+  { unique: true, partialFilterExpression: { idempotency_key: { $type: 'string' } } },
+);
 
 export const Application = model('Application', applicationSchema);
 export type ApplicationDoc = ApplicationData & {

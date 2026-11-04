@@ -28,7 +28,7 @@ function application(status: ApplicationStatus, id = '507f1f77bcf86cd7994390aa')
 }
 
 describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
-  let repository: { findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; countCertificatesSent: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
+  let repository: { findByIdempotencyKey: ReturnType<typeof vi.fn>; findLatestByJobAndApplicant: ReturnType<typeof vi.fn>; countByJobAndApplicant: ReturnType<typeof vi.fn>; countHiredByJobId: ReturnType<typeof vi.fn>; countCertificatesSent: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; deleteById: ReturnType<typeof vi.fn> };
   let service: ApplicationsService;
   let stillExists: ReturnType<typeof vi.fn>;
   let mockNotifications: { dispatch: ReturnType<typeof vi.fn> };
@@ -39,6 +39,7 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
       dispatch: vi.fn().mockResolvedValue({ id: 'noti-123' }),
     };
     repository = {
+      findByIdempotencyKey: vi.fn().mockResolvedValue(null),
       findLatestByJobAndApplicant: vi.fn().mockResolvedValue(null),
       countByJobAndApplicant: vi.fn().mockResolvedValue(1),
       countHiredByJobId: vi.fn().mockResolvedValue(0),
@@ -57,7 +58,7 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
   });
 
   it('creates the first application without a link', async () => {
-    const result = await service.applyToJob(userId, body);
+    const { item: result } = await service.applyToJob(userId, body);
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ reappliedFrom: undefined }));
     expect(result).toMatchObject({ status: 'submitted', reappliedFrom: null, reappliedAs: null });
   });
@@ -83,7 +84,7 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
   it.each(['withdrawn', 'rejected'] as const)('creates a NEW linked record after %s and never reopens the old one', async (status) => {
     const closed = application(status);
     repository.findLatestByJobAndApplicant.mockResolvedValue(closed);
-    const result = await service.applyToJob(userId, body);
+    const { item: result } = await service.applyToJob(userId, body);
     expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ reappliedFrom: closed._id }));
     expect(result.id).not.toBe(String(closed._id));
     expect(result).toMatchObject({ status: 'submitted', reappliedFrom: String(closed._id) });
@@ -99,6 +100,95 @@ describe('ApplicationsService.applyToJob (BR-APP-002 / BR-APP-010)', () => {
   it('reports a concurrent winner (unique-index rejection) as already applied', async () => {
     repository.create.mockResolvedValue(null);
     await expect(service.applyToJob(userId, body)).rejects.toMatchObject({ statusCode: 409, code: APPLICATION_ERROR_CODES.ALREADY_APPLIED });
+  });
+
+  describe('Idempotency-Key (BR-APP-009 / UC-BJOB-03 A3)', () => {
+    const key = 'attempt-0001';
+    const committedId = '507f1f77bcf86cd7994390bb';
+
+    // The hash the service stored for the first attempt, which a later attempt with the same content must match.
+    const hashOfLastCreate = (): string => (repository.create.mock.calls.at(-1)?.[0] as { requestHash: string }).requestHash;
+
+    function serviceFor(parts: { jobs?: unknown; certificates?: unknown } = {}): ApplicationsService {
+      return new ApplicationsService(
+        repository as unknown as ApplicationsRepository,
+        { findById: vi.fn().mockResolvedValue({ email: 'a@example.com', status: 'active' }), findRecruitersByEnterpriseId: vi.fn().mockResolvedValue([]) } as unknown as UsersService,
+        (parts.jobs ?? { findPublicJobById: vi.fn().mockResolvedValue({ _id: jobId, title: 'Engineer', openings: 3 }), stillExists }) as JobPostingsService,
+        { findOwnedByType: vi.fn().mockResolvedValue({ _id: cvId }) } as unknown as DocumentsService,
+        parts.certificates as CertificateLinksService | undefined,
+        mockNotifications as unknown as NotificationsService,
+      );
+    }
+
+    it('keeps the key and a hash of what was sent with the new application', async () => {
+      const result = await service.applyToJob(userId, body, key);
+      expect(result.replayed).toBe(false);
+      expect(repository.findByIdempotencyKey).toHaveBeenCalledWith(userId, key);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: key, requestHash: expect.stringMatching(/^[0-9a-f]{64}$/) }));
+    });
+
+    it('looks nothing up and keeps nothing when no key is sent', async () => {
+      await service.applyToJob(userId, body);
+      expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
+      const data = repository.create.mock.calls[0]?.[0] as { idempotencyKey?: string; requestHash?: string };
+      expect(data.idempotencyKey).toBeUndefined();
+      expect(data.requestHash).toBeUndefined();
+    });
+
+    it('returns the application the first attempt committed, even though the job has closed since, and sends nothing again', async () => {
+      await service.applyToJob(userId, body, key);
+      const committed = { ...application('submitted', committedId), request_hash: hashOfLastCreate() };
+      repository.create.mockClear();
+      mockNotifications.dispatch.mockClear();
+      repository.findByIdempotencyKey.mockResolvedValue(committed);
+      // What the first attempt created would now fail the duplicate check, and the job is no longer open.
+      repository.findLatestByJobAndApplicant.mockResolvedValue(committed);
+      const closedJob = serviceFor({ jobs: { findPublicJobById: vi.fn().mockResolvedValue(null), stillExists } });
+
+      const result = await closedJob.applyToJob(userId, body, key);
+
+      expect(result).toMatchObject({ replayed: true, item: { id: committedId, status: 'submitted' } });
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(mockNotifications.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a key that an earlier application used for different content', async () => {
+      repository.findByIdempotencyKey.mockResolvedValue({ ...application('submitted', committedId), request_hash: 'f'.repeat(64) });
+      await expect(service.applyToJob(userId, body, key)).rejects.toMatchObject({ statusCode: 409, code: APPLICATION_ERROR_CODES.IDEMPOTENCY_KEY_REUSED });
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('treats the same content as the same attempt whatever the order of the certificates', async () => {
+      const resolveForApplication = vi.fn().mockImplementation(async (_owner: string, ids: string[]) => ids.map((id) => ({ _id: id, version: 1, name: 'Cert', url: 'https://cert.example' })));
+      const withCertificates = serviceFor({ certificates: { resolveForApplication } });
+      const first = '507f1f77bcf86cd7994390c1';
+      const second = '507f1f77bcf86cd7994390c2';
+
+      await withCertificates.applyToJob(userId, { ...body, certificateLinkIds: [first, second] }, key);
+      const hash = hashOfLastCreate();
+      await withCertificates.applyToJob(userId, { ...body, certificateLinkIds: [second, first] }, key);
+      expect(hashOfLastCreate()).toBe(hash);
+
+      await withCertificates.applyToJob(userId, { ...body, certificateLinkIds: [first] }, key);
+      expect(hashOfLastCreate()).not.toBe(hash);
+    });
+
+    it('returns the winner when a concurrent attempt with the same key committed first', async () => {
+      repository.create.mockResolvedValue(null);
+      repository.findByIdempotencyKey
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(async () => ({ ...application('submitted', committedId), request_hash: hashOfLastCreate() }));
+
+      const result = await service.applyToJob(userId, body, key);
+
+      expect(result).toMatchObject({ replayed: true, item: { id: committedId } });
+      expect(mockNotifications.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('still reports already applied when the lost race was not this attempt', async () => {
+      repository.create.mockResolvedValue(null);
+      await expect(service.applyToJob(userId, body, key)).rejects.toMatchObject({ statusCode: 409, code: APPLICATION_ERROR_CODES.ALREADY_APPLIED });
+    });
   });
 
   it('stores a copy of each ticked certificate, or nothing when one is no longer the applicant’s (BR-S4-LINK-003)', async () => {

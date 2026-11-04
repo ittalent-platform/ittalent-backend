@@ -37,6 +37,45 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
     });
   });
 
+  describe('findByIdempotencyKey (BR-APP-009)', () => {
+    it('looks the key up among the applicant’s own applications and reads the request hash', async () => {
+      const applicantId = new Types.ObjectId().toString();
+      const doc = { _id: new Types.ObjectId(), request_hash: 'a'.repeat(64) };
+      const query = mockMongooseQuery(doc);
+      query.select = vi.fn().mockReturnValue(query);
+      vi.spyOn(Application, 'findOne').mockReturnValue(query as never);
+
+      const result = await repository.findByIdempotencyKey(applicantId, 'attempt-0001');
+
+      expect(result).toEqual(doc);
+      expect(Application.findOne).toHaveBeenCalledWith({ applicant_id: applicantId, idempotency_key: 'attempt-0001' });
+      expect(query.select).toHaveBeenCalledWith('+request_hash');
+    });
+  });
+
+  describe('create (BR-APP-009)', () => {
+    const base = { jobId: new Types.ObjectId(), applicantId: new Types.ObjectId(), cvId: new Types.ObjectId().toString(), changedBy: 'user-1' };
+    const saved = { toObject: (): Record<string, unknown> => ({ _id: new Types.ObjectId() }) };
+
+    it('stores the key and the request hash with the application', async () => {
+      const create = vi.spyOn(Application, 'create').mockResolvedValue(saved as never);
+
+      await repository.create({ ...base, idempotencyKey: 'attempt-0001', requestHash: 'b'.repeat(64) });
+
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: 'attempt-0001', request_hash: 'b'.repeat(64) }));
+    });
+
+    it('stores neither without a key', async () => {
+      const create = vi.spyOn(Application, 'create').mockResolvedValue(saved as never);
+
+      await repository.create(base);
+
+      const data = create.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(data).not.toHaveProperty('idempotency_key');
+      expect(data).not.toHaveProperty('request_hash');
+    });
+  });
+
   describe('findByIdAndJobIds', () => {
     it('returns null immediately if jobIds array is empty', async () => {
       const validId = new Types.ObjectId().toString();

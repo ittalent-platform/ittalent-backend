@@ -7,6 +7,7 @@ import { Document } from '../../src/models/document.model.js';
 import { Enterprise } from '../../src/models/enterprise.model.js';
 import { JobPosting } from '../../src/models/job-posting.model.js';
 import { User } from '../../src/models/user.model.js';
+import { applicationsRepository } from '../../src/modules/applications/applications.repository.js';
 import { applicationsService } from '../../src/modules/applications/applications.service.js';
 
 const DAY = 86_400_000;
@@ -169,5 +170,25 @@ describe('My applications against MongoDB (UC-MYAPP-01..05)', () => {
     expect(list.find((item) => item.id === String(first._id))).toMatchObject({ status: 'withdrawn', reappliedAs: String(second._id), canApplyAgain: false });
     expect(list.find((item) => item.id === String(second._id))).toMatchObject({ status: 'submitted', reappliedFrom: String(first._id), canWithdraw: true });
     expect((await applicationsService.getHistory(String(owner), String(second._id), 1, 20)).total).toBe(1);
+  });
+
+  it('lets an Idempotency-Key name one application per applicant, finds it again and never returns it (BR-APP-009)', async () => {
+    await Application.deleteMany({ applicant_id: { $in: [owner, other] } });
+    const first = await application(await job('Key Co', 'Keyed'), 'submitted', { idempotency_key: 'attempt-0001', request_hash: 'a'.repeat(64) });
+
+    // The same applicant cannot use the key for a second application: a lost race ends here, and the service replays the first.
+    await expect(
+      application(await job('Key Co', 'Keyed again'), 'submitted', { idempotency_key: 'attempt-0001', request_hash: 'b'.repeat(64) }),
+    ).rejects.toMatchObject({ code: 11000 });
+    // Another applicant may use the same key, and applications without a key never collide with each other.
+    await application(await job('Key Co', 'Other applicant'), 'submitted', { idempotency_key: 'attempt-0001', request_hash: 'a'.repeat(64) }, other);
+    await application(await job('Key Co', 'No key one'));
+    await application(await job('Key Co', 'No key two'));
+
+    expect(await applicationsRepository.findByIdempotencyKey(owner, 'attempt-0001')).toMatchObject({ _id: first._id, request_hash: 'a'.repeat(64) });
+    expect(await applicationsRepository.findByIdempotencyKey(owner, 'attempt-0002')).toBeNull();
+    // The key and the hash are for the server only.
+    expect(await Application.findById(first._id).lean()).not.toHaveProperty('idempotency_key');
+    expect(JSON.stringify(await applicationsService.getDetail(String(owner), String(first._id)))).not.toMatch(/attempt-0001|request_hash/);
   });
 });

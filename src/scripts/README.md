@@ -16,7 +16,7 @@ Run `npm run migrate:enterprise-recruiters` before `npm run migrate:job-posting-
 
 ### Application indexes migration
 
-Run `npm run migrate:application-indexes` once on any database created before apply-again (BR-APP-010). The unique `(job_id, applicant_id)` index became a partial index (Withdrawn and Rejected records no longer occupy the pair), and MongoDB will not create an index whose name exists with different options. The script drops indexes that are no longer in the schema and creates the new ones. New databases do not need it.
+Run `npm run migrate:application-indexes` once on any database created before apply-again (BR-APP-010). The unique `(job_id, applicant_id)` index became a partial index (Withdrawn and Rejected records no longer occupy the pair), and MongoDB will not create an index whose name exists with different options. The script drops indexes that are no longer in the schema and creates the new ones. New databases do not need it. Run it again after deploying the `Idempotency-Key` support of `POST /me/applications` (BR-APP-009): it creates the partial unique `(applicant_id, idempotency_key)` index. Until then a retry that arrives after the first request has finished is still answered with that application, but two requests with the same key that run at the same time are only kept apart by the one-active-application rule.
 
 ### 1. Seed Admin Account (`seed-admin.ts`)
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applicationIdempotencyKeySchema,
   applicationHistoryQuerySchema,
   applicationListQuerySchema,
   applicationListQueryValidator,
@@ -10,6 +11,21 @@ import {
 } from '../../../src/modules/applications/applications.schemas.js';
 
 describe('Applications schemas', () => {
+  describe('applicationIdempotencyKeySchema (BR-APP-009)', () => {
+    it('accepts a UUID and trims surrounding spaces', () => {
+      expect(applicationIdempotencyKeySchema.parse('9c9ccf4b-2f18-4b5e-a67d-10de8ea8da02')).toBe('9c9ccf4b-2f18-4b5e-a67d-10de8ea8da02');
+      expect(applicationIdempotencyKeySchema.parse('  attempt-1  ')).toBe('attempt-1');
+    });
+
+    it.each(['', '   ', 'two words', 'khóa', 'k'.repeat(129)])('rejects %j', (value) => {
+      expect(applicationIdempotencyKeySchema.safeParse(value).success).toBe(false);
+    });
+
+    it('accepts the longest allowed key', () => {
+      expect(applicationIdempotencyKeySchema.safeParse('k'.repeat(128)).success).toBe(true);
+    });
+  });
+
   describe('applicationIdParamSchema', () => {
     it('accepts valid 24-hex string', () => {
       expect(applicationIdParamSchema.safeParse({ id: '507f1f77bcf86cd799439011' }).success).toBe(true);

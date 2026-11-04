@@ -1,9 +1,11 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { z } from 'zod';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import {
   applicationDetailDtoSchema,
   applicationDtoSchema,
+  applicationIdempotencyKeySchema,
   applicationHistoryQuerySchema,
   applicationHistoryResponseSchema,
   applicationIdParamSchema,
@@ -30,9 +32,18 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
       'Applicant only. Requires a verified email and a Published + Open job. ' +
       'One active application per job: after a Withdrawn or Rejected application the applicant may apply again, ' +
       'which creates a new linked record (the closed one is never reopened). At most two applications per job; ' +
-      'never after Hired.',
+      'never after Hired. ' +
+      'Send an `Idempotency-Key` (one new value per submission attempt) to make a retry safe: if the first attempt was ' +
+      'committed but its response was lost, sending the same key with the same content returns that application ' +
+      '(200, `Idempotency-Replayed: true`) and creates nothing else, even after the app restarted.',
     security: [{ bearerAuth: [] }],
     request: {
+      headers: z.object({
+        'Idempotency-Key': applicationIdempotencyKeySchema.optional().openapi({
+          description: 'Optional. Reuse only when retrying the exact same submission.',
+          example: '9c9ccf4b-2f18-4b5e-a67d-10de8ea8da02',
+        }),
+      }),
       body: {
         required: true,
         content: { 'application/json': { schema: registeredBody } },
@@ -43,8 +54,12 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
         description: 'Application submitted',
         content: { 'application/json': { schema: registeredDto } },
       },
+      [HTTP_STATUS.HTTP_200_OK]: {
+        description: 'An earlier attempt with the same Idempotency-Key was already committed; that application is returned',
+        content: { 'application/json': { schema: registeredDto } },
+      },
       [HTTP_STATUS.HTTP_400_BAD_REQUEST]: {
-        description: 'Validation failed (bad IDs, message too long, CV/cover letter not available)',
+        description: 'Validation failed (bad IDs, message too long, CV/cover letter not available, unusable Idempotency-Key)',
       },
       [HTTP_STATUS.HTTP_401_UNAUTHORIZED]: {
         description: 'Authentication required',
@@ -57,7 +72,7 @@ export function registerApplicationsOpenApi(registry: OpenAPIRegistry): void {
       },
       [HTTP_STATUS.HTTP_409_CONFLICT]: {
         description:
-          'ALREADY_APPLIED (an active application exists), APPLY_AGAIN_NOT_ALLOWED (Hired, or two applications already used), or POSITION_FILLED',
+          'ALREADY_APPLIED (an active application exists), APPLY_AGAIN_NOT_ALLOWED (Hired, or two applications already used), POSITION_FILLED, or IDEMPOTENCY_KEY_REUSED (the key was used for different content)',
       },
     },
   });

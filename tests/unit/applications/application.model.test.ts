@@ -60,6 +60,22 @@ describe('Application domain model & constants (PR 1)', () => {
     });
   });
 
+  describe('Idempotency key (BR-APP-009)', () => {
+    it('has a unique index per applicant and key that only covers applications that have a key', () => {
+      const index = Application.schema
+        .indexes()
+        .find(([fields]) => 'idempotency_key' in fields);
+
+      expect(index?.[0]).toEqual({ applicant_id: 1, idempotency_key: 1 });
+      expect(index?.[1]).toMatchObject({ unique: true, partialFilterExpression: { idempotency_key: { $type: 'string' } } });
+    });
+
+    it('keeps the key and the hash out of ordinary reads', () => {
+      expect(Application.schema.path('idempotency_key').options).toMatchObject({ select: false });
+      expect(Application.schema.path('request_hash').options).toMatchObject({ select: false });
+    });
+  });
+
   describe('Application schema validation', () => {
     const validBaseData = {
       job_id: new Types.ObjectId(),
