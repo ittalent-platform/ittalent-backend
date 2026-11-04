@@ -1,19 +1,36 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
-import { APPLICATION_MESSAGES } from './applications.constants.js';
-import type {
-  ApplicationHistoryQuery,
-  ApplicationIdParam,
-  ApplicationListQuery,
-  CreateApplicationBody,
-  WithdrawApplicationBody,
+import {
+  APPLICATION_IDEMPOTENCY_KEY_HEADER,
+  APPLICATION_IDEMPOTENCY_REPLAYED_HEADER,
+  APPLICATION_MESSAGES,
+} from './applications.constants.js';
+import {
+  applicationIdempotencyKeySchema,
+  type ApplicationHistoryQuery,
+  type ApplicationIdParam,
+  type ApplicationListQuery,
+  type CreateApplicationBody,
+  type WithdrawApplicationBody,
 } from './applications.schemas.js';
 import { applicationsService, type ApplicationsService } from './applications.service.js';
 
 export class ApplicationsController {
   constructor(private readonly service: ApplicationsService = applicationsService) {}
+
+  // BR-APP-009: optional. A header that is present but not a usable key is refused rather than ignored, so a
+  // client never believes it has retry protection that it does not have.
+  private idempotencyKeyOf(req: Request): string | undefined {
+    const raw = req.get(APPLICATION_IDEMPOTENCY_KEY_HEADER);
+    if (raw === undefined) return undefined;
+    const key = applicationIdempotencyKeySchema.safeParse(raw);
+    if (!key.success) {
+      throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, APPLICATION_MESSAGES.IDEMPOTENCY_KEY_INVALID);
+    }
+    return key.data;
+  }
 
   createApplication: RequestHandler = async (req, res, next) => {
     try {
@@ -24,8 +41,9 @@ export class ApplicationsController {
       }
 
       const body = res.locals.validated?.body as CreateApplicationBody;
-      const result = await this.service.applyToJob(user.id, body);
-      res.status(HTTP_STATUS.HTTP_201_CREATED).json(result);
+      const result = await this.service.applyToJob(user.id, body, this.idempotencyKeyOf(req));
+      if (result.replayed) res.setHeader(APPLICATION_IDEMPOTENCY_REPLAYED_HEADER, 'true');
+      res.status(result.replayed ? HTTP_STATUS.HTTP_200_OK : HTTP_STATUS.HTTP_201_CREATED).json(result.item);
     } catch (error) {
       next(error);
     }

@@ -37,6 +37,14 @@ export const createApplicationBodySchema = z.strictObject({
 
 export type CreateApplicationBody = z.infer<typeof createApplicationBodySchema>;
 
+// BR-APP-009: the key that names one submission attempt. Optional, so a client that does not send it keeps working.
+export const applicationIdempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(1, APPLICATION_MESSAGES.IDEMPOTENCY_KEY_INVALID)
+  .max(APPLICATION_CONFIG.IDEMPOTENCY_KEY_MAX_LENGTH, APPLICATION_MESSAGES.IDEMPOTENCY_KEY_INVALID)
+  .regex(/^[\x21-\x7e]+$/, APPLICATION_MESSAGES.IDEMPOTENCY_KEY_INVALID);
+
 export const applicationDtoSchema = z.object({
   id: z.string(),
   jobPostingId: z.string(),

@@ -80,6 +80,9 @@ export interface SubmitApplicationData {
   // BR-APP-010: the closed (Withdrawn/Rejected) record this application replaces.
   reappliedFrom?: Types.ObjectId | string | undefined;
   certificates?: ApplicationCertificateSnapshot[];
+  // BR-APP-009: the attempt this application answers, and a hash of what was sent.
+  idempotencyKey?: string | undefined;
+  requestHash?: string | undefined;
 }
 
 function isDuplicateKeyError(error: unknown): boolean {
@@ -109,6 +112,14 @@ export class ApplicationsRepository {
   ): Promise<ApplicationDoc | null> {
     return Application.findOne({ job_id: jobId, applicant_id: applicantId })
       .sort({ createdAt: -1, _id: -1 })
+      .lean<ApplicationDoc>()
+      .exec();
+  }
+
+  // BR-APP-009: the application an earlier attempt with this key committed, with the hash of what it sent.
+  async findByIdempotencyKey(applicantId: Types.ObjectId | string, idempotencyKey: string): Promise<ApplicationDoc | null> {
+    return Application.findOne({ applicant_id: applicantId, idempotency_key: idempotencyKey })
+      .select('+request_hash')
       .lean<ApplicationDoc>()
       .exec();
   }
@@ -150,6 +161,9 @@ export class ApplicationsRepository {
         ...(data.message ? { message: data.message } : {}),
         ...(data.certificates?.length ? { certificates: data.certificates } : {}),
         ...(data.reappliedFrom ? { reapplied_from: data.reappliedFrom } : {}),
+        ...(data.idempotencyKey && data.requestHash
+          ? { idempotency_key: data.idempotencyKey, request_hash: data.requestHash }
+          : {}),
         status: APPLICATION_INITIAL_STATUS,
         status_history: [this.buildHistoryEntry(data.changedBy)],
       });

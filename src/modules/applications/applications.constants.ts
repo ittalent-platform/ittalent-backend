@@ -38,7 +38,12 @@ export const APPLICATION_CONFIG = {
   DEFAULT_PAGE: 1,
   STATUS_FILTER_SEPARATOR: ',',
   MONGO_DUPLICATE_KEY_ERROR_CODE: 11000,
+  IDEMPOTENCY_KEY_MAX_LENGTH: 128,
 } as const;
+
+// BR-APP-009: a retry of the same submission (same key) returns the application that was already committed.
+export const APPLICATION_IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+export const APPLICATION_IDEMPOTENCY_REPLAYED_HEADER = 'Idempotency-Replayed';
 
 export const APPLICATION_REASON_MIN_LENGTH = APPLICATION_CONFIG.REASON_MIN_LENGTH;
 export const APPLICATION_NOTE_MAX_LENGTH = APPLICATION_CONFIG.NOTE_MAX_LENGTH;
@@ -54,6 +59,8 @@ export const APPLICATION_MESSAGES = {
   INVALID_COVER_LETTER: 'Selected cover letter is not available',
   ALREADY_APPLIED: 'You have already applied for this job',
   APPLY_AGAIN_NOT_ALLOWED: 'You cannot apply for this job again',
+  IDEMPOTENCY_KEY_INVALID: `Idempotency-Key must be 1-${APPLICATION_CONFIG.IDEMPOTENCY_KEY_MAX_LENGTH} printable ASCII characters`,
+  IDEMPOTENCY_KEY_REUSED: 'Idempotency-Key was already used with a different application',
   // UC-MYAPP-01.EX.2: the account cannot be resolved to a candidate; nothing is read or repaired here.
   CANDIDATE_UNAVAILABLE: 'Candidate profile could not be resolved. Contact support to repair your account.',
   NOT_FOUND: 'Application not found',
@@ -108,6 +115,7 @@ export const APPLICATION_ERROR_CODES = {
   INVALID_COVER_LETTER: 'INVALID_COVER_LETTER',
   ALREADY_APPLIED: 'ALREADY_APPLIED',
   APPLY_AGAIN_NOT_ALLOWED: 'APPLY_AGAIN_NOT_ALLOWED',
+  IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
 } as const;
 
 export const APPLICATION_SUBMITTED_LABEL = 'Submitted';

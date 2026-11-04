@@ -101,12 +101,89 @@ let mockService: Partial<ApplicationsService>;
 
   beforeEach(() => {
     mockService = {
+      applyToJob: vi.fn(),
       list: vi.fn(),
       getDetail: vi.fn(),
       getHistory: vi.fn(),
       withdraw: vi.fn(),
     };
     controller = new ApplicationsController(mockService as ApplicationsService);
+  });
+
+  describe('createApplication (BR-APP-009)', () => {
+    const body = { jobPostingId: '507f1f77bcf86cd799439012', cvId: '507f1f77bcf86cd799439013' };
+    const created = {
+      id: '507f1f77bcf86cd7994390bb',
+      jobPostingId: body.jobPostingId,
+      status: 'submitted',
+      cvId: body.cvId,
+      coverLetterId: null,
+      message: null,
+      reappliedFrom: null,
+      reappliedAs: null,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+    };
+
+    function call(headers: Record<string, string>): { run: () => Promise<void>; status: ReturnType<typeof vi.fn>; json: ReturnType<typeof vi.fn>; setHeader: ReturnType<typeof vi.fn>; next: ReturnType<typeof vi.fn> } {
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+      const setHeader = vi.fn();
+      const next = vi.fn();
+      const req = {
+        user: { id: 'user-1', email: 'user@example.com', role: 'user' },
+        get: (name: string) => headers[name],
+      } as never;
+      const res = { status, setHeader, locals: { validated: { body } } } as never;
+      const run = async (): Promise<void> => {
+        await controller.createApplication(req, res, next);
+      };
+      return { run, status, json, setHeader, next };
+    }
+
+    it('answers 201 and passes the Idempotency-Key to the service', async () => {
+      mockService.applyToJob = vi.fn().mockResolvedValue({ item: created, replayed: false });
+      const { run, status, json, setHeader } = call({ 'Idempotency-Key': ' attempt-0001 ' });
+
+      await run();
+
+      expect(mockService.applyToJob).toHaveBeenCalledWith('user-1', body, 'attempt-0001');
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_201_CREATED);
+      expect(json).toHaveBeenCalledWith(created);
+      expect(setHeader).not.toHaveBeenCalled();
+    });
+
+    it('answers 200 with Idempotency-Replayed when the application was already committed', async () => {
+      mockService.applyToJob = vi.fn().mockResolvedValue({ item: created, replayed: true });
+      const { run, status, json, setHeader } = call({ 'Idempotency-Key': 'attempt-0001' });
+
+      await run();
+
+      expect(setHeader).toHaveBeenCalledWith('Idempotency-Replayed', 'true');
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_200_OK);
+      expect(json).toHaveBeenCalledWith(created);
+    });
+
+    it('works without a key, as before', async () => {
+      mockService.applyToJob = vi.fn().mockResolvedValue({ item: created, replayed: false });
+      const { run, status } = call({});
+
+      await run();
+
+      expect(mockService.applyToJob).toHaveBeenCalledWith('user-1', body, undefined);
+      expect(status).toHaveBeenCalledWith(HTTP_STATUS.HTTP_201_CREATED);
+    });
+
+    it.each([['blank', '   '], ['with a space inside', 'two words'], ['not ASCII', 'khóa-thử'], ['too long', 'k'.repeat(129)]])('refuses a key that is %s and does not apply', async (_label, key) => {
+      mockService.applyToJob = vi.fn();
+      const { run, next, status } = call({ 'Idempotency-Key': key });
+
+      await run();
+
+      expect(mockService.applyToJob).not.toHaveBeenCalled();
+      expect(status).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: HTTP_STATUS.HTTP_400_BAD_REQUEST }));
+    });
   });
 
   describe('listMine', () => {

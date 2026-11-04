@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { Types } from 'mongoose';
 
 import type { ApplicationDoc, ApplicationStatus, ApplicationStatusHistoryEntry } from '../../models/application.model.js';
@@ -44,6 +46,12 @@ import {
   type ApplicationSummaryDTO,
   type CreateApplicationBody,
 } from './applications.schemas.js';
+
+export interface ApplyToJobResult {
+  item: ApplicationDTO;
+  // True when this is the application an earlier attempt with the same Idempotency-Key already committed.
+  replayed: boolean;
+}
 
 export class ApplicationsService {
   constructor(
@@ -190,7 +198,36 @@ export class ApplicationsService {
     return this.repository.countCertificatesSent(applicantId, certificateIds);
   }
 
-  async applyToJob(userId: string, input: CreateApplicationBody): Promise<ApplicationDTO> {
+  // The same content always gives the same hash: fixed field order, certificates sorted.
+  private requestHashOf(input: CreateApplicationBody): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          jobPostingId: input.jobPostingId,
+          cvId: input.cvId,
+          coverLetterId: input.coverLetterId ?? null,
+          message: input.message ?? null,
+          certificateLinkIds: [...(input.certificateLinkIds ?? [])].sort(),
+        }),
+      )
+      .digest('hex');
+  }
+
+  // BR-APP-009: the application an earlier attempt with this key committed; a key used for different content is refused.
+  private async committedBy(applicantId: string, idempotencyKey: string, requestHash: string): Promise<ApplicationDTO | null> {
+    const existing = await this.repository.findByIdempotencyKey(applicantId, idempotencyKey);
+    if (!existing) return null;
+    if (existing.request_hash !== requestHash) {
+      throw createHttpError(
+        HTTP_STATUS.HTTP_409_CONFLICT,
+        APPLICATION_MESSAGES.IDEMPOTENCY_KEY_REUSED,
+        APPLICATION_ERROR_CODES.IDEMPOTENCY_KEY_REUSED,
+      );
+    }
+    return this.mapDto(existing);
+  }
+
+  async applyToJob(userId: string, input: CreateApplicationBody, idempotencyKey?: string): Promise<ApplyToJobResult> {
     // E1/E2: signed-in user must exist and have a verified (active) account.
     const user = await this.users.findById(userId);
     if (!user) {
@@ -209,6 +246,15 @@ export class ApplicationsService {
         APPLICATION_MESSAGES.ACCOUNT_NOT_ACTIVE,
         APPLICATION_ERROR_CODES.ACCOUNT_NOT_ACTIVE,
       );
+    }
+
+    // BR-APP-009 / UC-BJOB-03 A3: a retry of an attempt that already committed gets that application back. This
+    // comes before the job and duplicate checks, which the committed application itself would now fail (it is
+    // the applicant's active application, and the job may have closed since), and sends nothing a second time.
+    const requestHash = idempotencyKey ? this.requestHashOf(input) : undefined;
+    if (idempotencyKey && requestHash) {
+      const committed = await this.committedBy(userId, idempotencyKey, requestHash);
+      if (committed) return { item: committed, replayed: true };
     }
 
     // E4: job must be Published + Open.
@@ -261,6 +307,8 @@ export class ApplicationsService {
       coverLetterId: input.coverLetterId,
       message: input.message,
       changedBy: userId,
+      idempotencyKey,
+      requestHash,
       certificates: certificates.map((item) => ({
         certificate_id: item._id,
         version: item.version,
@@ -293,6 +341,11 @@ export class ApplicationsService {
 
     // null = a concurrent request won the race (unique index / status condition).
     if (!application) {
+      // If that request carried this same key, it is the attempt being retried, not a second application.
+      if (idempotencyKey && requestHash) {
+        const committed = await this.committedBy(userId, idempotencyKey, requestHash);
+        if (committed) return { item: committed, replayed: true };
+      }
       throw this.alreadyApplied();
     }
 
@@ -310,7 +363,7 @@ export class ApplicationsService {
     await this.sendConfirmation(user.email, job.title);
     await this.sendApplicationNotifications(userId, job, application._id);
 
-    return this.mapDto(application);
+    return { item: this.mapDto(application), replayed: false };
   }
 
   // ---- UC-MYAPP-01..05: the candidate's own applications ----
