@@ -135,7 +135,10 @@ let mockService: Partial<ApplicationsService>;
         get: (name: string) => headers[name],
       } as never;
       const res = { status, setHeader, locals: { validated: { body } } } as never;
-      return { run: () => controller.createApplication(req, res, next), status, json, setHeader, next };
+      const run = async (): Promise<void> => {
+        await controller.createApplication(req, res, next);
+      };
+      return { run, status, json, setHeader, next };
     }
 
     it('answers 201 and passes the Idempotency-Key to the service', async () => {
