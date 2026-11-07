@@ -29,7 +29,8 @@ const DEFAULT_AVATAR_MAX_DIMENSION = 4_096;
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(PORT_MAX_LIMIT).default(DEFAULT_PORT),
-  MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+  MONGODB_URI: z.string().default('mongodb://localhost:27017/ittalent'),
+  SQLITE_DB_PATH: z.string().default('./data/demo.sqlite'),
   JWT_ACCESS_SECRET: z.string().min(JWT_SECRET_MIN_LENGTH, `JWT_ACCESS_SECRET must be at least ${JWT_SECRET_MIN_LENGTH} characters`),
   JWT_REFRESH_SECRET: z.string().min(JWT_SECRET_MIN_LENGTH, `JWT_REFRESH_SECRET must be at least ${JWT_SECRET_MIN_LENGTH} characters`),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),

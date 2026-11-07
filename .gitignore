@@ -22,3 +22,12 @@ DRAWIO_*.md
 
 # Local scripts
 /scripts/
+
+# SQLite Demo Database
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+drizzle/
+
