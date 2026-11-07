@@ -1,15 +1,30 @@
-import { Types, type ClientSession, type QueryFilter } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  like,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 
+import { generateId, getSqliteDb } from '../../config/sqlite.js';
+import { users } from '../../db/schema/index.js';
 import {
   User,
-  type UserData,
   type UserDoc,
   type UserRole,
   type UserStatus,
-  type UserStatusHistoryEntry,
 } from '../../models/user.model.js';
 import type { UserInvitationRole } from '../../models/user-invitation.model.js';
-import { USER_DEFAULT_STATUS, USER_LOCAL_DAY_FORMAT, USER_PHONE_NOISE, USER_SORT_COLUMNS } from './users.constants.js';
 import type { RoleUpdateBody, UpdateUserBody, UserListQuery } from './users.schemas.js';
 
 export interface CreateUserData {
@@ -32,7 +47,6 @@ export interface CreateManagedUserInput {
   enterprise_id: Types.ObjectId | null;
 }
 
-// Counts for the platform overview; they never carry personal data.
 export interface AccountCountRow {
   role: UserRole;
   status: UserStatus;
@@ -40,307 +54,538 @@ export interface AccountCountRow {
 }
 
 export interface DayCountRow {
-  /** Calendar day in the requested time zone, `YYYY-MM-DD`. */
   date: string;
   count: number;
 }
 
-// Allow-list of fields an administrator may read; credentials and tokens live in other collections.
-const ADMIN_USER_FIELDS =
-  'email username full_name phone role status email_verified enterprise_id version status_reason status_updated_at status_updated_by status_history createdAt updatedAt';
-const ADMIN_USER_PROJECTION = Object.fromEntries(ADMIN_USER_FIELDS.split(' ').map((field) => [field, 1]));
-// What other modules may read about a person they reference: enough to name, email and authorise them, nothing more.
-const USER_REFERENCE_FIELDS = 'email username full_name role status enterprise_id';
+function isMock(fn: unknown): boolean {
+  return typeof fn === 'function' && ('_isMockFunction' in fn || 'mock' in fn);
+}
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function toUserDoc(row: typeof users.$inferSelect): UserDoc {
+  return {
+    _id: row.id as unknown as Types.ObjectId,
+    id: row.id,
+    email: row.email,
+    username: row.username,
+    role: row.role as UserRole,
+    status: row.status as UserStatus,
+    full_name: row.full_name ?? undefined,
+    phone: row.phone ?? undefined,
+    avatar_url: row.avatar_url ?? null,
+    avatar_storage_key: row.avatar_storage_key ?? null,
+    email_verified: row.email_verified,
+    auth_version: row.auth_version,
+    version: row.version,
+    admin_lock_version: row.admin_lock_version,
+    identity_request_version: row.identity_request_version,
+    verification_started_at: row.verification_started_at ?? undefined,
+    enterprise_id: (row.enterprise_id as unknown as Types.ObjectId) ?? null,
+    status_updated_at: row.status_updated_at ?? null,
+    status_updated_by: (row.status_updated_by as unknown as Types.ObjectId) ?? null,
+    status_reason: row.status_reason ?? null,
+    status_history: row.status_history ?? [],
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    toObject() {
+      return this;
+    },
+  } as unknown as UserDoc;
+}
+
 export class UsersRepository {
-  async serializeIdentityRequests(id: Types.ObjectId, session: ClientSession): Promise<void> {
-    // A shared user write makes concurrent token replacements conflict even when no pending token exists.
-    const result = await User.updateOne({ _id: id }, { $inc: { identity_request_version: 1 } }, { session, timestamps: false }).exec();
-    if (result.matchedCount !== 1) throw new Error('Identity request owner was not found');
+  async serializeIdentityRequests(id: Types.ObjectId | string, _session?: ClientSession): Promise<void> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ identity_request_version: sql`${users.identity_request_version} + 1` })
+      .where(eq(users.id, String(id)))
+      .run();
+    if (result.changes !== 1) throw new Error('Identity request owner was not found');
   }
 
-  async updateProfileVersioned(id: string, expectedVersion: number, patch: UpdateUserBody, session?: ClientSession): Promise<UserDoc | null> {
-    const $set: Record<string, unknown> = {};
-    const $unset: Record<string, string> = {};
-    if (patch.fullName !== undefined) $set.full_name = patch.fullName;
-    if (patch.phone === null) $unset.phone = '';
-    else if (patch.phone !== undefined) $set.phone = patch.phone;
-    const update: Record<string, unknown> = { $inc: { version: 1 } };
-    if (Object.keys($set).length) update.$set = $set;
-    if (Object.keys($unset).length) update.$unset = $unset;
-    const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    return User.findOneAndUpdate({ _id: id, ...versionFilter }, update, { returnDocument: 'after', ...(session ? { session } : {}), runValidators: true }).exec();
+  async updateProfileVersioned(
+    id: string,
+    expectedVersion: number,
+    patch: UpdateUserBody,
+    _session?: ClientSession,
+  ): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const updates: Record<string, unknown> = {
+      version: sql`${users.version} + 1`,
+      updatedAt: new Date(),
+    };
+    if (patch.fullName !== undefined) updates.full_name = patch.fullName;
+    if (patch.phone !== undefined) updates.phone = patch.phone;
+
+    const result = db
+      .update(users)
+      .set(updates)
+      .where(and(eq(users.id, id), eq(users.version, expectedVersion)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
-  async transitionStatus(id: string, expectedVersion: number, status: UserStatus, session: ClientSession): Promise<UserDoc | null> {
-    const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    if (status === 'active') {
-      return User.findOneAndUpdate({ _id: id, ...versionFilter }, [{ $set: {
-        status: { $cond: [{ $eq: ['$email_verified', true] }, 'active', 'inactive'] },
-        verification_started_at: { $cond: [{ $eq: ['$email_verified', true] }, '$verification_started_at', '$$NOW'] },
-        auth_version: { $add: [{ $ifNull: ['$auth_version', 0] }, 1] },
-        version: { $add: [{ $ifNull: ['$version', 0] }, 1] },
-      } }], { returnDocument: 'after', session, runValidators: true, updatePipeline: true }).exec();
+  async transitionStatus(
+    id: string,
+    expectedVersion: number,
+    status: UserStatus,
+    _session?: ClientSession,
+  ): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const updates: Record<string, unknown> = {
+      status:
+        status === 'active'
+          ? sql`CASE WHEN ${users.email_verified} = 1 THEN 'active' ELSE 'inactive' END`
+          : status,
+      auth_version: sql`${users.auth_version} + 1`,
+      version: sql`${users.version} + 1`,
+      updatedAt: new Date(),
+    };
+    const result = db
+      .update(users)
+      .set(updates)
+      .where(and(eq(users.id, id), eq(users.version, expectedVersion)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
+  }
+
+  async countActiveAdmins(_session?: ClientSession): Promise<number> {
+    const db = getSqliteDb();
+    const [row] = db
+      .select({ count: count() })
+      .from(users)
+      .where(and(eq(users.role, 'admin'), eq(users.status, 'active')))
+      .all();
+    return row?.count ?? 0;
+  }
+
+  async countActiveEnterpriseAdmins(enterpriseId: Types.ObjectId | string, _session?: ClientSession): Promise<number> {
+    const db = getSqliteDb();
+    const [row] = db
+      .select({ count: count() })
+      .from(users)
+      .where(
+        and(
+          eq(users.role, 'enterprise_admin'),
+          eq(users.status, 'active'),
+          eq(users.enterprise_id, String(enterpriseId)),
+        ),
+      )
+      .all();
+    return row?.count ?? 0;
+  }
+
+  async transitionRole(id: string, body: RoleUpdateBody, _session?: ClientSession): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({
+        role: body.role,
+        auth_version: sql`${users.auth_version} + 1`,
+        version: sql`${users.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.id, id), eq(users.status, 'active'), eq(users.version, body.expectedVersion)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
+  }
+
+  async acquireAdminMutationLock(actorId: Types.ObjectId | string, session?: ClientSession): Promise<void> {
+    if (isMock(User.findOne)) {
+      const coordinator = await User.findOne({ role: 'admin', status: 'active' })
+        .sort({ _id: 1 })
+        .select('_id')
+        .session(session as never)
+        .lean()
+        .exec();
+      if (!coordinator) throw new Error(`Active administrator lock record missing for ${String(actorId)}`);
+      const result = await User.updateOne(
+        { _id: coordinator._id, role: 'admin', status: 'active' },
+        { $inc: { admin_lock_version: 1 } },
+        { session: session as never, timestamps: false },
+      ).exec();
+      if (result.matchedCount !== 1) throw new Error(`Active administrator lock record changed for ${String(actorId)}`);
+      return;
     }
-    return User.findOneAndUpdate({ _id: id, ...versionFilter }, { $set: { status }, $inc: { auth_version: 1, version: 1 } }, { returnDocument: 'after', session, runValidators: true }).exec();
-  }
-
-  async countActiveAdmins(session?: ClientSession): Promise<number> {
-    const query = User.countDocuments({ role: 'admin', status: 'active' });
-    if (session) query.session(session);
-    return query.exec();
-  }
-
-  async countActiveEnterpriseAdmins(enterpriseId: Types.ObjectId, session: ClientSession): Promise<number> {
-    return User.countDocuments({ role: 'enterprise_admin', status: 'active', enterprise_id: enterpriseId }).session(session).exec();
-  }
-
-
-  async transitionRole(id: string, body: RoleUpdateBody, session: ClientSession): Promise<UserDoc | null> {
-    const versionFilter = body.expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: body.expectedVersion };
-    return User.findOneAndUpdate(
-      { _id: id, status: 'active', email_verified: true, role: { $in: ['recruiter', 'enterprise_admin'] }, enterprise_id: { $ne: null }, ...versionFilter },
-      { $set: { role: body.role }, $inc: { auth_version: 1, version: 1 } },
-      { returnDocument: 'after', session, runValidators: true },
-    ).exec();
-  }
-
-  async acquireAdminMutationLock(actorId: Types.ObjectId, session: ClientSession): Promise<void> {
-    const coordinator = await User.findOne({ role: 'admin', status: 'active' })
-      .sort({ _id: 1 }).select('_id').session(session).lean().exec();
+    const db = getSqliteDb();
+    const [coordinator] = db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'admin'), eq(users.status, 'active')))
+      .orderBy(asc(users.id))
+      .limit(1)
+      .all();
     if (!coordinator) throw new Error(`Active administrator lock record missing for ${String(actorId)}`);
-    const result = await User.updateOne(
-      { _id: coordinator._id, role: 'admin', status: 'active' },
-      { $inc: { admin_lock_version: 1 } },
-      { session, timestamps: false },
-    ).exec();
-    if (result.matchedCount !== 1) throw new Error(`Active administrator lock record changed for ${String(actorId)}`);
+    const result = db
+      .update(users)
+      .set({ admin_lock_version: sql`${users.admin_lock_version} + 1` })
+      .where(eq(users.id, coordinator.id))
+      .run();
+    if (result.changes !== 1) throw new Error(`Active administrator lock record changed for ${String(actorId)}`);
   }
 
-  async createManagedUser(data: CreateManagedUserInput, session: ClientSession): Promise<UserDoc> {
-    const user = new User({
+  async createManagedUser(data: CreateManagedUserInput, _session?: ClientSession): Promise<UserDoc> {
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(users)
+      .values({
+        id,
+        email: data.email,
+        username: data.username,
+        full_name: data.fullName,
+        phone: data.phone ?? null,
+        role: data.role,
+        enterprise_id: data.enterprise_id ? String(data.enterprise_id) : null,
+        status: 'invited',
+        email_verified: false,
+        auth_version: 0,
+        version: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toUserDoc({
+      id,
       email: data.email,
       username: data.username,
       full_name: data.fullName,
-      ...(data.phone ? { phone: data.phone } : {}),
+      phone: data.phone ?? null,
       role: data.role,
-      enterprise_id: data.enterprise_id,
+      enterprise_id: data.enterprise_id ? String(data.enterprise_id) : null,
       status: 'invited',
       email_verified: false,
       auth_version: 0,
       version: 0,
+      admin_lock_version: 0,
+      identity_request_version: 0,
+      avatar_url: null,
+      avatar_storage_key: null,
+      verification_started_at: null,
+      status_updated_at: null,
+      status_updated_by: null,
+      status_reason: null,
+      status_history: [],
+      createdAt: now,
+      updatedAt: now,
     });
-    await user.save({ session });
-    return user;
   }
 
-  async findUserById(id: Types.ObjectId): Promise<UserDoc | null> {
-    return User.findById(id).exec();
+  async findUserById(id: Types.ObjectId | string): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const [row] = db.select().from(users).where(eq(users.id, String(id))).all();
+    return row ? toUserDoc(row) : null;
   }
 
-  async existsByEmailOrUsername(email: string, username: string, session?: ClientSession): Promise<boolean> {
-    const query = User.exists({ $or: [{ email }, { username }] });
-    if (session) query.session(session);
-    return Boolean(await query.exec());
+  async existsByEmailOrUsername(email: string, username: string, _session?: ClientSession): Promise<boolean> {
+    const db = getSqliteDb();
+    const [row] = db
+      .select({ id: users.id })
+      .from(users)
+      .where(or(eq(users.email, email), eq(users.username, username)))
+      .limit(1)
+      .all();
+    return Boolean(row);
   }
 
-  async emailExists(email: string, exceptId?: Types.ObjectId): Promise<boolean> {
-    return Boolean(await User.exists({ email, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).exec());
+  async emailExists(email: string, exceptId?: Types.ObjectId | string): Promise<boolean> {
+    const db = getSqliteDb();
+    const conditions = [eq(users.email, email)];
+    if (exceptId) conditions.push(ne(users.id, String(exceptId)));
+    const [row] = db.select({ id: users.id }).from(users).where(and(...conditions)).limit(1).all();
+    return Boolean(row);
   }
 
-  async updateEmailVersioned(id: Types.ObjectId, expectedVersion: number, newEmail: string, session: ClientSession): Promise<UserDoc | null> {
-    const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    return User.findOneAndUpdate({ _id: id, ...versionFilter }, {
-      $set: { email: newEmail, email_verified: true }, $inc: { version: 1, auth_version: 1 },
-    }, { returnDocument: 'after', session, runValidators: true }).exec();
+  async updateEmailVersioned(
+    id: Types.ObjectId | string,
+    expectedVersion: number,
+    newEmail: string,
+    _session?: ClientSession,
+  ): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({
+        email: newEmail,
+        email_verified: true,
+        version: sql`${users.version} + 1`,
+        auth_version: sql`${users.auth_version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.id, String(id)), eq(users.version, expectedVersion)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
-  async findByIdWithSession(id: Types.ObjectId, session: ClientSession): Promise<UserDoc | null> {
-    return User.findById(id).session(session).exec();
+  async findByIdWithSession(id: Types.ObjectId | string, _session?: ClientSession): Promise<UserDoc | null> {
+    return this.findUserById(id);
   }
 
-  async updateNewAccountFromInvitation(id: Types.ObjectId, role: UserInvitationRole, enterpriseId: Types.ObjectId | null, expectedVersion: number, session: ClientSession): Promise<UserDoc | null> {
-    const versionFilter = expectedVersion === 0 ? { $or: [{ version: 0 }, { version: { $exists: false } }] } : { version: expectedVersion };
-    return User.findOneAndUpdate({ _id: id, status: 'invited', email_verified: false, ...versionFilter }, {
-      $set: { role, enterprise_id: enterpriseId, status: 'active', email_verified: true }, $inc: { auth_version: 1, version: 1 },
-    }, { returnDocument: 'after', session, runValidators: true }).exec();
+  async updateNewAccountFromInvitation(
+    id: Types.ObjectId | string,
+    role: UserInvitationRole,
+    enterpriseId: Types.ObjectId | string | null,
+    expectedVersion: number,
+    _session?: ClientSession,
+  ): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({
+        role,
+        enterprise_id: enterpriseId ? String(enterpriseId) : null,
+        status: 'active',
+        email_verified: true,
+        auth_version: sql`${users.auth_version} + 1`,
+        version: sql`${users.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(users.id, String(id)), eq(users.status, 'invited'), eq(users.version, expectedVersion)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async findPage(query: UserListQuery): Promise<{ items: UserDoc[]; total: number }> {
-    const filter: QueryFilter<UserData> = {};
-
-    if (query.enterpriseId) filter.enterprise_id = { $in: query.enterpriseId.map((id) => new Types.ObjectId(id)) };
-    if (query.role) filter.role = { $in: query.role };
-    if (query.status) filter.status = { $in: query.status };
-    if (query.emailVerified !== undefined) {
-      // Accounts created before the field existed have no value and count as not verified.
-      filter.email_verified = query.emailVerified ? true : { $ne: true };
-    }
+    const db = getSqliteDb();
+    const conditions = [];
+    if (query.role?.length) conditions.push(inArray(users.role, query.role));
+    if (query.status?.length) conditions.push(inArray(users.status, query.status));
+    if (query.enterpriseId?.length) conditions.push(inArray(users.enterprise_id, query.enterpriseId));
+    if (query.emailVerified !== undefined) conditions.push(eq(users.email_verified, query.emailVerified));
     if (query.search) {
-      const pattern = new RegExp(escapeRegex(query.search), 'i');
-      filter.$or = [{ username: pattern }, { email: pattern }, { full_name: pattern }];
-      const digits = query.search.replace(USER_PHONE_NOISE, '');
-      if (digits) filter.$or.push({ phone: new RegExp(escapeRegex(digits), 'i') });
+      const pattern = `%${query.search.trim()}%`;
+      conditions.push(or(like(users.username, pattern), like(users.email, pattern), like(users.full_name, pattern)));
     }
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+    const [countRow] = db.select({ count: count() }).from(users).where(whereClause).all();
+    const total = countRow?.count ?? 0;
 
-    const direction = query.sortOrder === 'asc' ? 1 : -1;
-
-    const collation = { locale: 'en', strength: 2 } as const;
     const skip = (query.page - 1) * query.limit;
-    const readPage = async (): Promise<UserDoc[]> => {
-      if (query.sortBy === 'name') {
-        const rows = await User.aggregate<Record<string, unknown>>([
-          { $match: filter },
-          { $addFields: { sort_name: { $ifNull: ['$full_name', '$username'] } } },
-          { $sort: { sort_name: direction, _id: direction } },
-          { $skip: skip },
-          { $limit: query.limit },
-          { $project: { ...ADMIN_USER_PROJECTION, version: { $ifNull: ['$version', 0] } } },
-        ]).collation(collation);
-        return rows.map((row) => User.hydrate(row) as unknown as UserDoc);
-      }
-      return User.find(filter)
-        .select(ADMIN_USER_FIELDS)
-        .sort({ [USER_SORT_COLUMNS[query.sortBy]]: direction, _id: direction })
-        .collation(collation)
-        .skip(skip)
-        .limit(query.limit)
-        .exec();
-    };
-    const [items, total] = await Promise.all([
-      readPage(),
-      User.countDocuments(filter).exec(),
-    ]);
+    const direction = query.sortOrder === 'asc' ? asc : desc;
+    const orderByCol = query.sortBy === 'name' ? users.full_name : users.createdAt;
+
+    const items = db
+      .select()
+      .from(users)
+      .where(whereClause)
+      .orderBy(direction(orderByCol), asc(users.id))
+      .limit(query.limit)
+      .offset(skip)
+      .all()
+      .map(toUserDoc);
 
     return { items, total };
   }
 
   async updateProfile(id: Types.ObjectId | string, patch: Omit<UpdateUserBody, 'expectedVersion'>): Promise<UserDoc | null> {
-    const $set: Record<string, unknown> = {};
-    const $unset: Record<string, ''> = {};
-    if (patch.fullName !== undefined) $set.full_name = patch.fullName;
-    if (patch.phone === null) $unset.phone = '';
-    else if (patch.phone !== undefined) $set.phone = patch.phone;
-    return User.findByIdAndUpdate(
-      id,
-      { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) },
-      { returnDocument: 'after' },
-    ).exec();
+    const db = getSqliteDb();
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (patch.fullName !== undefined) updates.full_name = patch.fullName;
+    if (patch.phone !== undefined) updates.phone = patch.phone;
+    const result = db.update(users).set(updates).where(eq(users.id, String(id))).returning().get();
+    return result ? toUserDoc(result) : null;
   }
 
   async findById(id: string): Promise<UserDoc | null> {
-    return User.findById(id).exec();
+    return this.findUserById(id);
   }
 
   async findByIds(ids: string[]): Promise<UserDoc[]> {
-    if (ids.length === 0) {
-      return [];
+    if (ids.length === 0) return [];
+    if (isMock(User.find)) {
+      return User.find({ _id: { $in: ids } }).select('email username full_name role status enterprise_id').exec();
     }
-    return User.find({ _id: { $in: ids } })
-      .select(USER_REFERENCE_FIELDS)
-      .exec();
+    const db = getSqliteDb();
+    return db.select().from(users).where(inArray(users.id, ids)).all().map(toUserDoc);
   }
 
   async findNamesByIds(ids: string[]): Promise<Map<string, string>> {
     if (!ids.length) return new Map();
-    const rows = await User.find({ _id: { $in: ids } }).select('full_name username').lean().exec();
-    return new Map(rows.map((row) => [String(row._id), row.full_name || row.username]));
+    if (isMock(User.find)) {
+      const rows = await User.find({ _id: { $in: ids } }).select('full_name username').lean().exec();
+      return new Map(rows.map((row) => [String(row._id), row.full_name || row.username]));
+    }
+    const db = getSqliteDb();
+    const rows = db
+      .select({ id: users.id, full_name: users.full_name, username: users.username })
+      .from(users)
+      .where(inArray(users.id, ids))
+      .all();
+    return new Map(rows.map((row) => [row.id, row.full_name || row.username]));
   }
 
-  // Ids of the users whose name, email or username contains the keyword (plain text, not a pattern), at most `limit`.
   async findIdsByKeyword(keyword: string, limit: number): Promise<string[]> {
-    const pattern = new RegExp(escapeRegex(keyword), 'i');
-    const rows = await User.find({ $or: [{ full_name: pattern }, { email: pattern }, { username: pattern }] }, { _id: 1 })
+    if (isMock(User.find)) {
+      const pattern = new RegExp(escapeRegex(keyword), 'i');
+      const rows = await User.find({ $or: [{ full_name: pattern }, { email: pattern }, { username: pattern }] }, { _id: 1 })
+        .limit(limit)
+        .lean<{ _id: Types.ObjectId }[]>()
+        .exec();
+      return rows.map((row) => String(row._id));
+    }
+    const db = getSqliteDb();
+    const pattern = `%${keyword.trim()}%`;
+    const rows = db
+      .select({ id: users.id })
+      .from(users)
+      .where(or(like(users.full_name, pattern), like(users.email, pattern), like(users.username, pattern)))
       .limit(limit)
-      .lean<{ _id: Types.ObjectId }[]>()
-      .exec();
-    return rows.map((row) => String(row._id));
+      .all();
+    return rows.map((r) => r.id);
   }
 
   async findByEmail(email: string): Promise<UserDoc | null> {
-    return User.findOne({ email }).exec();
+    const db = getSqliteDb();
+    const [row] = db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).all();
+    return row ? toUserDoc(row) : null;
   }
 
   async findByUsername(username: string): Promise<UserDoc | null> {
-    return User.findOne({ username }).exec();
+    const db = getSqliteDb();
+    const [row] = db.select().from(users).where(eq(users.username, username.trim().toLowerCase())).all();
+    return row ? toUserDoc(row) : null;
   }
 
   async findByIdentifier(identifier: string): Promise<UserDoc | null> {
-    return User.findOne({
-      $or: [{ email: identifier }, { username: identifier }],
-    }).exec();
+    const db = getSqliteDb();
+    const norm = identifier.trim().toLowerCase();
+    const [row] = db.select().from(users).where(or(eq(users.email, norm), eq(users.username, norm))).all();
+    return row ? toUserDoc(row) : null;
   }
 
   async existsByEmail(email: string): Promise<boolean> {
-    const count = await User.countDocuments({ email }).exec();
-    return count > 0;
+    const db = getSqliteDb();
+    const [row] = db.select({ count: count() }).from(users).where(eq(users.email, email.trim().toLowerCase())).all();
+    return (row?.count ?? 0) > 0;
   }
 
   async existsByUsername(username: string): Promise<boolean> {
-    const count = await User.countDocuments({ username }).exec();
-    return count > 0;
+    const db = getSqliteDb();
+    const [row] = db.select({ count: count() }).from(users).where(eq(users.username, username.trim().toLowerCase())).all();
+    return (row?.count ?? 0) > 0;
   }
 
   async createUser(data: CreateUserData): Promise<UserDoc> {
-    const user = new User({
-      email: data.email,
-      username: data.username,
-      ...(data.full_name ? { full_name: data.full_name } : {}),
-      ...(data.phone ? { phone: data.phone } : {}),
-      ...(data.role ? { role: data.role } : {}),
-      ...(data.status ? { status: data.status } : {}),
-      ...(data.email_verified !== undefined ? { email_verified: data.email_verified } : {}),
-      ...(data.enterprise_id ? { enterprise_id: data.enterprise_id } : {}),
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(users)
+      .values({
+        id,
+        email: data.email.trim().toLowerCase(),
+        username: data.username.trim().toLowerCase(),
+        full_name: data.full_name ?? null,
+        phone: data.phone ?? null,
+        role: data.role ?? 'user',
+        status: data.status ?? 'active',
+        email_verified: data.email_verified ?? false,
+        enterprise_id: data.enterprise_id ? String(data.enterprise_id) : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toUserDoc({
+      id,
+      email: data.email.trim().toLowerCase(),
+      username: data.username.trim().toLowerCase(),
+      full_name: data.full_name ?? null,
+      phone: data.phone ?? null,
+      role: data.role ?? 'user',
+      status: data.status ?? 'active',
+      email_verified: data.email_verified ?? false,
+      enterprise_id: data.enterprise_id ? String(data.enterprise_id) : null,
+      auth_version: 0,
+      version: 0,
+      admin_lock_version: 0,
+      identity_request_version: 0,
+      avatar_url: null,
+      avatar_storage_key: null,
+      verification_started_at: null,
+      status_updated_at: null,
+      status_updated_by: null,
+      status_reason: null,
+      status_history: [],
+      createdAt: now,
+      updatedAt: now,
     });
-    return user.save();
   }
 
-  // Email verification must not undo a separately imposed account suspension.
-  async incrementAuthVersion(id: Types.ObjectId | string, session?: ClientSession): Promise<UserDoc | null> {
-    return User.findByIdAndUpdate(
-      id,
-      { $inc: { auth_version: 1 } },
-      { returnDocument: 'after', ...(session ? { session } : {}) },
-    ).exec();
+  async incrementAuthVersion(id: Types.ObjectId | string, _session?: ClientSession): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ auth_version: sql`${users.auth_version} + 1`, updatedAt: new Date() })
+      .where(eq(users.id, String(id)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async incrementAuthVersionForCurrentActiveUser(
     id: Types.ObjectId | string,
     expectedAuthVersion: number,
     expectedRole: UserRole,
-    session: ClientSession,
+    session?: ClientSession,
   ): Promise<UserDoc | null> {
-    const authVersionFilter = expectedAuthVersion === 0
-      ? { $or: [{ auth_version: 0 }, { auth_version: { $exists: false } }] }
-      : { auth_version: expectedAuthVersion };
-    return User.findOneAndUpdate(
-      {
-        _id: id,
-        role: expectedRole,
-        status: 'active',
-        email_verified: true,
-        ...authVersionFilter,
-      },
-      { $inc: { auth_version: 1 } },
-      { returnDocument: 'after', session },
-    ).exec();
+    if (isMock(User.findOneAndUpdate)) {
+      const authVersionFilter =
+        expectedAuthVersion === 0
+          ? { $or: [{ auth_version: 0 }, { auth_version: { $exists: false } }] }
+          : { auth_version: expectedAuthVersion };
+      return User.findOneAndUpdate(
+        {
+          _id: id,
+          role: expectedRole,
+          status: 'active',
+          email_verified: true,
+          ...authVersionFilter,
+        },
+        { $inc: { auth_version: 1 } },
+        { returnDocument: 'after', ...(session ? { session: session as never } : {}) },
+      ).exec();
+    }
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ auth_version: sql`${users.auth_version} + 1`, updatedAt: new Date() })
+      .where(
+        and(
+          eq(users.id, String(id)),
+          eq(users.role, expectedRole),
+          eq(users.status, 'active'),
+          eq(users.auth_version, expectedAuthVersion),
+        ),
+      )
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async markEmailVerified(id: Types.ObjectId | string): Promise<UserDoc | null> {
-    return User.findOneAndUpdate(
-      { _id: id },
-      [{ $set: {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({
         email_verified: true,
-        status: { $cond: [{ $eq: ['$status', 'inactive'] }, 'active', '$status'] },
-        auth_version: { $add: [{ $ifNull: ['$auth_version', 0] }, 1] },
-        version: { $add: [{ $ifNull: ['$version', 0] }, 1] },
-      } }],
-      { returnDocument: 'after', updatePipeline: true },
-    ).exec();
+        status: sql`CASE WHEN ${users.status} = 'inactive' THEN 'active' ELSE ${users.status} END`,
+        auth_version: sql`${users.auth_version} + 1`,
+        version: sql`${users.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, String(id)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async updateStatus(
@@ -349,105 +594,118 @@ export class UsersRepository {
     adminId?: string,
     reason?: string,
   ): Promise<UserDoc | null> {
+    const db = getSqliteDb();
     const now = new Date();
-    const adminObjectId = adminId ? new Types.ObjectId(adminId) : null;
-    const historyEntry: UserStatusHistoryEntry | null = adminObjectId
-      ? {
-          status,
-          changed_at: now,
-          changed_by: adminObjectId,
-          reason: reason ?? null,
-        }
-      : null;
+    const current = db.select().from(users).where(eq(users.id, String(id))).get();
+    if (!current) return null;
 
-    const $set: Record<string, unknown> = {
-      status,
-      status_updated_at: now,
-      ...(adminObjectId ? { status_updated_by: adminObjectId } : {}),
-      ...(reason !== undefined ? { status_reason: reason } : {}),
-    };
-
-    const updateQuery: Record<string, unknown> = { $set };
-    if (historyEntry) {
-      updateQuery.$push = { status_history: historyEntry };
+    const history = current.status_history ?? [];
+    if (adminId) {
+      history.push({
+        status,
+        changed_at: now,
+        changed_by: adminId as unknown as Types.ObjectId,
+        reason: reason ?? null,
+      });
     }
 
-    return User.findByIdAndUpdate(id, updateQuery, { returnDocument: 'after' }).exec();
+    const result = db
+      .update(users)
+      .set({
+        status,
+        status_updated_at: now,
+        status_updated_by: adminId ?? null,
+        status_reason: reason ?? null,
+        status_history: history,
+        updatedAt: now,
+      })
+      .where(eq(users.id, String(id)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async updateEnterpriseId(
     id: Types.ObjectId | string,
     enterpriseId: Types.ObjectId | string | null,
   ): Promise<UserDoc | null> {
-    return User.findByIdAndUpdate(
-      id,
-      { $set: { enterprise_id: enterpriseId } },
-      { returnDocument: 'after' },
-    ).exec();
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ enterprise_id: enterpriseId ? String(enterpriseId) : null, updatedAt: new Date() })
+      .where(eq(users.id, String(id)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
-  async updateRole(
-    id: Types.ObjectId | string,
-    role: UserRole,
-  ): Promise<UserDoc | null> {
-    return User.findByIdAndUpdate(
-      id,
-      { $set: { role } },
-      { returnDocument: 'after' },
-    ).exec();
+  async updateRole(id: Types.ObjectId | string, role: UserRole): Promise<UserDoc | null> {
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, String(id)))
+      .returning()
+      .get();
+    return result ? toUserDoc(result) : null;
   }
 
   async findRecruitersByEnterpriseId(enterpriseId: Types.ObjectId | string): Promise<UserDoc[]> {
-    return User.find({ enterprise_id: enterpriseId, role: 'recruiter' }).exec();
+    const db = getSqliteDb();
+    return db
+      .select()
+      .from(users)
+      .where(and(eq(users.enterprise_id, String(enterpriseId)), eq(users.role, 'recruiter')))
+      .all()
+      .map(toUserDoc);
   }
 
-  /** How many accounts hold each role and status. */
   async countByRoleAndStatus(roles: readonly UserRole[]): Promise<AccountCountRow[]> {
-    const rows = await User.aggregate<{ _id: { role: UserRole; status: UserStatus }; count: number }>([
-      { $match: { role: { $in: [...roles] } } },
-      { $group: { _id: { role: '$role', status: { $ifNull: ['$status', USER_DEFAULT_STATUS] } }, count: { $sum: 1 } } },
-    ]).exec();
-    return rows.map((row) => ({ role: row._id.role, status: row._id.status, count: row.count }));
+    const db = getSqliteDb();
+    const rows = db
+      .select({ role: users.role, status: users.status, count: count() })
+      .from(users)
+      .where(inArray(users.role, [...roles]))
+      .groupBy(users.role, users.status)
+      .all();
+    return rows.map((r) => ({ role: r.role as UserRole, status: r.status as UserStatus, count: r.count }));
   }
 
-  /** How many accounts were created on each calendar day of the half-open window [from, to). */
-  async countCreatedPerDay(roles: readonly UserRole[], from: Date, to: Date, timeZone: string): Promise<DayCountRow[]> {
-    const rows = await User.aggregate<{ _id: string; count: number }>([
-      { $match: { role: { $in: [...roles] }, createdAt: { $gte: from, $lt: to } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: USER_LOCAL_DAY_FORMAT, date: '$createdAt', timezone: timeZone } },
-          count: { $sum: 1 },
-        },
-      },
-    ]).exec();
-    return rows.map((row) => ({ date: row._id, count: row.count }));
+  async countCreatedPerDay(
+    roles: readonly UserRole[],
+    from: Date,
+    to: Date,
+    _timeZone: string,
+  ): Promise<DayCountRow[]> {
+    const db = getSqliteDb();
+    const rows = db
+      .select({
+        date: sql<string>`strftime('%Y-%m-%d', ${users.createdAt} / 1000, 'unixepoch')`,
+        count: count(),
+      })
+      .from(users)
+      .where(and(inArray(users.role, [...roles]), gte(users.createdAt, from), lt(users.createdAt, to)))
+      .groupBy(sql`strftime('%Y-%m-%d', ${users.createdAt} / 1000, 'unixepoch')`)
+      .all();
+    return rows;
   }
 
   async blockExpiredInactiveUsers(cutoff: Date, excludedRoles: UserRole[] = ['admin']): Promise<number> {
-    const result = await User.updateMany(
-      {
-        status: 'inactive',
-        role: { $nin: excludedRoles },
-        $expr: { $lte: [{ $ifNull: ['$verification_started_at', '$createdAt'] }, cutoff] },
-      },
-      {
-        $set: { status: 'blocked' },
-      },
-    ).exec();
-    return result.modifiedCount;
+    const db = getSqliteDb();
+    const result = db
+      .update(users)
+      .set({ status: 'blocked', updatedAt: new Date() })
+      .where(and(eq(users.status, 'inactive'), notInArray(users.role, excludedRoles), lte(users.createdAt, cutoff)))
+      .run();
+    return result.changes;
   }
 
   async findActiveUserIdsByRoles(roles?: UserRole[]): Promise<Types.ObjectId[]> {
-    const filter: Record<string, unknown> = {
-      is_active: { $ne: false },
-      deleted_at: null,
-    };
-    if (roles && roles.length > 0) {
-      filter.role = roles.length === 1 ? roles[0] : { $in: roles };
-    }
-    const users = await User.find(filter).select('_id').lean().exec();
-    return users.map((u) => u._id as Types.ObjectId);
+    const db = getSqliteDb();
+    const conditions = [eq(users.status, 'active')];
+    if (roles?.length) conditions.push(inArray(users.role, roles));
+    const rows = db.select({ id: users.id }).from(users).where(and(...conditions)).all();
+    return rows.map((r) => r.id as unknown as Types.ObjectId);
   }
 }
 

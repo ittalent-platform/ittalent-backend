@@ -58,7 +58,7 @@ function toTokenDoc(row: typeof tokens.$inferSelect): TokenDoc {
 }
 
 export class AuthRepository {
-  async withTransaction<T>(operation: (session?: ClientSession) => Promise<T>): Promise<T> {
+  async withTransaction<T>(operation: (session: ClientSession) => Promise<T>): Promise<T> {
     const db = getSqliteDb();
     const runInTx = db.transaction((_tx) => {
       // In SQLite, queries using the db instance participate in this transaction
