@@ -1,8 +1,11 @@
-import mongoose, { type ClientSession, type Types } from 'mongoose';
+import type { ClientSession, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { and, eq } from 'drizzle-orm';
 
-import { Account, type AccountDoc, type AuthProvider } from '../../models/account.model.js';
-import { Token, type TokenDoc } from '../../models/token.model.js';
+import { generateId, getSqliteDb } from '../../config/sqlite.js';
+import { accounts, tokens } from '../../db/schema/index.js';
+import type { AccountDoc, AuthProvider } from '../../models/account.model.js';
+import type { AuthTokenStatus, AuthTokenType, TokenDoc } from '../../models/token.model.js';
 
 export interface CreateAccountData {
   userId: Types.ObjectId | string;
@@ -12,7 +15,7 @@ export interface CreateAccountData {
 }
 
 export interface CreateLocalAccountData {
-  userId: Types.ObjectId;
+  userId: Types.ObjectId | string;
   provider: 'local';
 }
 
@@ -28,140 +31,254 @@ export interface CreatePasswordResetTokenData {
   expiresAt: Date;
 }
 
+function toAccountDoc(row: typeof accounts.$inferSelect): AccountDoc & { password_hash: string } {
+  return {
+    _id: row.id as unknown as Types.ObjectId,
+    user_id: row.user_id as unknown as Types.ObjectId,
+    provider: row.provider as AuthProvider,
+    provider_account_id: row.provider_account_id ?? undefined,
+    password_hash: row.password_hash ?? '',
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  } as unknown as AccountDoc & { password_hash: string };
+}
+
+function toTokenDoc(row: typeof tokens.$inferSelect): TokenDoc {
+  return {
+    _id: row.id as unknown as Types.ObjectId,
+    user_id: row.user_id as unknown as Types.ObjectId,
+    type: row.type as AuthTokenType,
+    token_hash: row.token_hash,
+    status: row.status as AuthTokenStatus,
+    expires_at: row.expires_at,
+    consumed_at: row.consumed_at ?? undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  } as unknown as TokenDoc;
+}
+
 export class AuthRepository {
-  async withTransaction<T>(operation: (session: ClientSession) => Promise<T>): Promise<T> {
-    const session = await mongoose.startSession();
-    let result: T | undefined;
-    try {
-      await session.withTransaction(async () => {
-        result = await operation(session);
-      });
-      if (result === undefined) throw new Error('Authentication transaction completed without a result');
-      return result;
-    } finally {
-      await session.endSession();
-    }
+  async withTransaction<T>(operation: (session?: ClientSession) => Promise<T>): Promise<T> {
+    const db = getSqliteDb();
+    const runInTx = db.transaction((_tx) => {
+      // In SQLite, queries using the db instance participate in this transaction
+      return operation({} as ClientSession);
+    });
+    return runInTx;
   }
 
-  async verifyCurrentPassword(userId: Types.ObjectId, rawPassword: string, session?: ClientSession): Promise<boolean> {
-    let query = Account.findOne({ user_id: userId, provider: 'local' }).select('+password_hash');
-    if (session) query = query.session(session);
-    const account = await query.exec() as (AccountDoc & { password_hash: string }) | null;
-    return Boolean(account?.password_hash && await bcrypt.compare(rawPassword, account.password_hash));
+  async verifyCurrentPassword(
+    userId: Types.ObjectId | string,
+    rawPassword: string,
+    _session?: ClientSession,
+  ): Promise<boolean> {
+    const db = getSqliteDb();
+    const [account] = db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.user_id, String(userId)), eq(accounts.provider, 'local')))
+      .all();
+    return Boolean(account?.password_hash && (await bcrypt.compare(rawPassword, account.password_hash)));
   }
 
-  async createLocalAccount(data: CreateLocalAccountData, session: ClientSession): Promise<AccountDoc> {
-    const [account] = await Account.create([{ user_id: data.userId, provider: data.provider }], { session });
-    if (!account) throw new Error('Local account was not created');
-    return account;
+  async createLocalAccount(data: CreateLocalAccountData, _session?: ClientSession): Promise<AccountDoc> {
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(accounts)
+      .values({
+        id,
+        user_id: String(data.userId),
+        provider: data.provider,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toAccountDoc({
+      id,
+      user_id: String(data.userId),
+      provider: data.provider,
+      provider_account_id: null,
+      password_hash: null,
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   async createAccount(data: CreateAccountData): Promise<AccountDoc> {
-    const account = new Account({
-      user_id: data.userId,
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(accounts)
+      .values({
+        id,
+        user_id: String(data.userId),
+        provider: data.provider,
+        password_hash: data.password_hash ?? null,
+        provider_account_id: data.provider_account_id ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toAccountDoc({
+      id,
+      user_id: String(data.userId),
       provider: data.provider,
-      ...(data.password_hash ? { password_hash: data.password_hash } : {}),
-      ...(data.provider_account_id ? { provider_account_id: data.provider_account_id } : {}),
+      provider_account_id: data.provider_account_id ?? null,
+      password_hash: data.password_hash ?? null,
+      createdAt: now,
+      updatedAt: now,
     });
-    return account.save();
   }
 
   async findLocalAccountByUserId(
     userId: Types.ObjectId | string,
-    session?: ClientSession,
+    _session?: ClientSession,
   ): Promise<(AccountDoc & { password_hash: string }) | null> {
-    const query = Account.findOne({
-      user_id: userId,
-      provider: 'local',
-    })
-      .select('+password_hash');
-    if (session) query.session(session);
-    return query.exec() as Promise<(AccountDoc & { password_hash: string }) | null>;
+    const db = getSqliteDb();
+    const [account] = db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.user_id, String(userId)), eq(accounts.provider, 'local')))
+      .all();
+    return account ? toAccountDoc(account) : null;
   }
 
   async findAccountByProvider(
     provider: AuthProvider,
     providerAccountId: string,
   ): Promise<AccountDoc | null> {
-    return Account.findOne({
-      provider,
-      provider_account_id: providerAccountId,
-    }).exec();
+    const db = getSqliteDb();
+    const [account] = db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.provider, provider), eq(accounts.provider_account_id, providerAccountId)))
+      .all();
+    return account ? toAccountDoc(account) : null;
   }
 
   async createVerificationToken(data: CreateVerificationTokenData): Promise<TokenDoc> {
-    const token = new Token({
-      user_id: data.userId,
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(tokens)
+      .values({
+        id,
+        user_id: String(data.userId),
+        type: 'email_verification',
+        token_hash: data.tokenHash,
+        status: 'pending',
+        expires_at: data.expiresAt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toTokenDoc({
+      id,
+      user_id: String(data.userId),
       type: 'email_verification',
       token_hash: data.tokenHash,
       status: 'pending',
       expires_at: data.expiresAt,
+      consumed_at: null,
+      createdAt: now,
+      updatedAt: now,
     });
-    return token.save();
   }
 
   async findVerificationTokenByHash(tokenHash: string): Promise<TokenDoc | null> {
-    return Token.findOne({
-      token_hash: tokenHash,
-      type: 'email_verification',
-    }).exec();
+    const db = getSqliteDb();
+    const [token] = db
+      .select()
+      .from(tokens)
+      .where(and(eq(tokens.token_hash, tokenHash), eq(tokens.type, 'email_verification')))
+      .all();
+    return token ? toTokenDoc(token) : null;
   }
 
   async createPasswordResetToken(data: CreatePasswordResetTokenData): Promise<TokenDoc> {
-    const token = new Token({
-      user_id: data.userId,
+    const db = getSqliteDb();
+    const id = generateId();
+    const now = new Date();
+    db.insert(tokens)
+      .values({
+        id,
+        user_id: String(data.userId),
+        type: 'password_reset',
+        token_hash: data.tokenHash,
+        status: 'pending',
+        expires_at: data.expiresAt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    return toTokenDoc({
+      id,
+      user_id: String(data.userId),
       type: 'password_reset',
       token_hash: data.tokenHash,
       status: 'pending',
       expires_at: data.expiresAt,
+      consumed_at: null,
+      createdAt: now,
+      updatedAt: now,
     });
-    return token.save();
   }
 
   async findPasswordResetTokenByHash(tokenHash: string): Promise<TokenDoc | null> {
-    return Token.findOne({
-      token_hash: tokenHash,
-      type: 'password_reset',
-    }).exec();
+    const db = getSqliteDb();
+    const [token] = db
+      .select()
+      .from(tokens)
+      .where(and(eq(tokens.token_hash, tokenHash), eq(tokens.type, 'password_reset')))
+      .all();
+    return token ? toTokenDoc(token) : null;
   }
 
   async markTokenUsed(tokenId: Types.ObjectId | string): Promise<void> {
-    await Token.updateOne(
-      { _id: tokenId, status: 'pending', expires_at: { $gt: new Date() } },
-      { $set: { status: 'used', consumed_at: new Date() } },
-    ).exec();
+    const db = getSqliteDb();
+    db.update(tokens)
+      .set({ status: 'used', consumed_at: new Date() })
+      .where(and(eq(tokens.id, String(tokenId)), eq(tokens.status, 'pending')))
+      .run();
   }
 
   async revokePriorVerificationTokens(userId: Types.ObjectId | string): Promise<void> {
-    await Token.updateMany(
-      { user_id: userId, type: 'email_verification', status: 'pending' },
-      { $set: { status: 'revoked' } },
-    ).exec();
+    const db = getSqliteDb();
+    db.update(tokens)
+      .set({ status: 'revoked' })
+      .where(and(eq(tokens.user_id, String(userId)), eq(tokens.type, 'email_verification'), eq(tokens.status, 'pending')))
+      .run();
   }
 
   async revokePriorPasswordResetTokens(userId: Types.ObjectId | string): Promise<void> {
-    await Token.updateMany(
-      { user_id: userId, type: 'password_reset', status: 'pending' },
-      { $set: { status: 'revoked' } },
-    ).exec();
+    const db = getSqliteDb();
+    db.update(tokens)
+      .set({ status: 'revoked' })
+      .where(and(eq(tokens.user_id, String(userId)), eq(tokens.type, 'password_reset'), eq(tokens.status, 'pending')))
+      .run();
   }
 
   async updateLocalAccountPassword(
     userId: Types.ObjectId | string,
     passwordHash: string,
-    session?: ClientSession,
+    _session?: ClientSession,
   ): Promise<void> {
-    const query = Account.updateOne(
-      { user_id: userId, provider: 'local' },
-      { $set: { password_hash: passwordHash } },
-    );
-    if (session) query.session(session);
-    const result = await query.exec();
-    if (result.matchedCount !== 1) throw new Error('Local credentials were not found');
+    const db = getSqliteDb();
+    const result = db
+      .update(accounts)
+      .set({ password_hash: passwordHash, updatedAt: new Date() })
+      .where(and(eq(accounts.user_id, String(userId)), eq(accounts.provider, 'local')))
+      .run();
+    if (result.changes !== 1) throw new Error('Local credentials were not found');
   }
 
-  async revokeIdentityTokens(userId: Types.ObjectId, session: ClientSession): Promise<void> {
-    await Token.updateMany({ user_id: userId, status: 'pending' }, { $set: { status: 'revoked' } }, { session }).exec();
+  async revokeIdentityTokens(userId: Types.ObjectId | string, _session?: ClientSession): Promise<void> {
+    const db = getSqliteDb();
+    db.update(tokens)
+      .set({ status: 'revoked' })
+      .where(and(eq(tokens.user_id, String(userId)), eq(tokens.status, 'pending')))
+      .run();
   }
 }
 
