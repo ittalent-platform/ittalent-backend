@@ -6,7 +6,12 @@ import type {
   ApplicationStatusHistoryEntry,
 } from '../../models/application.model.js';
 import type { DocumentType } from '../../models/document.model.js';
-import type { InterviewMode, InterviewRescheduleRequest, InterviewStatus } from '../../models/interview.model.js';
+import type {
+  InterviewMode,
+  InterviewRescheduleRequest,
+  InterviewStatus,
+  InterviewStatusHistoryEntry,
+} from '../../models/interview.model.js';
 
 export const applications = sqliteTable(
   'applications',
@@ -39,28 +44,31 @@ export const interviews = sqliteTable(
   'interviews',
   {
     id: text('id', { length: 24 }).primaryKey(),
-    application_id: text('application_id', { length: 24 }).notNull(),
     enterprise_id: text('enterprise_id', { length: 24 }).notNull(),
-    recruiter_id: text('recruiter_id', { length: 24 }).notNull(),
+    application_id: text('application_id', { length: 24 }).notNull(),
+    job_id: text('job_id', { length: 24 }).notNull(),
     applicant_id: text('applicant_id', { length: 24 }).notNull(),
-    title: text('title').notNull(),
-    scheduled_start: integer('scheduled_start', { mode: 'timestamp_ms' }).notNull(),
-    scheduled_end: integer('scheduled_end', { mode: 'timestamp_ms' }).notNull(),
+    interviewer_ids: text('interviewer_ids', { mode: 'json' }).$type<string[]>().default([]).notNull(),
+    created_by: text('created_by', { length: 24 }).notNull(),
+    scheduled_at: integer('scheduled_at', { mode: 'timestamp_ms' }).notNull(),
+    ends_at: integer('ends_at', { mode: 'timestamp_ms' }).notNull(),
+    duration_minutes: integer('duration_minutes').notNull(),
     mode: text('mode').$type<InterviewMode>().notNull(),
     meeting_link: text('meeting_link'),
     location: text('location'),
-    note: text('note'),
+    notes: text('notes'),
     status: text('status').$type<InterviewStatus>().default('scheduled').notNull(),
-    cancellation_reason: text('cancellation_reason'),
     reschedule_request: text('reschedule_request', { mode: 'json' }).$type<InterviewRescheduleRequest>(),
+    status_history: text('status_history', { mode: 'json' }).$type<InterviewStatusHistoryEntry[]>().default([]).notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()).notNull(),
   },
   (table) => [
     index('interviews_app_idx').on(table.application_id),
-    index('interviews_recruiter_idx').on(table.recruiter_id),
+    index('interviews_enterprise_idx').on(table.enterprise_id),
     index('interviews_applicant_idx').on(table.applicant_id),
     index('interviews_status_idx').on(table.status),
+    index('interviews_scheduled_idx').on(table.scheduled_at, table.ends_at),
   ],
 );
 

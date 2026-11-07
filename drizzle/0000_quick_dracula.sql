@@ -121,28 +121,31 @@ CREATE TABLE `documents` (
 CREATE INDEX `documents_owner_type_idx` ON `documents` (`owner_id`,`type`);--> statement-breakpoint
 CREATE TABLE `interviews` (
 	`id` text(24) PRIMARY KEY NOT NULL,
-	`application_id` text(24) NOT NULL,
 	`enterprise_id` text(24) NOT NULL,
-	`recruiter_id` text(24) NOT NULL,
+	`application_id` text(24) NOT NULL,
+	`job_id` text(24) NOT NULL,
 	`applicant_id` text(24) NOT NULL,
-	`title` text NOT NULL,
-	`scheduled_start` integer NOT NULL,
-	`scheduled_end` integer NOT NULL,
+	`interviewer_ids` text DEFAULT '[]' NOT NULL,
+	`created_by` text(24) NOT NULL,
+	`scheduled_at` integer NOT NULL,
+	`ends_at` integer NOT NULL,
+	`duration_minutes` integer NOT NULL,
 	`mode` text NOT NULL,
 	`meeting_link` text,
 	`location` text,
-	`note` text,
+	`notes` text,
 	`status` text DEFAULT 'scheduled' NOT NULL,
-	`cancellation_reason` text,
 	`reschedule_request` text,
+	`status_history` text DEFAULT '[]' NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `interviews_app_idx` ON `interviews` (`application_id`);--> statement-breakpoint
-CREATE INDEX `interviews_recruiter_idx` ON `interviews` (`recruiter_id`);--> statement-breakpoint
+CREATE INDEX `interviews_enterprise_idx` ON `interviews` (`enterprise_id`);--> statement-breakpoint
 CREATE INDEX `interviews_applicant_idx` ON `interviews` (`applicant_id`);--> statement-breakpoint
 CREATE INDEX `interviews_status_idx` ON `interviews` (`status`);--> statement-breakpoint
+CREATE INDEX `interviews_scheduled_idx` ON `interviews` (`scheduled_at`,`ends_at`);--> statement-breakpoint
 CREATE TABLE `wishlists` (
 	`id` text(24) PRIMARY KEY NOT NULL,
 	`user_id` text(24) NOT NULL,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6be60786-e554-4062-96dc-74b094fab760",
+  "id": "26d0e6e7-3c8d-4d2f-9445-aefffa7fc8b9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "broadcast_notifications": {
@@ -798,13 +798,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "application_id": {
-          "name": "application_id",
-          "type": "text(24)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "enterprise_id": {
           "name": "enterprise_id",
           "type": "text(24)",
@@ -812,8 +805,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "recruiter_id": {
-          "name": "recruiter_id",
+        "application_id": {
+          "name": "application_id",
+          "type": "text(24)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "job_id": {
+          "name": "job_id",
           "type": "text(24)",
           "primaryKey": false,
           "notNull": true,
@@ -826,22 +826,37 @@
           "notNull": true,
           "autoincrement": false
         },
-        "title": {
-          "name": "title",
+        "interviewer_ids": {
+          "name": "interviewer_ids",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text(24)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "scheduled_start": {
-          "name": "scheduled_start",
+        "scheduled_at": {
+          "name": "scheduled_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "scheduled_end": {
-          "name": "scheduled_end",
+        "ends_at": {
+          "name": "ends_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -868,8 +883,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "note": {
-          "name": "note",
+        "notes": {
+          "name": "notes",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -883,19 +898,20 @@
           "autoincrement": false,
           "default": "'scheduled'"
         },
-        "cancellation_reason": {
-          "name": "cancellation_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "reschedule_request": {
           "name": "reschedule_request",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "status_history": {
+          "name": "status_history",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "created_at": {
           "name": "created_at",
@@ -920,10 +936,10 @@
           ],
           "isUnique": false
         },
-        "interviews_recruiter_idx": {
-          "name": "interviews_recruiter_idx",
+        "interviews_enterprise_idx": {
+          "name": "interviews_enterprise_idx",
           "columns": [
-            "recruiter_id"
+            "enterprise_id"
           ],
           "isUnique": false
         },
@@ -938,6 +954,14 @@
           "name": "interviews_status_idx",
           "columns": [
             "status"
+          ],
+          "isUnique": false
+        },
+        "interviews_scheduled_idx": {
+          "name": "interviews_scheduled_idx",
+          "columns": [
+            "scheduled_at",
+            "ends_at"
           ],
           "isUnique": false
         }
