@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 
 import { env } from './env.js';
 
@@ -10,6 +12,14 @@ const OBJECT_ID_BYTE_LENGTH = 12;
 
 let sqliteInstance: Database.Database | null = null;
 let dbInstance: BetterSQLite3Database | null = null;
+
+export function initSqliteDatabase(): BetterSQLite3Database {
+  const db = getSqliteDb();
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const migrationsFolder = resolve(currentDir, '../../drizzle');
+  migrate(db, { migrationsFolder });
+  return db;
+}
 
 export function getSqliteDb(): BetterSQLite3Database {
   if (dbInstance) {
