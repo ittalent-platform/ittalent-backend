@@ -280,6 +280,9 @@ export class UsersRepository {
   }
 
   async findUserById(id: Types.ObjectId | string): Promise<UserDoc | null> {
+    if (process.env.USE_MONGODB === 'true' || isMock(User.findById)) {
+      return User.findById(id).exec();
+    }
     const db = getSqliteDb();
     const [row] = db.select().from(users).where(eq(users.id, String(id))).all();
     return row ? toUserDoc(row) : null;

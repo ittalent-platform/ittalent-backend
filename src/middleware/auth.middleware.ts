@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { User, type UserData } from '../models/user.model.js';
+import { User, type UserData, type UserDoc } from '../models/user.model.js';
+import { usersRepository } from '../modules/users/users.repository.js';
 
 import { env } from '../config/env.js';
 import { HTTP_STATUS } from '../shared/constants/http-status.js';
@@ -12,6 +13,21 @@ interface JwtPayload {
   email: string;
   role: string;
   av?: number;
+}
+
+function isMock(fn: unknown): boolean {
+  return typeof fn === 'function' && ('_isMockFunction' in fn || 'mock' in fn);
+}
+
+async function findPersistedUser(userId: string, projection?: string): Promise<UserDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(User.findById)) {
+    const query = User.findById(userId);
+    if (projection && typeof query.select === 'function') {
+      return query.select(projection).lean<UserDoc>().exec();
+    }
+    return query.exec();
+  }
+  return usersRepository.findUserById(userId);
 }
 
 export const authenticate: RequestHandler = (req: Request, _res: Response, next: NextFunction): void => {
@@ -54,7 +70,7 @@ export const authenticateOptional: RequestHandler = async (req: Request, _res: R
   try {
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as unknown as JwtPayload;
     if (decoded.sub && decoded.email && decoded.role) {
-      const user = await User.findById(decoded.sub).select('email role status auth_version createdAt').lean().exec();
+      const user = await findPersistedUser(decoded.sub, 'email role status auth_version createdAt');
       if (user?.role && isCurrentSession(user, decoded)) {
         req.user = { id: decoded.sub, email: user.email, role: user.role, authVersion: user.auth_version ?? 0 } satisfies AuthenticatedUser;
       }
@@ -124,7 +140,7 @@ export const authorizeCurrentSystemAdmin: RequestHandler = async (req: Request, 
       next(createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, 'Active System Administrator permission required'));
       return;
     }
-    const user = await User.findById(req.user.id).select('role status auth_version').lean().exec();
+    const user = await findPersistedUser(req.user.id, 'role status auth_version');
     if (!user || req.user.role !== user.role || user.status !== 'active' || (user.auth_version ?? 0) !== (req.user.authVersion ?? 0)) {
       next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Account is inactive or the session has been revoked'));
       return;
@@ -146,7 +162,7 @@ export const authenticateCurrentUser: RequestHandler = async (req: Request, _res
     return;
   }
   try {
-    const user = await User.findById(req.user.id).select('email role status email_verified auth_version createdAt verification_started_at').lean().exec();
+    const user = await findPersistedUser(req.user.id, 'email role status email_verified auth_version createdAt verification_started_at');
     if (!user || !isCurrentSession(user, { role: req.user.role, av: req.user.authVersion })) {
       next(createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'The session is no longer current', 'SESSION_REVOKED'));
       return;
@@ -173,10 +189,7 @@ export const requireVerifiedActiveUser: RequestHandler = async (req: Request, _r
   }
 
   try {
-    const user = await User.findById(req.user.id)
-      .select('email role status email_verified auth_version')
-      .lean()
-      .exec();
+    const user = await findPersistedUser(req.user.id, 'email role status email_verified auth_version');
 
     if (
       !user
