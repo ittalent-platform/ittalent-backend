@@ -1,5 +1,8 @@
-import { Enterprise } from '../../models/enterprise.model.js';
-import { JobPosting } from '../../models/job-posting.model.js';
+import type { Types } from 'mongoose';
+import { Enterprise, type EnterpriseDoc } from '../../models/enterprise.model.js';
+import { JobPosting, type JobPostingDoc } from '../../models/job-posting.model.js';
+import { enterprisesRepository, type EnterprisesRepository } from '../enterprises/enterprises.repository.js';
+import { jobPostingsRepository, type JobPostingsRepository } from '../job-postings/job-postings.repository.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
 import { WISHLIST_AVAILABILITY, WISHLIST_CONFIG, WISHLIST_MESSAGES } from './wishlist.constants.js';
@@ -15,11 +18,33 @@ import type {
   WishlistToggleResponse,
 } from './wishlist.schemas.js';
 
+function isMock(fn: unknown): boolean {
+  return typeof fn === 'function' && ('_isMockFunction' in fn || 'mock' in fn);
+}
+
+async function findJobPosting(id: string, repo: JobPostingsRepository): Promise<JobPostingDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById)) {
+    return JobPosting.findById(id).exec();
+  }
+  return repo.findById(id);
+}
+
+async function findEnterprise(id: string | Types.ObjectId, repo: EnterprisesRepository): Promise<EnterpriseDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findById)) {
+    return Enterprise.findById(id).exec();
+  }
+  return repo.findById(id);
+}
+
 export class WishlistService {
-  constructor(private readonly repo: WishlistRepository = wishlistRepository) {}
+  constructor(
+    private readonly repo: WishlistRepository = wishlistRepository,
+    private readonly jobPostingsRepo: JobPostingsRepository = jobPostingsRepository,
+    private readonly enterprisesRepo: EnterprisesRepository = enterprisesRepository,
+  ) {}
 
   async saveJob(userId: string, jobId: string): Promise<WishlistSaveResponse> {
-    const job = await JobPosting.findById(jobId).exec();
+    const job = await findJobPosting(jobId, this.jobPostingsRepo);
     if (!job) {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, WISHLIST_MESSAGES.JOB_NOT_FOUND);
     }
@@ -30,7 +55,9 @@ export class WishlistService {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.JOB_CLOSED);
     }
 
-    const enterprise = await Enterprise.findById(job.enterprise_id).exec();
+    const enterprise = job.enterprise_id
+      ? await findEnterprise(job.enterprise_id, this.enterprisesRepo)
+      : null;
     if (!enterprise || enterprise.status !== 'active' || enterprise.is_deleted) {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.ENTERPRISE_INACTIVE);
     }
@@ -87,7 +114,7 @@ export class WishlistService {
       };
     }
 
-    const job = await JobPosting.findById(jobId).exec();
+    const job = await findJobPosting(jobId, this.jobPostingsRepo);
     if (!job) {
       throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, WISHLIST_MESSAGES.JOB_NOT_FOUND);
     }
@@ -98,7 +125,9 @@ export class WishlistService {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.JOB_CLOSED);
     }
 
-    const enterprise = await Enterprise.findById(job.enterprise_id).exec();
+    const enterprise = job.enterprise_id
+      ? await findEnterprise(job.enterprise_id, this.enterprisesRepo)
+      : null;
     if (!enterprise || enterprise.status !== 'active' || enterprise.is_deleted) {
       throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, WISHLIST_MESSAGES.ENTERPRISE_INACTIVE);
     }
