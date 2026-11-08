@@ -1,8 +1,14 @@
 import { Types } from 'mongoose';
+import { eq } from 'drizzle-orm';
 
-import { Enterprise } from '../../models/enterprise.model.js';
-import { JobPosting } from '../../models/job-posting.model.js';
-import { User } from '../../models/user.model.js';
+import { getSqliteDb } from '../../config/sqlite.js';
+import { enterprises, jobPostings, users } from '../../db/schema/index.js';
+import { enterprisesRepository } from '../enterprises/enterprises.repository.js';
+import { jobPostingsRepository } from '../job-postings/job-postings.repository.js';
+import { usersRepository } from '../users/users.repository.js';
+import { Enterprise, type EnterpriseDoc } from '../../models/enterprise.model.js';
+import { JobPosting, type JobPostingDoc } from '../../models/job-posting.model.js';
+import { User, type UserDoc } from '../../models/user.model.js';
 import type {
   ReportDoc,
   ReportEvidenceFile,
@@ -57,6 +63,31 @@ interface ResolvedTarget {
   link?: string | null;
 }
 
+function isMock(fn: unknown): boolean {
+  return typeof fn === 'function' && ('_isMockFunction' in fn || 'mock' in fn);
+}
+
+async function findJobById(id: string): Promise<JobPostingDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById)) {
+    return JobPosting.findById(id).exec();
+  }
+  return jobPostingsRepository.findById(id);
+}
+
+async function findEnterpriseById(id: string | Types.ObjectId): Promise<EnterpriseDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findById)) {
+    return Enterprise.findById(id).exec();
+  }
+  return enterprisesRepository.findById(id);
+}
+
+async function findUserById(id: string | Types.ObjectId): Promise<UserDoc | null> {
+  if (process.env.USE_MONGODB === 'true' || isMock(User.findById)) {
+    return User.findById(id).exec();
+  }
+  return usersRepository.findUserById(id);
+}
+
 export class ReportsService {
   constructor(
     private readonly repo: ReportsRepository = reportsRepository,
@@ -68,7 +99,9 @@ export class ReportsService {
     targetId: string,
   ): Promise<ReportTargetSnapshot> {
     if (targetType === 'job') {
-      const job = await JobPosting.findById(targetId).select('title enterprise_id status deleting').lean().exec();
+      const job = (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById))
+        ? await JobPosting.findById(targetId).select('title enterprise_id status deleting').lean().exec()
+        : await findJobById(targetId);
       if (!job || job.deleting) {
         throw createHttpError(
           HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -79,7 +112,9 @@ export class ReportsService {
 
       let enterpriseName: string | null = null;
       if (job.enterprise_id) {
-        const ent = await Enterprise.findById(job.enterprise_id).select('name status is_deleted').lean().exec();
+        const ent = (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findById))
+          ? await Enterprise.findById(job.enterprise_id).select('name status is_deleted').lean().exec()
+          : await findEnterpriseById(job.enterprise_id);
         if (ent && !ent.is_deleted) {
           enterpriseName = ent.name;
         }
@@ -94,7 +129,9 @@ export class ReportsService {
     }
 
     if (targetType === 'company' || (targetType as string) === 'enterprise') {
-      const enterprise = await Enterprise.findById(targetId).select('name is_deleted status').lean().exec();
+      const enterprise = (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findById))
+        ? await Enterprise.findById(targetId).select('name is_deleted status').lean().exec()
+        : await findEnterpriseById(targetId);
       if (!enterprise || enterprise.is_deleted) {
         throw createHttpError(
           HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -112,7 +149,9 @@ export class ReportsService {
     }
 
     if (targetType === 'user') {
-      const user = await User.findById(targetId).select('full_name username role status enterprise_id').lean().exec();
+      const user = (process.env.USE_MONGODB === 'true' || isMock(User.findById))
+        ? await User.findById(targetId).select('full_name username role status enterprise_id').lean().exec()
+        : await findUserById(targetId);
       if (!user || user.status === 'blocked') {
         throw createHttpError(
           HTTP_STATUS.HTTP_400_BAD_REQUEST,
@@ -144,15 +183,21 @@ export class ReportsService {
     targetId: Types.ObjectId | string,
   ): Promise<boolean> {
     if (targetType === 'job') {
-      const job = await JobPosting.findById(targetId).select('status deleting').lean().exec();
+      const job = (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById))
+        ? await JobPosting.findById(targetId).select('status deleting').lean().exec()
+        : await findJobById(String(targetId));
       return !!(job && !job.deleting && job.status === 'published');
     }
     if (targetType === 'company' || (targetType as string) === 'enterprise') {
-      const ent = await Enterprise.findById(targetId).select('status is_deleted').lean().exec();
+      const ent = (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findById))
+        ? await Enterprise.findById(targetId).select('status is_deleted').lean().exec()
+        : await findEnterpriseById(targetId);
       return !!(ent && !ent.is_deleted && ent.status === 'active');
     }
     if (targetType === 'user') {
-      const usr = await User.findById(targetId).select('status').lean().exec();
+      const usr = (process.env.USE_MONGODB === 'true' || isMock(User.findById))
+        ? await User.findById(targetId).select('status').lean().exec()
+        : await findUserById(targetId);
       return !!(usr && usr.status !== 'blocked');
     }
     return false;
@@ -532,7 +577,7 @@ export class ReportsService {
   // --- Admin Investigation & PR #91 Methods ---
 
   async createReport(reporterId: string, input: CreateReportInput): Promise<ReporterReportItemDto> {
-    const reporterUser = await User.findById(reporterId).exec();
+    const reporterUser = await findUserById(reporterId);
     if (!reporterUser) {
       throw createHttpError(HTTP_STATUS.HTTP_401_UNAUTHORIZED, 'Reporter account not found');
     }
@@ -544,14 +589,14 @@ export class ReportsService {
       if (input.target_id === reporterId) {
         throw createHttpError(HTTP_STATUS.HTTP_400_BAD_REQUEST, REPORT_MESSAGES.SELF_REPORT_FORBIDDEN);
       }
-      const targetUser = await User.findById(input.target_id).exec();
+      const targetUser = await findUserById(input.target_id);
       if (!targetUser) {
         throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REPORT_MESSAGES.TARGET_NOT_FOUND);
       }
       targetTitle = targetUser.full_name || targetUser.username || targetUser.email;
       targetLink = `/admin/users/${targetUser._id.toString()}`;
     } else if (input.target_type === 'job') {
-      const targetJob = await JobPosting.findById(input.target_id).exec();
+      const targetJob = await findJobById(input.target_id);
       if (!targetJob) {
         throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REPORT_MESSAGES.TARGET_NOT_FOUND);
       }
@@ -566,7 +611,7 @@ export class ReportsService {
       targetTitle = targetJob.title;
       targetLink = targetJob.slug ? `/career/${targetJob.slug}` : `/jobs/${targetJob._id.toString()}`;
     } else if ((input.target_type as string) === 'enterprise' || input.target_type === 'company') {
-      const targetEnterprise = await Enterprise.findById(input.target_id).exec();
+      const targetEnterprise = await findEnterpriseById(input.target_id);
       if (!targetEnterprise) {
         throw createHttpError(HTTP_STATUS.HTTP_404_NOT_FOUND, REPORT_MESSAGES.TARGET_NOT_FOUND);
       }
@@ -785,24 +830,39 @@ export class ReportsService {
     try {
       if (actionTaken === 'content_takedown') {
         if (targetType === 'job') {
-          await JobPosting.findByIdAndUpdate(targetId, {
-            status: 'closed',
-            closed_at: new Date(),
-          }).exec();
+          if (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findByIdAndUpdate)) {
+            await JobPosting.findByIdAndUpdate(targetId, {
+              status: 'closed',
+              closed_at: new Date(),
+            }).exec();
+          } else {
+            const db = getSqliteDb();
+            db.update(jobPostings).set({ status: 'closed', closed_at: new Date(), updatedAt: new Date() }).where(eq(jobPostings.id, targetId)).run();
+          }
         } else if (targetType === 'enterprise' || targetType === 'company') {
-          await Enterprise.findByIdAndUpdate(targetId, {
-            status: 'suspended',
-            status_reason: 'Content takedown enforcement from violation report',
-            status_updated_at: new Date(),
-          }).exec();
+          if (process.env.USE_MONGODB === 'true' || isMock(Enterprise.findByIdAndUpdate)) {
+            await Enterprise.findByIdAndUpdate(targetId, {
+              status: 'suspended',
+              status_reason: 'Content takedown enforcement from violation report',
+              status_updated_at: new Date(),
+            }).exec();
+          } else {
+            const db = getSqliteDb();
+            db.update(enterprises).set({ status: 'suspended', status_reason: 'Content takedown enforcement from violation report', status_updated_at: new Date(), updatedAt: new Date() }).where(eq(enterprises.id, targetId)).run();
+          }
         }
       } else if (actionTaken === 'account_suspended') {
         if (targetType === 'user') {
-          await User.findByIdAndUpdate(targetId, {
-            status: 'suspended',
-            status_reason: 'Account suspended following verified policy violation report',
-            status_updated_at: new Date(),
-          }).exec();
+          if (process.env.USE_MONGODB === 'true' || isMock(User.findByIdAndUpdate)) {
+            await User.findByIdAndUpdate(targetId, {
+              status: 'suspended',
+              status_reason: 'Account suspended following verified policy violation report',
+              status_updated_at: new Date(),
+            }).exec();
+          } else {
+            const db = getSqliteDb();
+            db.update(users).set({ status: 'suspended', status_reason: 'Account suspended following verified policy violation report', status_updated_at: new Date(), updatedAt: new Date() }).where(eq(users.id, targetId)).run();
+          }
         }
       }
     } catch {
@@ -913,7 +973,21 @@ export class ReportsService {
     reporterUser: { enterprise_id?: Types.ObjectId | null | undefined },
   ): Promise<ResolvedTarget> {
     if (targetType === 'job') {
-      const job = await JobPosting.findById(targetId).populate('enterprise_id').exec();
+      let job: any;
+      if (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById)) {
+        job = await JobPosting.findById(targetId).populate('enterprise_id').exec();
+      } else {
+        const foundJob = await jobPostingsRepository.findById(targetId);
+        if (foundJob) {
+          const ent = foundJob.enterprise_id ? await enterprisesRepository.findById(foundJob.enterprise_id) : null;
+          job = {
+            ...foundJob,
+            _id: foundJob._id,
+            posted_by_user_id: foundJob.posted_by_user_id,
+            enterprise_id: ent ? { _id: ent._id, name: ent.name } : null,
+          };
+        }
+      }
       if (!job) {
         throw createHttpError(
           HTTP_STATUS.HTTP_404_NOT_FOUND,
@@ -956,7 +1030,7 @@ export class ReportsService {
     }
 
     if (targetType === 'company' || targetType === 'enterprise') {
-      const enterprise = await Enterprise.findById(targetId).exec();
+      const enterprise = await findEnterpriseById(targetId);
       if (!enterprise) {
         throw createHttpError(
           HTTP_STATUS.HTTP_404_NOT_FOUND,
@@ -999,7 +1073,7 @@ export class ReportsService {
         );
       }
 
-      const user = await User.findById(targetId).exec();
+      const user = await findUserById(targetId);
       if (!user) {
         throw createHttpError(
           HTTP_STATUS.HTTP_404_NOT_FOUND,

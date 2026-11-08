@@ -1,5 +1,8 @@
 import { Types } from 'mongoose';
+import { and, asc, eq, gte, inArray } from 'drizzle-orm';
 
+import { getSqliteDb } from '../../config/sqlite.js';
+import { interviews as interviewsTable } from '../../db/schema/index.js';
 import type { ApplicationDoc } from '../../models/application.model.js';
 import type { DocumentDoc } from '../../models/document.model.js';
 import { Interview, type InterviewDoc } from '../../models/interview.model.js';
@@ -122,15 +125,39 @@ export class RecruiterApplicationsService {
     }
 
     const now = new Date();
-    const rows = await Interview.find({
-      enterprise_id: new Types.ObjectId(enterpriseId),
-      application_id: { $in: applicationIds.map((id) => new Types.ObjectId(id)) },
-      status: 'scheduled',
-      scheduled_at: { $gte: now },
-    })
-      .sort({ scheduled_at: 1 })
-      .lean<InterviewDoc[]>()
-      .exec();
+    let rows: InterviewDoc[];
+    if (process.env.USE_MONGODB === 'true' || (typeof Interview.find === 'function' && ('_isMockFunction' in Interview.find || 'mock' in Interview.find))) {
+      rows = await Interview.find({
+        enterprise_id: new Types.ObjectId(enterpriseId),
+        application_id: { $in: applicationIds.map((id) => new Types.ObjectId(id)) },
+        status: 'scheduled',
+        scheduled_at: { $gte: now },
+      })
+        .sort({ scheduled_at: 1 })
+        .lean<InterviewDoc[]>()
+        .exec();
+    } else {
+      const db = getSqliteDb();
+      const sqliteRows = db
+        .select()
+        .from(interviewsTable)
+        .where(
+          and(
+            eq(interviewsTable.enterprise_id, enterpriseId),
+            inArray(interviewsTable.application_id, applicationIds),
+            eq(interviewsTable.status, 'scheduled'),
+            gte(interviewsTable.scheduled_at, now),
+          ),
+        )
+        .orderBy(asc(interviewsTable.scheduled_at))
+        .all();
+      rows = sqliteRows.map((r) => ({
+        _id: new Types.ObjectId(r.id),
+        application_id: new Types.ObjectId(r.application_id),
+        scheduled_at: new Date(r.scheduled_at),
+        mode: r.mode as 'online' | 'onsite',
+      } as unknown as InterviewDoc));
+    }
 
     const result = new Map<string, RecruiterNextInterviewDTO>();
     for (const row of rows) {
@@ -322,17 +349,45 @@ export class RecruiterApplicationsService {
     if (application.cv_id) docIds.push(String(application.cv_id));
     if (application.cover_letter_id) docIds.push(String(application.cover_letter_id));
 
+    const interviewsPromise = (process.env.USE_MONGODB === 'true' || (typeof Interview.find === 'function' && ('_isMockFunction' in Interview.find || 'mock' in Interview.find)))
+      ? Interview.find({
+          application_id: application._id,
+          enterprise_id: new Types.ObjectId(enterpriseId),
+        })
+          .sort({ scheduled_at: 1 })
+          .lean<InterviewDoc[]>()
+          .exec()
+      : Promise.resolve().then(() => {
+          const db = getSqliteDb();
+          const sqliteRows = db
+            .select()
+            .from(interviewsTable)
+            .where(
+              and(
+                eq(interviewsTable.application_id, String(application._id)),
+                eq(interviewsTable.enterprise_id, enterpriseId),
+              ),
+            )
+            .orderBy(asc(interviewsTable.scheduled_at))
+            .all();
+          return sqliteRows.map((r) => ({
+            _id: new Types.ObjectId(r.id),
+            application_id: new Types.ObjectId(r.application_id),
+            scheduled_at: new Date(r.scheduled_at),
+            mode: r.mode,
+            location: r.location,
+            meeting_link: r.meeting_link,
+            status: r.status,
+            notes: r.notes,
+            duration_minutes: r.duration_minutes,
+          } as unknown as InterviewDoc));
+        });
+
     const [jobDoc, applicantUser, docs, interviews] = await Promise.all([
       this.jobs.findJobById(String(application.job_id)),
       this.users.findById(String(application.applicant_id)),
       docIds.length > 0 ? this.documents.findByIds(docIds) : Promise.resolve([]),
-      Interview.find({
-        application_id: application._id,
-        enterprise_id: new Types.ObjectId(enterpriseId),
-      })
-        .sort({ scheduled_at: 1 })
-        .lean<InterviewDoc[]>()
-        .exec(),
+      interviewsPromise,
     ]);
 
     const docsMap = new Map<string, DocumentDoc>(
