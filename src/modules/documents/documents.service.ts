@@ -2,6 +2,7 @@ import type { DocumentDoc, DocumentType } from '../../models/document.model.js';
 import type { UploadedDocument } from '../../middleware/document-upload.middleware.js';
 import { HTTP_STATUS } from '../../shared/constants/http-status.js';
 import { createHttpError } from '../../shared/errors/http-error.js';
+import { storageService } from '../../shared/services/storage.service.js';
 import {
   documentsRepository,
   type DocumentsRepository,
@@ -120,7 +121,11 @@ export class DocumentsService {
   }
 
   private async fetchFile(document: DocumentDoc): Promise<DocumentFileResult> {
-    const response = await fetch(document.file_url).catch(() => undefined);
+    let response = await fetch(document.file_url).catch(() => undefined);
+    if (response?.status === HTTP_STATUS.HTTP_401_UNAUTHORIZED && storageService.isConfigured()) {
+      response = await fetch(storageService.createSignedDownloadUrl(document.storage_key))
+        .catch(() => undefined);
+    }
     if (!response?.ok || !response.body) {
       throw createHttpError(
         HTTP_STATUS.HTTP_502_BAD_GATEWAY,
