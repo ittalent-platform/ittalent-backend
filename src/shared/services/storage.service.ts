@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { getCloudinary, isCloudinaryConfigured } from '../../config/cloudinary.js';
 import { HTTP_STATUS } from '../constants/http-status.js';
+import { TIME_MS, TIME_SECONDS } from '../constants/time.js';
 import { createHttpError } from '../errors/http-error.js';
 
 export const PDF_SIGNATURE_LENGTH = 5;
@@ -78,6 +79,14 @@ const OWNED_KEY_SUFFIX_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0
 export class StorageService {
   isConfigured(): boolean {
     return isCloudinaryConfigured();
+  }
+
+  createSignedDownloadUrl(storageKey: string): string {
+    return getCloudinary().utils.private_download_url(storageKey, '', {
+      resource_type: 'raw',
+      type: 'upload',
+      expires_at: Math.floor(Date.now() / TIME_MS.ONE_SECOND) + TIME_SECONDS.ONE_MINUTE,
+    });
   }
 
   createOwnedKey(

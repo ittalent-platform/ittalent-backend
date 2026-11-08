@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentDoc } from '../../../src/models/document.model.js';
+import { storageService } from '../../../src/shared/services/storage.service.js';
 import type { DocumentsRepository } from '../../../src/modules/documents/documents.repository.js';
 import {
   DocumentsService,
@@ -78,6 +79,28 @@ describe('DocumentsService', () => {
       documentId,
       ownerId,
     );
+  });
+
+  it('retries a blocked PDF through a short-lived signed download', async () => {
+    const { service, repository } = setup();
+    repository.findOwnedActiveById.mockResolvedValue(document());
+    const signedUrl = 'https://example.test/signed-resume';
+    const signed = vi.spyOn(storageService, 'createSignedDownloadUrl').mockReturnValue(signedUrl);
+    const configured = vi.spyOn(storageService, 'isConfigured').mockReturnValue(true);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response('%PDF-test', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const result = await service.download(ownerId, documentId);
+      expect(result.response.status).toBe(200);
+      expect(signed).toHaveBeenCalledWith('documents/resume.pdf');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, signedUrl);
+    } finally {
+      signed.mockRestore();
+      configured.mockRestore();
+    }
   });
 
   it('does not expose another owner document', async () => {
