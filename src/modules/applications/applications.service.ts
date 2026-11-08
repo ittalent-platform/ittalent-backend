@@ -17,7 +17,6 @@ import { notificationsService, type NotificationsService } from '../notification
 import { usersService, type UsersService } from '../users/users.service.js';
 import {
   APPLICATION_EMAIL_FAILED_LOG,
-  APPLICANT_ROLE,
   CANDIDATE_ROLES,
   APPLICATION_ERROR_CODES,
   APPLICATION_HIRED_STATUS,

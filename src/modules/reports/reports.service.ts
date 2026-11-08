@@ -973,7 +973,9 @@ export class ReportsService {
     reporterUser: { enterprise_id?: Types.ObjectId | null | undefined },
   ): Promise<ResolvedTarget> {
     if (targetType === 'job') {
-      let job: any;
+      let job: (Pick<JobPostingDoc, '_id' | 'posted_by_user_id' | 'status' | 'title' | 'slug'> & {
+        enterprise_id: Types.ObjectId | { _id: Types.ObjectId; name: string } | null;
+      }) | null = null;
       if (process.env.USE_MONGODB === 'true' || isMock(JobPosting.findById)) {
         job = await JobPosting.findById(targetId).populate('enterprise_id').exec();
       } else {

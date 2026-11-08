@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { isValidObjectId, Types, type ClientSession, type QueryFilter } from 'mongoose';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 
 import { generateId, getSqliteDb } from '../../config/sqlite.js';
 import { reports as reportsTable } from '../../db/schema/index.js';

@@ -1,4 +1,4 @@
-import mongoose, { type ClientSession, Types } from 'mongoose';
+import mongoose, { type ClientSession, type Types } from 'mongoose';
 import { and, eq, or } from 'drizzle-orm';
 
 import { getSqliteDb } from '../../config/sqlite.js';

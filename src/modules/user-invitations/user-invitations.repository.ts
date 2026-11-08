@@ -129,7 +129,8 @@ export class UserInvitationsRepository {
       .orderBy(desc(userInvitations.createdAt), desc(userInvitations.id))
       .get();
     if (!row) return null;
-    const { token_hash: _, ...rest } = row;
+    const { token_hash, ...rest } = row;
+    void token_hash;
     return {
       _id: row.id,
       ...rest,

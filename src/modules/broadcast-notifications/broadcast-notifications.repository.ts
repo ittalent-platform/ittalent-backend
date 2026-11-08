@@ -1,5 +1,5 @@
 import { Types, type QueryFilter } from 'mongoose';
-import { and, desc, eq, inArray, isNull, like, lte } from 'drizzle-orm';
+import { and, eq, lte } from 'drizzle-orm';
 
 import { generateId, getSqliteDb } from '../../config/sqlite.js';
 import { broadcastNotifications, users } from '../../db/schema/index.js';

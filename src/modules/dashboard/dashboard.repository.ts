@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { getSqliteDb } from '../../config/sqlite.js';
 import {

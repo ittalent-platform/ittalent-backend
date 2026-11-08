@@ -1,5 +1,5 @@
 import { Types, type ClientSession, type QueryFilter } from 'mongoose';
-import { and, desc, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, lte } from 'drizzle-orm';
 
 import { generateId, getSqliteDb } from '../../config/sqlite.js';
 import { deviceTokens, notifications } from '../../db/schema/index.js';
