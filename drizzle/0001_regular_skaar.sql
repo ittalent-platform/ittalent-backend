@@ -1,0 +1,1 @@
+ALTER TABLE `certificate_links` ADD `suggested` integer DEFAULT false NOT NULL;

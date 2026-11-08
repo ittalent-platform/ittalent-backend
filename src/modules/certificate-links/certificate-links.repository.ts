@@ -1,5 +1,5 @@
 import { Types, type QueryFilter, type UpdateQuery } from 'mongoose';
-import { and, desc, eq, gte, inArray, isNull, like, ne, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, like, ne, or } from 'drizzle-orm';
 
 import { generateId, getSqliteDb } from '../../config/sqlite.js';
 import { certificateLinks } from '../../db/schema/index.js';
@@ -41,7 +41,7 @@ function toCertificateLinkDoc(row: typeof certificateLinks.$inferSelect): Certif
     expiry_date: row.expiry_date ?? undefined,
     version: row.version,
     status: 'available' as const,
-    suggested: false,
+    suggested: row.suggested,
     history: [],
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
@@ -171,6 +171,9 @@ export class CertificateLinksRepository {
         )!,
       );
     }
+    if (criteria.suggested !== undefined) {
+      conditions.push(eq(certificateLinks.suggested, criteria.suggested));
+    }
 
     const today = new Date().toISOString().slice(0, CERTIFICATE_LINKS.ISO_DATE_LENGTH);
     if (criteria.validity === 'expired') {
@@ -209,7 +212,10 @@ export class CertificateLinksRepository {
     if (process.env.USE_MONGODB === 'true' || isMock(CertificateLink.countDocuments)) {
       return CertificateLink.countDocuments({ owner_id: ownerId, status: 'available', suggested: true }).exec();
     }
-    return 0;
+    const db = getSqliteDb();
+    return db.select({ total: count() }).from(certificateLinks)
+      .where(and(eq(certificateLinks.user_id, ownerId), eq(certificateLinks.suggested, true)))
+      .get()?.total ?? 0;
   }
 
   async findOwned(ownerId: string, id: string): Promise<CertificateLinkDoc | null> {
@@ -275,7 +281,7 @@ export class CertificateLinksRepository {
 
     const setValues = (update.$set ?? {}) as Record<string, unknown>;
     const updateData: Partial<typeof certificateLinks.$inferInsert> = {
-      version: expectedVersion + 1,
+      version: (setValues.version as number | undefined) ?? expectedVersion + 1,
       updatedAt: new Date(),
     };
 
@@ -284,6 +290,7 @@ export class CertificateLinksRepository {
     if (setValues.issuer !== undefined) updateData.issuer = setValues.issuer ? String(setValues.issuer) : null;
     if (setValues.issued_date !== undefined) updateData.issued_date = setValues.issued_date ? String(setValues.issued_date) : null;
     if (setValues.expiry_date !== undefined) updateData.expiry_date = setValues.expiry_date ? String(setValues.expiry_date) : null;
+    if (setValues.suggested !== undefined) updateData.suggested = setValues.suggested as boolean;
 
     db.update(certificateLinks)
       .set(updateData)

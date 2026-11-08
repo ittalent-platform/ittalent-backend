@@ -88,6 +88,7 @@ export const certificateLinks = sqliteTable(
     issuer: text('issuer'),
     issued_date: text('issued_date'),
     expiry_date: text('expiry_date'),
+    suggested: integer('suggested', { mode: 'boolean' }).default(false).notNull(),
     version: integer('version').default(0).notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()).notNull(),
