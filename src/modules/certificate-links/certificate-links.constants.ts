@@ -1,5 +1,6 @@
 export const CERTIFICATE_LINKS = {
   CANDIDATE_ROLE: 'user',
+  CANDIDATE_ROLES: ['user', 'applicant'] as const,
   INITIAL_VERSION: 1,
   SEARCH_MAX_LENGTH: 100,
   ISO_DATE_LENGTH: 10,

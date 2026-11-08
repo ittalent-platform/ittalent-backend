@@ -10,6 +10,7 @@ import {
   validateParams,
   validateQuery,
 } from '../../middleware/validate.js';
+import { CANDIDATE_ROLES } from './documents.constants.js';
 import { documentsController } from './documents.controller.js';
 import {
   documentIdParamSchema,
@@ -23,7 +24,7 @@ documentsRouter.post(
   '/documents',
   authenticate,
   authenticateCurrentUser,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   uploadDocument,
   validateBody(documentUploadSchema),
   documentsController.upload,
@@ -31,21 +32,21 @@ documentsRouter.post(
 documentsRouter.get(
   '/documents',
   authenticate,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   validateQuery(documentListQuerySchema),
   documentsController.listMine,
 );
 documentsRouter.get(
   '/documents/:id/download',
   authenticate,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   validateParams(documentIdParamSchema),
   documentsController.downloadMine,
 );
 documentsRouter.get(
   '/documents/:id/preview',
   authenticate,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   validateParams(documentIdParamSchema),
   documentsController.previewMine,
 );
@@ -53,7 +54,7 @@ documentsRouter.patch(
   '/documents/:id/default',
   authenticate,
   authenticateCurrentUser,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   validateParams(documentIdParamSchema),
   documentsController.setDefaultMine,
 );
@@ -61,7 +62,7 @@ documentsRouter.delete(
   '/documents/:id',
   authenticate,
   authenticateCurrentUser,
-  authorize('user'),
+  authorize(...CANDIDATE_ROLES),
   validateParams(documentIdParamSchema),
   documentsController.removeMine,
 );

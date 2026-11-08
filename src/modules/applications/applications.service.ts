@@ -18,6 +18,7 @@ import { usersService, type UsersService } from '../users/users.service.js';
 import {
   APPLICATION_EMAIL_FAILED_LOG,
   APPLICANT_ROLE,
+  CANDIDATE_ROLES,
   APPLICATION_ERROR_CODES,
   APPLICATION_HIRED_STATUS,
   APPLICATION_MESSAGES,
@@ -371,7 +372,7 @@ export class ApplicationsService {
   // UC-MYAPP-01.EX.2: an account that is not an active candidate is rejected without touching any data.
   private async assertCandidate(applicantId: string): Promise<void> {
     const user = await this.users.findById(applicantId);
-    if (!user || user.role !== APPLICANT_ROLE || user.status !== 'active') {
+    if (!user || !CANDIDATE_ROLES.some((r) => r === user.role) || user.status !== 'active') {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, APPLICATION_MESSAGES.CANDIDATE_UNAVAILABLE);
     }
   }

@@ -1,3 +1,7 @@
+import type { UserRole } from '../../models/user.model.js';
+
+export const CANDIDATE_ROLES: readonly UserRole[] = ['user', 'applicant'];
+
 export const DOCUMENT_MESSAGES = {
   NOT_FOUND: 'Document not found',
   IN_USE: 'Document cannot be deleted because an application references it.',

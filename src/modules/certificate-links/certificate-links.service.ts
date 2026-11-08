@@ -56,7 +56,7 @@ export class CertificateLinksService {
     } catch {
       throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, CERTIFICATE_LINK_MESSAGES.STORE_UNAVAILABLE);
     }
-    if (!user || user.role !== CERTIFICATE_LINKS.CANDIDATE_ROLE || user.status !== 'active' || user.email_verified !== true) {
+    if (!user || !CERTIFICATE_LINKS.CANDIDATE_ROLES.some((r) => r === user.role) || user.status !== 'active' || user.email_verified !== true) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, CERTIFICATE_LINK_MESSAGES.CANDIDATE_REQUIRED);
     }
   }

@@ -41,7 +41,7 @@ export class PortfolioLinksService {
     } catch {
       throw createHttpError(HTTP_STATUS.HTTP_503_SERVICE_UNAVAILABLE, PORTFOLIO_LINK_MESSAGES.STORE_UNAVAILABLE);
     }
-    if (!user || user.role !== PORTFOLIO_LINKS.CANDIDATE_ROLE || user.status !== 'active' || user.email_verified !== true) {
+    if (!user || !PORTFOLIO_LINKS.CANDIDATE_ROLES.some((r) => r === user.role) || user.status !== 'active' || user.email_verified !== true) {
       throw createHttpError(HTTP_STATUS.HTTP_403_FORBIDDEN, PORTFOLIO_LINK_MESSAGES.CANDIDATE_REQUIRED);
     }
   }

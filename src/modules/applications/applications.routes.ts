@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { authenticate, authenticateCurrentUser, authorize } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery } from '../../middleware/validate.js';
-import { APPLICANT_ROLE } from './applications.constants.js';
+import { CANDIDATE_ROLES } from './applications.constants.js';
 import { applicationsController } from './applications.controller.js';
 import {
   applicationHistoryQuerySchema,
@@ -19,7 +19,7 @@ applicationsRouter.post(
   '/',
   authenticate,
   authenticateCurrentUser,
-  authorize(APPLICANT_ROLE),
+  authorize(...CANDIDATE_ROLES),
   validateBody(createApplicationBodySchema),
   applicationsController.createApplication,
 );
@@ -28,7 +28,7 @@ applicationsRouter.post(
 applicationsRouter.get(
   '/',
   authenticate,
-  authorize(APPLICANT_ROLE),
+  authorize(...CANDIDATE_ROLES),
   validateQuery(applicationListQueryValidator),
   applicationsController.listMine,
 );
@@ -37,7 +37,7 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id',
   authenticate,
-  authorize(APPLICANT_ROLE),
+  authorize(...CANDIDATE_ROLES),
   validateParams(applicationIdParamSchema),
   applicationsController.getDetail,
 );
@@ -46,7 +46,7 @@ applicationsRouter.get(
 applicationsRouter.get(
   '/:id/history',
   authenticate,
-  authorize(APPLICANT_ROLE),
+  authorize(...CANDIDATE_ROLES),
   validateParams(applicationIdParamSchema),
   validateQuery(applicationHistoryQuerySchema),
   applicationsController.getHistory,
@@ -57,7 +57,7 @@ applicationsRouter.patch(
   '/:id/withdraw',
   authenticate,
   authenticateCurrentUser,
-  authorize(APPLICANT_ROLE),
+  authorize(...CANDIDATE_ROLES),
   validateParams(applicationIdParamSchema),
   validateBody(withdrawApplicationBodySchema),
   applicationsController.withdraw,

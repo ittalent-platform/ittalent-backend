@@ -1,8 +1,9 @@
 import { applicationStatuses, type ApplicationStatus } from '../../models/application.model.js';
 import type { UserRole } from '../../models/user.model.js';
 
-// In this codebase an Applicant is a user with the default `user` role.
+// In this codebase an Applicant is a user with the default `user` or `applicant` role.
 export const APPLICANT_ROLE: UserRole = 'user';
+export const CANDIDATE_ROLES: readonly UserRole[] = ['user', 'applicant'];
 
 export const APPLICATION_INITIAL_STATUS: ApplicationStatus = 'submitted';
 export const APPLICATION_HIRED_STATUS: ApplicationStatus = 'hired';

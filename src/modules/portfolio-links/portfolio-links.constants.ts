@@ -1,5 +1,6 @@
 export const PORTFOLIO_LINKS = {
   CANDIDATE_ROLE: 'user',
+  CANDIDATE_ROLES: ['user', 'applicant'] as const,
   INITIAL_VERSION: 1,
   TITLE_MAX_LENGTH: 200,
   DESCRIPTION_MAX_LENGTH: 1000,
