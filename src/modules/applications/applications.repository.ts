@@ -223,8 +223,9 @@ export class ApplicationsRepository {
   }
 
   async countByStatus(applicantId: string, filters: ApplicationListFilters): Promise<Record<ApplicationStatus, number>> {
+    const statusAgnosticFilters: ApplicationListFilters = { ...filters, statuses: undefined };
     const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
-      { $match: this.buildFilter(applicantId, filters) },
+      { $match: this.buildFilter(applicantId, statusAgnosticFilters) },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]).exec();
     const counts = createEmptyStatusCounts();
@@ -356,8 +357,9 @@ export class ApplicationsRepository {
       return counts;
     }
 
+    const statusAgnosticFilters: RecruiterApplicationListFilters = { ...filters, statuses: undefined };
     const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
-      { $match: this.buildRecruiterFilter(filters) },
+      { $match: this.buildRecruiterFilter(statusAgnosticFilters) },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]).exec();
 

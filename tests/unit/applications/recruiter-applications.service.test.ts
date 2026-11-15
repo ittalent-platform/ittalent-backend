@@ -905,5 +905,77 @@ describe('RecruiterApplicationsService', () => {
       expect(result.items[1]?.submittedDocuments).toEqual(['cv', 'cover_letter']);
     });
   });
+
+  describe('listApplications', () => {
+    const actorId = new Types.ObjectId().toString();
+    const enterpriseId = new Types.ObjectId().toString();
+    const jobId = new Types.ObjectId().toString();
+
+    it('queries applications and passes status-agnostic countFilters to countByStatusForRecruiter', async () => {
+      usersService.getEnterpriseId.mockResolvedValue(enterpriseId);
+      jobPostingsService.findJobIdsByEnterpriseId.mockResolvedValue([jobId]);
+
+      const mockApp = {
+        _id: new Types.ObjectId(),
+        job_id: new Types.ObjectId(jobId),
+        applicant_id: new Types.ObjectId(),
+        cv_id: new Types.ObjectId(),
+        status: 'under_review',
+        status_history: [],
+        notes: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      repository.findPageForRecruiter.mockResolvedValue({
+        items: [mockApp],
+        total: 1,
+      });
+
+      repository.countByStatusForRecruiter.mockResolvedValue({
+        submitted: 5,
+        under_review: 1,
+        interviewing: 2,
+        offered: 0,
+        hired: 0,
+        rejected: 0,
+        withdrawn: 0,
+        position_filled: 0,
+      });
+
+      jobPostingsService.findSummariesByIds.mockResolvedValue(
+        new Map([[jobId, { id: jobId, title: 'Engineer', location: 'Hanoi', employmentType: 'Full-time', status: 'published' }]]),
+      );
+      usersService.findByIds.mockResolvedValue([]);
+      vi.spyOn(Interview, 'find').mockReturnValue(mockMongooseQuery([]) as never);
+
+      const result = await service.listApplications(actorId, 'recruiter', {
+        page: 1,
+        limit: 10,
+        sortBy: 'submittedAt',
+        sortOrder: 'desc',
+        status: 'under_review',
+      });
+
+      expect(repository.findPageForRecruiter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({
+            statuses: ['under_review'],
+          }),
+        }),
+      );
+
+      expect(repository.countByStatusForRecruiter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statuses: undefined,
+          jobIds: [jobId],
+        }),
+      );
+
+      expect(result.statusCounts.submitted).toBe(5);
+      expect(result.statusCounts.under_review).toBe(1);
+      expect(result.statusCounts.interviewing).toBe(2);
+    });
+  });
 });
 
