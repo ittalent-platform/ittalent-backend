@@ -463,13 +463,17 @@ export class ApplicationsService {
   async list(applicantId: string, query: ApplicationListQuery): Promise<ApplicationListResponse> {
     await this.assertCandidate(applicantId);
     const filters = { statuses: this.resolveStatuses(query), jobIds: await this.resolveJobIds(query), submittedFrom: query.submittedFrom, submittedTo: query.submittedTo };
-    const noMatch = filters.statuses?.length === 0 || filters.jobIds?.length === 0;
-    const [page, statusCounts] = noMatch
-      ? [{ items: [] as ApplicationDoc[], total: 0 }, createEmptyStatusCounts()]
-      : await Promise.all([
-        this.repository.findPageByApplicant(applicantId, { page: query.page, limit: query.limit, sortBy: query.sortBy, sortOrder: query.sortOrder, filters }),
-        this.repository.countByStatus(applicantId, filters),
-      ]);
+    const pageNoMatch = filters.statuses?.length === 0 || filters.jobIds?.length === 0;
+    const countNoMatch = filters.jobIds?.length === 0;
+    const countFilters = { ...filters, statuses: undefined };
+    const [page, statusCounts] = await Promise.all([
+      pageNoMatch
+        ? Promise.resolve({ items: [] as ApplicationDoc[], total: 0 })
+        : this.repository.findPageByApplicant(applicantId, { page: query.page, limit: query.limit, sortBy: query.sortBy, sortOrder: query.sortOrder, filters }),
+      countNoMatch
+        ? Promise.resolve(createEmptyStatusCounts())
+        : this.repository.countByStatus(applicantId, countFilters),
+    ]);
     const [jobs, attachments] = await Promise.all([this.jobs.findSummariesByIds([...new Set(page.items.map((item) => String(item.job_id)))]), this.attachmentsOf(page.items)]);
     return {
       items: page.items.map((item) => this.mapSummary(item, jobs.get(String(item.job_id)), attachments.get(String(item._id)) ?? [])),

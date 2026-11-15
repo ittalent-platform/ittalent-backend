@@ -223,7 +223,7 @@ export class ApplicationsRepository {
   }
 
   async countByStatus(applicantId: string, filters: ApplicationListFilters): Promise<Record<ApplicationStatus, number>> {
-    const { statuses: _ignoredStatuses, ...statusAgnosticFilters } = filters;
+    const statusAgnosticFilters: ApplicationListFilters = { ...filters, statuses: undefined };
     const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
       { $match: this.buildFilter(applicantId, statusAgnosticFilters) },
       { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -357,7 +357,7 @@ export class ApplicationsRepository {
       return counts;
     }
 
-    const { statuses: _ignoredStatuses, ...statusAgnosticFilters } = filters;
+    const statusAgnosticFilters: RecruiterApplicationListFilters = { ...filters, statuses: undefined };
     const rows = await Application.aggregate<{ _id: ApplicationStatus; count: number }>([
       { $match: this.buildRecruiterFilter(statusAgnosticFilters) },
       { $group: { _id: '$status', count: { $sum: 1 } } },

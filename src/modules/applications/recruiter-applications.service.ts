@@ -249,6 +249,11 @@ export class RecruiterApplicationsService {
       ...(searchOr ? { searchOr } : {}),
     };
 
+    const countFilters: RecruiterApplicationListFilters = {
+      ...filters,
+      statuses: undefined,
+    };
+
     const [pageResult, statusCounts] = await Promise.all([
       this.repository.findPageForRecruiter({
         page: query.page,
@@ -257,7 +262,7 @@ export class RecruiterApplicationsService {
         sortOrder: query.sortOrder,
         filters,
       }),
-      this.repository.countByStatusForRecruiter(filters),
+      this.repository.countByStatusForRecruiter(countFilters),
     ]);
 
     const itemAppIds = pageResult.items.map((item) => String(item._id));

@@ -340,6 +340,13 @@ describe('ApplicationsService candidate views', () => {
     jobs.findIdsByKeyword.mockResolvedValue([jobId, '507f1f77bcf86cd7994390ff']);
     await service.list(userId, { ...query, status: 'under_review,interviewing,submitted', reviewStage: 'screening', jobId, search: 'nova' });
     expect(repository.findPageByApplicant).toHaveBeenCalledWith(userId, expect.objectContaining({ filters: expect.objectContaining({ statuses: ['under_review'], jobIds: [jobId] }) }));
+    expect(repository.countByStatus).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({
+        statuses: undefined,
+        jobIds: [jobId],
+      }),
+    );
   });
 
   it('returns an empty page without querying when the keyword or filters match nothing', async () => {
