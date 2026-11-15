@@ -430,6 +430,95 @@ describe('ApplicationsRepository (PR 3 additions)', () => {
       expect(sortMock).toHaveBeenCalledWith({ createdAt: -1 });
     });
   });
+
+  describe('countByStatus', () => {
+    it('strips statuses from filters so counts are status-agnostic', async () => {
+      const applicantId = new Types.ObjectId().toString();
+      const aggregateSpy = vi.spyOn(Application, 'aggregate').mockReturnValue({
+        exec: vi.fn().mockResolvedValue([
+          { _id: 'submitted', count: 3 },
+          { _id: 'under_review', count: 2 },
+        ]),
+      } as never);
+
+      const counts = await repository.countByStatus(applicantId, {
+        statuses: ['under_review'],
+      });
+
+      expect(counts).toEqual({
+        submitted: 3,
+        under_review: 2,
+        interviewing: 0,
+        offered: 0,
+        hired: 0,
+        rejected: 0,
+        withdrawn: 0,
+        position_filled: 0,
+      });
+
+      expect(aggregateSpy).toHaveBeenCalledWith([
+        { $match: { applicant_id: new Types.ObjectId(applicantId) } },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]);
+    });
+  });
+
+  describe('countByStatusForRecruiter', () => {
+    it('returns empty status counts when jobIds is empty', async () => {
+      const aggregateSpy = vi.spyOn(Application, 'aggregate');
+      const counts = await repository.countByStatusForRecruiter({
+        jobIds: [],
+        statuses: ['under_review'],
+      });
+
+      expect(counts).toEqual({
+        submitted: 0,
+        under_review: 0,
+        interviewing: 0,
+        offered: 0,
+        hired: 0,
+        rejected: 0,
+        withdrawn: 0,
+        position_filled: 0,
+      });
+      expect(aggregateSpy).not.toHaveBeenCalled();
+    });
+
+    it('strips statuses from filters so recruiter counts are status-agnostic', async () => {
+      const jobId = new Types.ObjectId().toString();
+      const aggregateSpy = vi.spyOn(Application, 'aggregate').mockReturnValue({
+        exec: vi.fn().mockResolvedValue([
+          { _id: 'submitted', count: 5 },
+          { _id: 'interviewing', count: 1 },
+        ]),
+      } as never);
+
+      const counts = await repository.countByStatusForRecruiter({
+        jobIds: [jobId],
+        statuses: ['under_review'],
+      });
+
+      expect(counts).toEqual({
+        submitted: 5,
+        under_review: 0,
+        interviewing: 1,
+        offered: 0,
+        hired: 0,
+        rejected: 0,
+        withdrawn: 0,
+        position_filled: 0,
+      });
+
+      expect(aggregateSpy).toHaveBeenCalledWith([
+        {
+          $match: {
+            job_id: { $in: [new Types.ObjectId(jobId)] },
+          },
+        },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]);
+    });
+  });
 });
 
 
